@@ -88,7 +88,7 @@ enum CLI {
             let samples = min(2000, max(2, Int(estimate.sectionLength / 100) + 1))
             let limits = SpeedProfile.limits(along: points, samples: samples, tracks: tracks)
             print("  \(tracks.count) tracks in \(String(format: "%.1f", Date().timeIntervalSince(started))) s, limits \(Set(limits).sorted())")
-            guard let profile = SpeedProfile(length: estimate.sectionLength, limits: limits, duration: estimate.duration) else { return }
+            guard let profile = SpeedProfile(length: estimate.sectionLength, limits: limits, duration: estimate.duration, kind: estimate.kind) else { return }
             for fraction in stride(from: 0.0, through: 1.0, by: 0.1) {
                 let state = profile.state(after: estimate.duration * fraction)
                 print(String(format: "  %3.0f%%  %3d km/h  %5.1f km", fraction * 100, state.speed, state.distance / 1000))

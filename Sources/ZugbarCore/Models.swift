@@ -58,8 +58,8 @@ public struct TrainStatus: Sendable, Equatable {
         let next = stops[nextIndex], previous = stops[nextIndex - 1]
         if next.isCurrent(at: now) || previous.isCurrent(at: now) { return 0 }
         if let estimate = routeEstimate(at: now), now >= estimate.departure {
-            let speed = estimate.basicProfile?.state(after: now.timeIntervalSince(estimate.departure)).speed ?? estimate.averageSpeed
-            return speed <= 350 ? speed : nil
+            return estimate.basicProfile?.state(after: now.timeIntervalSince(estimate.departure)).speed
+                ?? min(estimate.averageSpeed, estimate.kind.maxSpeed)
         }
         guard let from = previous.coordinate, let to = next.coordinate,
               let start = previous.departure, let end = next.arrival, end > start, now >= start
@@ -67,7 +67,7 @@ public struct TrainStatus: Sendable, Equatable {
         // Straight-line distance plus 10% for curves.
         let kilometers = from.distance(to: to) * 1.1
         let speed = Int((kilometers / (end.timeIntervalSince(start) / 3600)).rounded())
-        return speed <= 350 ? speed : nil
+        return min(speed, TrainKind.of(trainName).maxSpeed)
     }
 
     /// GPS position if available, otherwise interpolated from the timetable between the last and next stop.
@@ -89,6 +89,9 @@ public struct TrainStatus: Sendable, Equatable {
             longitude: from.longitude + (to.longitude - from.longitude) * fraction
         )
     }
+
+    /// Followed online rather than read from an on-board portal.
+    public var isOnline: Bool { provider == "Transitous" }
 
     public var nextStop: Stop? {
         stops.first { $0.id == nextStopID } ?? stops.first { !$0.passed }

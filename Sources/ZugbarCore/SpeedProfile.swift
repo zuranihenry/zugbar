@@ -1,31 +1,50 @@
 import Foundation
 
-/// A plausible speed curve for one section between two stops: accelerate, run at the line's speed limits,
-/// brake for the next stop, all scaled so the trip takes as long as the timetable says.
-public struct SpeedProfile: Sendable, Equatable {
-    /// Sample spacing in meters.
-    static let step = 100.0
-    static let acceleration = 0.4 // m/s²
-    static let braking = 0.6 // m/s²
+/// Rough performance by train category, so a regional train isn't modeled like an ICE.
+public struct TrainKind: Sendable, Equatable {
+    public let maxSpeed: Int // km/h
+    public let acceleration: Double // m/s²
+    public let braking: Double // m/s²
 
+    public static let highSpeed = TrainKind(maxSpeed: 300, acceleration: 0.45, braking: 0.6)
+    public static let intercity = TrainKind(maxSpeed: 200, acceleration: 0.4, braking: 0.6)
+    public static let regional = TrainKind(maxSpeed: 160, acceleration: 0.7, braking: 0.8)
+    public static let suburban = TrainKind(maxSpeed: 140, acceleration: 0.9, braking: 0.9)
+
+    /// From the name's category prefix: "ICE 591" → high speed, "RE70 (4589)" → regional.
+    public static func of(_ trainName: String?) -> TrainKind {
+        let category = (trainName ?? "").prefix { $0.isLetter }.uppercased()
+        switch category {
+        case "ICE", "ECE", "TGV", "RJX", "FR", "EST", "ES", "AVE", "FA": return .highSpeed
+        case "IC", "EC", "RJ", "NJ", "EN", "FLX", "D", "ICN", "IR": return .intercity
+        case "S": return .suburban
+        default: return .regional
+        }
+    }
+}
+
+/// A plausible speed curve for one section between two stops: accelerate, run at the line's speed limits,
+/// brake for the next stop, scaled so the trip takes as long as the timetable says. Never faster than the
+/// limits: when the timetable is tighter than possible (minute-rounded times, catching up), the model arrives late.
+public struct SpeedProfile: Sendable, Equatable {
     /// Speed in m/s at each sample, and the time each sample is reached.
     let speeds: [Double]
     let times: [TimeInterval]
     let step: Double
 
     /// `limits` are km/h per sample along the section (`length / step + 1` values).
-    public init?(length: Double, limits: [Int], duration: TimeInterval) {
+    public init?(length: Double, limits: [Int], duration: TimeInterval, kind: TrainKind = .highSpeed) {
         guard length > 0, duration > 0, limits.count >= 2 else { return nil }
         let step = length / Double(limits.count - 1)
-        let caps = limits.map { Double(max($0, 30)) / 3.6 }
+        let caps = limits.map { Double(min(max($0, 30), kind.maxSpeed)) / 3.6 }
 
         func profile(scale: Double) -> (speeds: [Double], time: TimeInterval) {
             var v = caps.map { $0 * scale }
             v[0] = 0
             v[v.count - 1] = 0
             // Forward pass: how fast the train can be after accelerating; backward: how fast it may be to stop in time.
-            for i in 1..<v.count { v[i] = min(v[i], sqrt(v[i - 1] * v[i - 1] + 2 * Self.acceleration * step)) }
-            for i in stride(from: v.count - 2, through: 0, by: -1) { v[i] = min(v[i], sqrt(v[i + 1] * v[i + 1] + 2 * Self.braking * step)) }
+            for i in 1..<v.count { v[i] = min(v[i], sqrt(v[i - 1] * v[i - 1] + 2 * kind.acceleration * step)) }
+            for i in stride(from: v.count - 2, through: 0, by: -1) { v[i] = min(v[i], sqrt(v[i + 1] * v[i + 1] + 2 * kind.braking * step)) }
             var time = 0.0
             for i in 1..<v.count { time += step / max((v[i - 1] + v[i]) / 2, 0.5) }
             return (v, time)
@@ -46,8 +65,8 @@ public struct SpeedProfile: Sendable, Equatable {
         for i in 1..<best.speeds.count {
             times.append(times[i - 1] + step / max((best.speeds[i - 1] + best.speeds[i]) / 2, 0.5))
         }
-        // Stretch to the timetable when the train can't make it even at the limit (late running, missing data).
-        let stretch = duration / (times.last ?? duration)
+        // Only ever slow down to fit the timetable, never speed up past the limits.
+        let stretch = max(1, duration / (times.last ?? duration))
         self.times = times.map { $0 * stretch }
         self.speeds = best.speeds.map { $0 / stretch }
         self.step = step

@@ -64,8 +64,8 @@ struct StatusPanel: View {
     private func details(_ status: TrainStatus, map: CGFloat?) -> some View {
         TripHeader(status: status, showsPopOut: !isWindow)
         let profile = estimatedSpeed ? monitor.profileEstimate(status) : nil
-        SpeedRow(speed: monitor.displaySpeed, top: monitor.topSpeed, online: monitor.isOnline,
-                 estimate: monitor.isOnline && estimatedSpeed ? (profile?.speed ?? status.estimatedSpeed(at: monitor.now)) : nil,
+        SpeedRow(speed: monitor.displaySpeed, top: monitor.topSpeed, online: status.isOnline,
+                 estimate: status.isOnline && estimatedSpeed ? (profile?.speed ?? status.estimatedSpeed(at: monitor.now)) : nil,
                  fromProfile: profile != nil)
         if status.wagonClass != nil || status.internet != nil {
             OnboardRow(status: status, now: monitor.now)

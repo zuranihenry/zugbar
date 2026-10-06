@@ -413,7 +413,7 @@ final class TrainMonitor {
     /// Speed and position from the section's speed profile, once loaded.
     func profileEstimate(_ status: TrainStatus, at date: Date? = nil) -> (speed: Int, position: Coordinate?)? {
         let date = date ?? now
-        guard profilesEnabled, isOnline, let route = status.route, let estimate = status.routeEstimate(at: date),
+        guard profilesEnabled, status.isOnline, let route = status.route, let estimate = status.routeEstimate(at: date),
               let profile = profiles[estimate.key]
         else { return nil }
         let state = profile.state(after: date.timeIntervalSince(estimate.departure))
@@ -422,7 +422,7 @@ final class TrainMonitor {
 
     /// Loads the profile for the section the train is on, if enabled. Called after each update.
     private func prepareProfile(for status: TrainStatus) {
-        guard profilesEnabled, isOnline else {
+        guard profilesEnabled, status.isOnline else {
             if profileState != .off { profileState = .off }
             return
         }
@@ -453,7 +453,7 @@ final class TrainMonitor {
                 return limits
             }.value
             profileRequests.remove(estimate.key)
-            if let limits, let profile = SpeedProfile(length: estimate.sectionLength, limits: limits, duration: estimate.duration) {
+            if let limits, let profile = SpeedProfile(length: estimate.sectionLength, limits: limits, duration: estimate.duration, kind: estimate.kind) {
                 profiles[estimate.key] = profile
                 profileState = .ready
             } else {

@@ -143,7 +143,7 @@ struct CityNameTests {
     }
 
     @Test func replacesWithNearbyStationName() async throws {
-        let trip = Data(#"{"legs":[{"mode":"HIGHSPEED_RAIL","displayName":"ICE 619","from":{"name":"Mannheim Hbf","lat":49.47,"lon":8.46,"departure":"2026-10-06T10:00:00Z"},"to":{"name":"Hauptbahnhof (oben)","lat":48.784,"lon":9.1817,"arrival":"2026-10-06T11:00:00Z"}}]}"#.utf8)
+        let trip = Data(#"{"legs":[{"mode":"HIGHSPEED_RAIL","displayName":"ICE 619","from":{"name":"Mannheim Hbf","lat":49.47,"lon":8.46,"departure":"2099-10-06T10:00:00Z"},"to":{"name":"Hauptbahnhof (oben)","lat":48.784,"lon":9.1817,"arrival":"2099-10-06T11:00:00Z"}}]}"#.utf8)
         let geocode = Data(#"[{"name":"Stuttgart Hauptbahnhof"},{"name":"Staatsgalerie"}]"#.utf8)
         let loader: DataLoader = { url in url.path.contains("reverse-geocode") ? geocode : trip }
         let status = try await Transitous(tripID: "x", label: "ICE 619", loader: loader).fetch()

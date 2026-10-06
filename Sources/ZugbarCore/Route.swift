@@ -92,6 +92,7 @@ public struct RouteEstimate: Sendable, Equatable {
     public let endDistance: Double
     public let departure: Date
     public let arrival: Date
+    public var kind: TrainKind = .highSpeed
 
     public var sectionLength: Double { endDistance - startDistance }
     public var duration: TimeInterval { arrival.timeIntervalSince(departure) }
@@ -103,9 +104,9 @@ public struct RouteEstimate: Sendable, Equatable {
     /// Accelerate, cruise, brake, without knowing the line's speed limits. Better than a flat average
     /// right after departure and before arrival.
     public var basicProfile: SpeedProfile? {
-        let cap = min(300, max(120, Double(averageSpeed) * 1.5))
+        let cap = min(Double(kind.maxSpeed), max(80, Double(averageSpeed) * 1.4))
         let samples = min(400, max(2, Int(sectionLength / 200) + 1))
-        return SpeedProfile(length: sectionLength, limits: Array(repeating: Int(cap), count: samples), duration: duration)
+        return SpeedProfile(length: sectionLength, limits: Array(repeating: Int(cap), count: samples), duration: duration, kind: kind)
     }
 }
 
@@ -124,6 +125,6 @@ extension TrainStatus {
         let end = route.distance(of: to, from: start)
         guard end > start else { return nil }
         return RouteEstimate(previousStopID: previous.id, nextStopID: next.id, startDistance: start, endDistance: end,
-                             departure: departure, arrival: arrival)
+                             departure: departure, arrival: arrival, kind: TrainKind.of(trainName))
     }
 }
