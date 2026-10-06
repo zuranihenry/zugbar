@@ -33,7 +33,14 @@ public struct Route: Sendable, Equatable {
     public func coordinate(at distance: Double) -> Coordinate? {
         guard let last = points.last else { return nil }
         guard distance > 0 else { return points.first }
-        guard let upper = distances.firstIndex(where: { $0 >= distance }) else { return last }
+        guard distance < length else { return last }
+        // Binary search: called every frame while the map follows a train.
+        var low = 0, high = distances.count - 1
+        while low < high {
+            let mid = (low + high) / 2
+            if distances[mid] < distance { low = mid + 1 } else { high = mid }
+        }
+        let upper = low
         guard upper > 0 else { return points[0] }
         let lower = upper - 1
         let span = distances[upper] - distances[lower]
@@ -92,6 +99,14 @@ public struct RouteEstimate: Sendable, Equatable {
 
     /// Average speed over the section, km/h.
     public var averageSpeed: Int { Int((sectionLength / duration * 3.6).rounded()) }
+
+    /// Accelerate, cruise, brake, without knowing the line's speed limits. Better than a flat average
+    /// right after departure and before arrival.
+    public var basicProfile: SpeedProfile? {
+        let cap = min(300, max(120, Double(averageSpeed) * 1.5))
+        let samples = min(400, max(2, Int(sectionLength / 200) + 1))
+        return SpeedProfile(length: sectionLength, limits: Array(repeating: Int(cap), count: samples), duration: duration)
+    }
 }
 
 extension TrainStatus {

@@ -29,6 +29,9 @@ struct RouteTests {
         let status = TrainStatus(provider: "Transitous", stops: stops, route: route)
         let estimate = status.routeEstimate(at: start.addingTimeInterval(600))
         #expect(estimate.map { (170...190).contains($0.averageSpeed) } == true)
+        // Just after departure the train is still accelerating, not at its average speed.
+        let early = status.estimatedSpeed(at: start.addingTimeInterval(20))
+        #expect(early.map { $0 < 60 } == true)
         // About 40% of the way the train is still on the east-west leg.
         let position = status.position(at: start.addingTimeInterval(0.35 * 3600))
         #expect(position.map { abs($0.latitude - 50) < 0.01 } == true)

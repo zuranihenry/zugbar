@@ -31,10 +31,25 @@ final class TrainMonitor {
     enum Tracking { case onBoard, online, demo }
 
     private(set) var status: TrainStatus?
+    /// Where the map draws the train; glides between updates instead of jumping.
+    private(set) var trainPosition: Coordinate?
     /// Map camera; `.automatic` fits the whole route.
     var mapCamera: MapCameraPosition = .automatic
     /// Keeps the map centered on the train as it moves.
     var mapFollowsTrain = false
+    /// Zoom while following, as camera distance in meters; kept when the user zooms.
+    @ObservationIgnored var mapFollowDistance: Double = 40_000
+    /// Last time the user moved or zoomed the map; following pauses briefly after that.
+    @ObservationIgnored var mapTouchedAt: Date = .distantPast
+    /// Counts camera moves the app itself started, so those changes don't count as user input.
+    @ObservationIgnored var mapProgrammaticMoves = 0
+    var mapMovingProgrammatically: Bool { mapProgrammaticMoves > 0 }
+    /// Where the map is currently centered, as reported by the map itself.
+    @ObservationIgnored var mapCenter: Coordinate?
+    /// Where following last put the camera; the user panning shows up as a difference to this.
+    @ObservationIgnored var mapExpectedCenter: Coordinate?
+    /// Whether the current gesture changed the zoom; zooming never ends following.
+    @ObservationIgnored var mapGestureZoomed = false
     private(set) var lastUpdate: Date?
     private(set) var lastError: String?
     private(set) var notificationPermission: Notifier.Permission?
@@ -105,6 +120,10 @@ final class TrainMonitor {
 
     enum ProfileState: Equatable { case off, loading, ready, unavailable }
 
+    /// Track shape for on-board trains, whose portals only list the stops. Borrowed from Transitous once per train.
+    private var onBoardRoutes: [String: Route] = [:]
+    private var onBoardRouteRequests: Set<String> = []
+
     private(set) var liveTrains: [LiveTrain] = []
     private var liveTrainsLoaded: Date?
 
@@ -119,6 +138,7 @@ final class TrainMonitor {
     init() {
         demoMode = CommandLine.arguments.contains("--demo")
         startTicking()
+        startFrames()
         restart()
         // Boarding means joining a new network; look for a portal right away.
         pathMonitor.pathUpdateHandler = { [weak self] _ in
@@ -139,6 +159,8 @@ final class TrainMonitor {
         self.status = status
         self.history = history
         self.plan = plan
+        self.isSnapshot = true
+        self.notificationPermission = .allowed
         self.now = now
         self.displaySpeed = status?.speed
         self.topSpeed = max(topSpeed, status?.speed ?? 0)
@@ -165,8 +187,12 @@ final class TrainMonitor {
     }
 
     func refreshNotificationPermission() {
+        guard !isSnapshot else { return }
         Task { notificationPermission = await Notifier.permission() }
     }
+
+    /// Screenshot monitors show a finished state instead of asking the system.
+    @ObservationIgnored private var isSnapshot = false
 
     func requestNotificationPermission() {
         Task {
@@ -317,32 +343,100 @@ final class TrainMonitor {
         }
     }
 
+    // MARK: - Map position
+
+    /// The current section and its speed profile, refreshed once a second so frames only interpolate.
+    @ObservationIgnored private var section: (estimate: RouteEstimate, profile: SpeedProfile?)?
+
+    private func refreshSection() {
+        guard let status, status.position == nil, let estimate = status.routeEstimate(at: now) else {
+            section = nil
+            return
+        }
+        let profile = (profilesEnabled ? profiles[estimate.key] : nil) ?? estimate.basicProfile
+        if section?.estimate != estimate || section?.profile != profile { section = (estimate, profile) }
+    }
+
+    /// Last two GPS fixes, to move evenly between them (the marker runs one fix behind).
+    @ObservationIgnored private var gpsFixes: [(coordinate: Coordinate, time: Date)] = []
+    private var frameTask: Task<Void, Never>?
+
+    /// Recomputes the marker about 30 times a second from the clock, so it moves at a constant pace.
+    private func startFrames() {
+        frameTask?.cancel()
+        frameTask = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.moveTrain()
+                try? await Task.sleep(for: .milliseconds(33))
+            }
+        }
+    }
+
+    private func moveTrain() {
+        guard let status else {
+            if trainPosition != nil { trainPosition = nil }
+            return
+        }
+        let date = Date()
+        if let gps = status.position {
+            trainPosition = interpolatedGPS(gps, at: date)
+        } else if let section, let route = status.route {
+            let elapsed = date.timeIntervalSince(section.estimate.departure)
+            let distance = section.profile?.state(after: elapsed).distance
+                ?? section.estimate.sectionLength * min(max(elapsed / section.estimate.duration, 0), 1)
+            trainPosition = route.coordinate(at: section.estimate.startDistance + distance)
+        } else {
+            trainPosition = status.position(at: date)
+        }
+    }
+
+    private func interpolatedGPS(_ latest: Coordinate, at date: Date) -> Coordinate {
+        if gpsFixes.last?.coordinate != latest {
+            gpsFixes = Array((gpsFixes + [(latest, date)]).suffix(2))
+        }
+        guard gpsFixes.count == 2 else { return latest }
+        let (from, to) = (gpsFixes[0], gpsFixes[1])
+        let interval = max(to.time.timeIntervalSince(from.time), 1)
+        // Big jumps (first fix, another train) aren't animated.
+        guard from.coordinate.distance(to: to.coordinate) < 5 else { return latest }
+        let t = min(max(date.timeIntervalSince(to.time) / interval, 0), 1)
+        return Coordinate(
+            latitude: from.coordinate.latitude + (to.coordinate.latitude - from.coordinate.latitude) * t,
+            longitude: from.coordinate.longitude + (to.coordinate.longitude - from.coordinate.longitude) * t
+        )
+    }
+
     // MARK: - Estimates for trains followed online
 
     private var profilesEnabled: Bool { UserDefaults.standard.bool(forKey: "trackProfiles") }
 
     /// Speed and position from the section's speed profile, once loaded.
-    func profileEstimate(_ status: TrainStatus) -> (speed: Int, position: Coordinate?)? {
-        guard profilesEnabled, isOnline, let route = status.route, let estimate = status.routeEstimate(at: now),
+    func profileEstimate(_ status: TrainStatus, at date: Date? = nil) -> (speed: Int, position: Coordinate?)? {
+        let date = date ?? now
+        guard profilesEnabled, isOnline, let route = status.route, let estimate = status.routeEstimate(at: date),
               let profile = profiles[estimate.key]
         else { return nil }
-        let state = profile.state(after: now.timeIntervalSince(estimate.departure))
+        let state = profile.state(after: date.timeIntervalSince(estimate.departure))
         return (state.speed, route.coordinate(at: estimate.startDistance + state.distance))
     }
 
     /// Loads the profile for the section the train is on, if enabled. Called after each update.
     private func prepareProfile(for status: TrainStatus) {
         guard profilesEnabled, isOnline else {
-            profileState = .off
+            if profileState != .off { profileState = .off }
             return
         }
         guard let route = status.route, let estimate = status.routeEstimate(at: Date()) else { return }
-        if profiles[estimate.key] != nil { profileState = .ready } else { loadProfile(for: estimate, route: route) }
+        if profiles[estimate.key] != nil {
+            if profileState != .ready { profileState = .ready }
+        } else {
+            loadProfile(for: estimate, route: route)
+        }
     }
 
     private func loadProfile(for estimate: RouteEstimate, route: Route) {
         guard !profileRequests.contains(estimate.key) else { return }
-        if let failed = profileFailures[estimate.key], Date().timeIntervalSince(failed) < 300 { return }
+        if let failed = profileFailures[estimate.key], Date().timeIntervalSince(failed) < 120 { return }
         profileRequests.insert(estimate.key)
         profileState = .loading
         let points = route.points(from: estimate.startDistance, to: estimate.endDistance)
@@ -659,6 +753,10 @@ final class TrainMonitor {
 
     private func apply(_ newStatus: TrainStatus) {
         guard !Task.isCancelled else { return }
+        var newStatus = newStatus
+        if newStatus.route == nil, !isOnline, !demoMode, let name = newStatus.trainName {
+            if let route = onBoardRoutes[name] { newStatus.route = route } else { loadOnBoardRoute(for: name) }
+        }
         if let plan, plan.trainName != newStatus.trainName { self.plan = nil }
         notifyChanges(to: newStatus)
         refreshConnectionIfNeeded()
@@ -669,9 +767,21 @@ final class TrainMonitor {
         if newStatus.speed == nil { displaySpeed = nil }
     }
 
+    private func loadOnBoardRoute(for trainName: String) {
+        guard !onBoardRouteRequests.contains(trainName) else { return }
+        onBoardRouteRequests.insert(trainName)
+        Task {
+            // Needs the train Wi-Fi to have internet access; without it the map keeps straight lines between stops.
+            if let route = try? await Transitous(query: trainName).fetch().route {
+                onBoardRoutes[trainName] = route
+            }
+        }
+    }
+
     private func lost() {
         provider = nil
         status = nil
+        trainPosition = nil
         displaySpeed = nil
         topSpeed = 0
     }
@@ -708,7 +818,12 @@ final class TrainMonitor {
 
     private func tick() {
         let date = Date()
-        if Int(date.timeIntervalSince1970) != Int(now.timeIntervalSince1970) { now = date }
+        if Int(date.timeIntervalSince1970) != Int(now.timeIntervalSince1970) {
+            now = date
+            // Picks up the setting being switched on and the train entering a new section without waiting for the next poll.
+            if let status { prepareProfile(for: status) }
+            refreshSection()
+        }
 
         guard let target = status?.speed else { return }
         var shown = displaySpeed ?? target

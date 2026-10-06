@@ -192,6 +192,8 @@ struct Strings {
     var stop: String { t("Stop", "Beenden") }
     var map: String { t("Map", "Karte") }
     var followTrain: String { t("Follow train", "Zug folgen") }
+    var zoomIn: String { t("Zoom in", "Vergrößern") }
+    var zoomOut: String { t("Zoom out", "Verkleinern") }
     var wholeRoute: String { t("Whole route", "Ganze Strecke") }
     func passedStops(_ count: Int) -> String {
         count == 1 ? t("1 passed stop", "1 vergangener Halt") : t("\(count) passed stops", "\(count) vergangene Halte")
