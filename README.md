@@ -3,7 +3,8 @@
 Live train info in your Mac's menu bar: speed, next stop, delays, tracks, map and route, straight from the
 train's Wi-Fi (DB ICE, ÖBB Railjet, SNCF TGV INOUI). Set a destination and connection to get notified about
 delays, track changes and tight transfers. Off the train, follow any train online via
-[Transitous](https://transitous.org). English and German.
+[Transitous](https://transitous.org), with its position and speed estimated along the track, optionally from
+OpenStreetMap speed limits (experimental). English and German.
 
 <table>
   <tr>
@@ -36,6 +37,7 @@ Or build it: `make install`.
 make demo
 make test
 swift run Zugbar --lookup "ICE 591"
+swift run Zugbar --profile "ICE 591"   # speed profile for the current section
 ```
 
 Portals live in `Sources/ZugbarCore/Providers/`. Settings → Debug can trigger every notification and simulate

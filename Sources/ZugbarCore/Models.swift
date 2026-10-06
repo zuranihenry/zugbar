@@ -58,7 +58,7 @@ public struct TrainStatus: Sendable, Equatable {
         let next = stops[nextIndex], previous = stops[nextIndex - 1]
         if next.isCurrent(at: now) || previous.isCurrent(at: now) { return 0 }
         if let estimate = routeEstimate(at: now), now >= estimate.departure {
-            let speed = estimate.averageSpeed
+            let speed = estimate.basicProfile?.state(after: now.timeIntervalSince(estimate.departure)).speed ?? estimate.averageSpeed
             return speed <= 350 ? speed : nil
         }
         guard let from = previous.coordinate, let to = next.coordinate,
