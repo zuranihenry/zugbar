@@ -163,7 +163,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let strings = Strings(AppLanguage(rawValue: UserDefaults.standard.string(forKey: "language") ?? "") ?? .system)
             for tab in SettingsTab.allCases {
                 let hosting = NSHostingController(rootView: AppEnvironment(actions: actions) { tab.view(monitor: self.monitor) })
-                hosting.sizingOptions = .preferredContentSize
+                // Size each tab once. Re-measuring on every change resized the window while toggling,
+                // and quick toggles made the form drop whole sections.
+                hosting.sizingOptions = []
+                hosting.preferredContentSize = hosting.view.fittingSize
                 let item = NSTabViewItem(viewController: hosting)
                 item.label = tab.title(strings)
                 item.image = NSImage(systemSymbolName: tab.icon, accessibilityDescription: nil)
