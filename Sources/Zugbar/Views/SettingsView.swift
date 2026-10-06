@@ -112,10 +112,14 @@ struct MenuBarSettings: View {
 
     var body: some View {
         SettingsPane {
-            Section {
-                LabeledContent(strings.preview) {
-                    Text(preview).monospacedDigit().foregroundStyle(.secondary)
-                }
+            // One line at a fixed height: a preview that wraps differently per option would resize the
+            // window on every toggle, and quick toggling made the form lose its sections.
+            Section(strings.preview) {
+                Text(preview)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .frame(maxWidth: .infinity, minHeight: 22, maxHeight: 22)
             }
             Section {
                 Toggle(strings.speed, isOn: $showSpeed)
