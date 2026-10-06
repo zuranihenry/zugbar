@@ -1,0 +1,1 @@
+{"connection": true, "servicelevel": "AVAILABLE_SERVICE", "internet": "HIGH", "speed": 287.0, "gpsStatus": "VALID", "tzn": "Tz9018", "series": "412", "latitude": 50.08, "longitude": 11.05, "serverTime": 1781281200000, "wagonClass": "SECOND", "connectivity": {"currentState": "HIGH", "nextState": "WEAK", "remainingTimeSeconds": 240}, "bapInstalled": false}
