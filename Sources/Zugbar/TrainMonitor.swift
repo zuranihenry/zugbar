@@ -702,12 +702,13 @@ final class TrainMonitor {
 
     private func notifyChanges(to newStatus: TrainStatus) {
         defer { lastSnapshot = (newStatus, Date(), plan?.connection) }
-        guard let plan, let last = lastSnapshot, last.status.trainName == newStatus.trainName else { return }
-        let events = JourneyWatcher.events(
+        guard var plan, let last = lastSnapshot, last.status.trainName == newStatus.trainName else { return }
+        let events = plan.withoutRepeatedWarnings(JourneyWatcher.events(
             old: last.status, oldTime: last.time, oldConnection: last.connection,
             new: newStatus, newTime: Date(), newConnection: plan.connection, plan: plan,
             settings: notificationSettings
-        )
+        ))
+        if plan != self.plan { self.plan = plan }
         for event in events {
             var (title, body) = strings.notification(event)
             // The arrival reminder is the moment to think about the connection, so mention it.
