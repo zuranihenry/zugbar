@@ -18,6 +18,13 @@ final class TrainMonitor {
             case .trip(_, let label): label
             }
         }
+
+        init(_ target: Handover.Target) {
+            switch target {
+            case .name(let name): self = .name(name)
+            case .trip(let id, let label): self = .trip(id: id, label: label)
+            }
+        }
     }
 
     enum LookupMessage: Equatable {
@@ -77,9 +84,18 @@ final class TrainMonitor {
         didSet {
             guard manualTarget != oldValue else { return }
             UserDefaults.standard.set(try? JSONEncoder().encode(manualTarget), forKey: "manualTarget")
-            restart()
+            if restartsOnTargetChange { restart() }
         }
     }
+    @ObservationIgnored private var restartsOnTargetChange = true
+    /// The train the user changed from at the plan's destination. Its portal is ignored for a while,
+    /// so the Wi-Fi still reaching the platform doesn't pull tracking back to it.
+    @ObservationIgnored private var leftTrain: (name: String, at: Date)?
+    /// The last train tracked on board. When its portal goes away mid-trip it's followed online instead,
+    /// until its portal answers again or its trip is over.
+    @ObservationIgnored private var onBoardTrain: (name: String, until: Date)?
+    /// While following the on-board train online, its portal is checked about once a minute.
+    @ObservationIgnored private var portalProbed = Date.distantPast
 
     var trainDraft = ""
     var stationQuery = "" {
@@ -196,6 +212,7 @@ final class TrainMonitor {
         case .online: stopTracking()
         case .onBoard:
             onBoardDismissed = true
+            onBoardTrain = nil
             restart()
         case nil: break
         }
@@ -303,7 +320,9 @@ final class TrainMonitor {
 
     func stopTracking() {
         trainDraft = ""
-        manualTarget = nil
+        onBoardTrain = nil
+        // Following the on-board train online has no target to clear, so restart explicitly.
+        if manualTarget == nil { restart() } else { manualTarget = nil }
     }
 
     func choose(_ station: TransitousClient.Station, line: String? = nil) {
@@ -590,6 +609,7 @@ final class TrainMonitor {
 
     func toggleDestination(_ stop: Stop) {
         updatePlan { plan in
+            plan.pendingDestination = nil
             if plan.destinationStopID == stop.id {
                 plan.destinationStopID = nil
                 plan.connection = nil
@@ -602,7 +622,10 @@ final class TrainMonitor {
     }
 
     func toggleBoarding(_ stop: Stop) {
-        updatePlan { plan in plan.boardingStopID = plan.boardingStopID == stop.id ? nil : stop.id }
+        updatePlan { plan in
+            plan.pendingBoarding = nil
+            plan.boardingStopID = plan.boardingStopID == stop.id ? nil : stop.id
+        }
     }
 
     /// Connections the ICE portal lists for the destination; empty when not on an ICE.
@@ -695,6 +718,7 @@ final class TrainMonitor {
         var updated = plan ?? JourneyPlan(trainName: trainName)
         change(&updated)
         let isEmpty = updated.boardingStopID == nil && updated.destinationStopID == nil && updated.connection == nil
+            && updated.pendingBoarding == nil && updated.pendingDestination == nil
         plan = isEmpty ? nil : updated
         if !isEmpty, notificationPermission != .allowed { requestNotificationPermission() }
         lastSnapshot = status.map { ($0, now, plan?.connection) }
@@ -775,15 +799,29 @@ final class TrainMonitor {
                 if demoMode {
                     provider = DemoProvider()
                     continue
-                } else if !onBoardDismissed, let (found, first) = await Self.firstResponding(Providers.onBoard(loader: PortalRecorder.wrap(URLSession.portal.loader))) {
-                    provider = found
-                    apply(first)
+                } else if await takeOverFromPortal() {
+                    // On-board data takes precedence.
+                } else if !onBoardDismissed, status?.isOnline == false,
+                          Handover.isDue(plan: plan, status: status, now: Date(), leeway: Self.arrivalLeeway) {
+                    // The train's Wi-Fi went away as it arrived at the destination: the user is changing trains.
+                    followConnection()
                 } else if let manualTarget {
                     await lookUp(manualTarget)
+                } else if let train = fallbackTrain {
+                    portalProbed = Date()
+                    await lookUp(.name(train), fallback: true)
                 }
             } else if let provider {
+                if isOnline, manualTarget == nil, Date().timeIntervalSince(portalProbed) > 60 {
+                    portalProbed = Date()
+                    if await takeOverFromPortal() {
+                        try? await Task.sleep(for: pollInterval)
+                        continue
+                    }
+                }
                 do {
-                    apply(try await provider.fetch())
+                    let next = try await provider.fetch()
+                    if !isOnline, isLeftBehind(next) { self.provider = nil } else { apply(next) }
                     lastError = nil
                 } catch {
                     guard !Task.isCancelled else { return }
@@ -797,13 +835,35 @@ final class TrainMonitor {
         }
     }
 
+    /// Switches to an on-board portal if one answers, other than the train the user changed from.
+    private func takeOverFromPortal() async -> Bool {
+        guard !onBoardDismissed,
+              let (found, first) = await Self.firstResponding(Providers.onBoard(loader: PortalRecorder.wrap(URLSession.portal.loader))),
+              !Task.isCancelled, !isLeftBehind(first)
+        else { return false }
+        provider = found
+        // A search from before boarding shouldn't come back once this train's Wi-Fi is gone.
+        if let target = manualTarget, let name = first.trainName, !TrainName.same(target.label, name) {
+            quietlySetTarget(nil)
+        }
+        apply(first)
+        return true
+    }
+
+    /// The on-board train to follow online while its portal doesn't answer, e.g. after the Wi-Fi dropped.
+    private var fallbackTrain: String? {
+        guard !onBoardDismissed, let onBoardTrain, Date() < onBoardTrain.until else { return nil }
+        return onBoardTrain.name
+    }
+
     /// Portals are local and cheap; Transitous is a shared community service.
     private var pollInterval: Duration {
-        if provider == nil { return .seconds(manualTarget == nil ? 15 : 60) }
+        if provider == nil { return .seconds(manualTarget == nil && fallbackTrain == nil ? 15 : 60) }
         return isOnline ? .seconds(30) : .seconds(3)
     }
 
-    private func lookUp(_ target: ManualTarget) async {
+    /// `fallback`: following the on-board train whose portal went away; a failed search ends that quietly.
+    private func lookUp(_ target: ManualTarget, fallback: Bool = false) async {
         let online = switch target {
         case .name(let name): Transitous(query: name)
         case .trip(let id, let label): Transitous(tripID: id, label: label)
@@ -817,9 +877,19 @@ final class TrainMonitor {
             apply(first)
         } catch {
             guard !Task.isCancelled else { return }
+            if fallback, let error = error as? Transitous.LookupError {
+                onBoardTrain = nil
+                lookupMessage = nil
+                if error == .tripEnded, Handover.isDueAfterTripEnded(plan: plan, trainName: target.label, now: Date()) {
+                    followConnection()
+                }
+                return
+            }
             switch error as? Transitous.LookupError {
             case .notRunning: lookupMessage = .notRunning(target.label)
-            case .tripEnded: lookupMessage = .tripEnded
+            case .tripEnded:
+                if Handover.isDueAfterTripEnded(plan: plan, trainName: target.label, now: Date()) { return followConnection() }
+                lookupMessage = .tripEnded
             case nil: lookupMessage = .unreachable
             }
         }
@@ -828,13 +898,64 @@ final class TrainMonitor {
     private func handle(_ error: Error) {
         failures += 1
         if error as? Transitous.LookupError == .tripEnded {
+            onBoardTrain = nil
+            if Handover.isDueAfterTripEnded(plan: plan, trainName: status?.trainName, now: Date()) { return followConnection() }
             lost()
             lookupMessage = .tripEnded
             // A picked trip won't run again; a train name might tomorrow.
             if case .trip = manualTarget { manualTarget = nil }
         } else if failures >= 4 {
+            if status?.isOnline == false, Handover.isDue(plan: plan, status: status, now: Date(), leeway: Self.arrivalLeeway) {
+                return followConnection()
+            }
             lost()
         }
+    }
+
+    /// Train Wi-Fi often drops while pulling into a station, a little before the timetabled arrival.
+    private static let arrivalLeeway: TimeInterval = 3 * 60
+
+    /// Switches to the planned connection after the user changed trains at the destination.
+    private func followConnection() {
+        guard !demoMode, let plan, let connection = plan.connection else { return }
+        leftTrain = (plan.trainName, Date())
+        onBoardTrain = nil
+        self.plan = Handover.plan(after: connection)
+        lastSnapshot = nil
+        let target = Handover.target(for: connection)
+        quietlySetTarget(ManualTarget(target))
+        restart()
+        if case .name = target { findTrip(of: connection) }
+    }
+
+    /// Connections from the ICE portal are first searched by name, which only finds long-distance trains.
+    /// Looks the train up on the station's departure board to follow it by trip instead.
+    private func findTrip(of connection: Connection) {
+        let client = client
+        Task {
+            let time = (connection.scheduledDeparture ?? Date()).addingTimeInterval(-10 * 60)
+            guard let station = try? await client.stations(matching: connection.station).first,
+                  let departures = try? await client.departures(from: station, at: time, count: 60),
+                  let departure = Handover.departure(for: connection, in: departures),
+                  manualTarget == .name(connection.name)
+            else { return }
+            // Takes over Transitous's spelling, so the plan isn't dropped as belonging to another train.
+            if let plan, plan.trainName == connection.name { self.plan?.trainName = departure.displayName }
+            let label = [departure.displayName, departure.headsign.map { "→ \($0)" }].compactMap { $0 }.joined(separator: " ")
+            manualTarget = .trip(id: departure.tripID, label: label)
+        }
+    }
+
+    private func isLeftBehind(_ status: TrainStatus) -> Bool {
+        guard let leftTrain, let name = status.trainName, Date().timeIntervalSince(leftTrain.at) < 3 * 60 * 60 else { return false }
+        return TrainName.same(leftTrain.name, name)
+    }
+
+    /// Changes the target from within the poll loop, without restarting it.
+    private func quietlySetTarget(_ target: ManualTarget?) {
+        restartsOnTargetChange = false
+        manualTarget = target
+        restartsOnTargetChange = true
     }
 
     private func apply(_ newStatus: TrainStatus) {
@@ -843,8 +964,20 @@ final class TrainMonitor {
         if newStatus.route == nil, !isOnline, !demoMode, let name = newStatus.trainName {
             if let route = onBoardRoutes[name] { newStatus.route = route } else { loadOnBoardRoute(for: name) }
         }
-        // A portal briefly reporting no train name shouldn't throw away the plan.
-        if let plan, let name = newStatus.trainName, plan.trainName != name { self.plan = nil }
+        // A portal briefly reporting no train name shouldn't throw away the plan, nor should
+        // another spelling of the same train ("ICE1072", "ICE 1072").
+        if let plan, let name = newStatus.trainName {
+            if !TrainName.same(plan.trainName, name) {
+                self.plan = nil
+            } else {
+                var updated = plan.resolved(in: newStatus)
+                if let old = status ?? lastSnapshot?.status { updated = updated.remapped(from: old, to: newStatus) }
+                if updated != plan { self.plan = updated }
+            }
+        }
+        if !newStatus.isOnline, !demoMode, let name = newStatus.trainName {
+            onBoardTrain = (name, Handover.fallbackDeadline(for: newStatus, now: Date()))
+        }
         notifyChanges(to: newStatus)
         refreshConnectionIfNeeded()
         status = newStatus
@@ -853,6 +986,7 @@ final class TrainMonitor {
         learn(from: newStatus)
         failures = 0
         if newStatus.speed == nil { displaySpeed = nil }
+        if Handover.isDue(plan: plan, status: newStatus, now: Date()) { followConnection() }
     }
 
     /// On board, remember how fast the train really is here, to improve estimates for trains followed online.
