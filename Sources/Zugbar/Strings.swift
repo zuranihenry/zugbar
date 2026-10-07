@@ -306,6 +306,12 @@ struct Strings {
     var clearPlan: String { t("Clear destination and connection", "Ziel und Anschluss löschen") }
     var none: String { t("none", "keine") }
     var design: String { "Design" }
+    var recordPortals: String { t("Record on-board portal data", "Zugportal-Daten aufzeichnen") }
+    var recordPortalsHint: String {
+        t("Saves the train Wi-Fi's raw responses about once a minute, for testing. Stays on this Mac.",
+          "Speichert etwa einmal pro Minute die Rohdaten des Zug-WLANs, zum Testen. Bleibt auf diesem Mac.")
+    }
+    var showRecordings: String { t("Show recordings in Finder", "Aufzeichnungen im Finder zeigen") }
     var send: String { t("Send", "Senden") }
     var data: String { t("Data", "Daten") }
     var clear: String { t("Clear", "Löschen") }
