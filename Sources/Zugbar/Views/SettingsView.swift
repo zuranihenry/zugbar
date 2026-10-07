@@ -38,12 +38,11 @@ enum SettingsTab: CaseIterable {
 private struct SettingsPane<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
+    /// Scrolls when the content outgrows the window (rows that appear later, a tall tab on a small screen).
     var body: some View {
         Form { content() }
             .formStyle(.grouped)
-            .scrollDisabled(true)
             .frame(width: 480)
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

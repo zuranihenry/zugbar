@@ -187,10 +187,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let strings = Strings(AppLanguage(rawValue: UserDefaults.standard.string(forKey: "language") ?? "") ?? .system)
             for tab in SettingsTab.allCases {
                 let hosting = NSHostingController(rootView: AppEnvironment(actions: actions) { tab.view(monitor: self.monitor) })
-                // Size each tab once. Re-measuring on every change resized the window while toggling,
-                // and quick toggles made the form drop whole sections.
+                // Size each tab once from its natural height, capped so tall tabs scroll instead of being cut off.
+                // Re-measuring on every change resized the window while toggling and made the form drop sections.
+                let measure = NSHostingController(rootView: AppEnvironment(actions: actions) {
+                    tab.view(monitor: self.monitor).fixedSize(horizontal: false, vertical: true)
+                })
+                let natural = measure.view.fittingSize
                 hosting.sizingOptions = []
-                hosting.preferredContentSize = hosting.view.fittingSize
+                hosting.preferredContentSize = NSSize(width: 480, height: min(natural.height + 24, 640))
                 let item = NSTabViewItem(viewController: hosting)
                 item.label = tab.title(strings)
                 item.image = NSImage(systemSymbolName: tab.icon, accessibilityDescription: nil)
