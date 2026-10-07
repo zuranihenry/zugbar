@@ -41,6 +41,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         self.actions = actions
         updateLabel()
+        monitor.updates.start()
+
+        // Settings tabs are AppKit items, so their titles follow a language change by hand.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(defaultsChanged), name: UserDefaults.didChangeNotification, object: nil
+        )
+    }
+
+    private var settingsLanguage: String?
+
+    @objc private func defaultsChanged() {
+        DispatchQueue.main.async { self.updateSettingsTitles() }
+    }
+
+    private func updateSettingsTitles() {
+        let language = UserDefaults.standard.string(forKey: "language") ?? ""
+        guard language != settingsLanguage, let tabs = settingsWindow?.contentViewController as? NSTabViewController else { return }
+        settingsLanguage = language
+        let strings = Strings(AppLanguage(rawValue: language) ?? .system)
+        for (item, tab) in zip(tabs.tabViewItems, SettingsTab.allCases) { item.label = tab.title(strings) }
+        let selected = tabs.selectedTabViewItemIndex
+        if tabs.tabViewItems.indices.contains(selected) { settingsWindow?.title = tabs.tabViewItems[selected].label }
     }
 
     private var actions: AppActions!
@@ -110,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let defaults = UserDefaults.standard
         let options = MenuTitleOptions(
             showSpeed: defaults.object(forKey: "showSpeed") as? Bool ?? true,
+            showEstimate: defaults.object(forKey: "menuBarEstimate") as? Bool ?? true,
             showStation: defaults.object(forKey: "showStation") as? Bool ?? true,
             showCountdown: defaults.object(forKey: "showCountdown") as? Bool ?? true,
             showTopSpeedFlame: defaults.object(forKey: "showTopSpeedFlame") as? Bool ?? true,
@@ -120,7 +143,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let strings = Strings(AppLanguage(rawValue: defaults.string(forKey: "language") ?? "") ?? .system)
         let title = monitor.status.map {
             MenuTitle.make(status: $0, displaySpeed: monitor.displaySpeed, isTopSpeed: monitor.isTopSpeed,
-                           now: monitor.now, options: options, nowLabel: strings.now)
+                           now: monitor.now, options: options, nowLabel: strings.now,
+                           estimatedSpeed: options.showEstimate ? monitor.speedEstimate($0)?.speed : nil)
         } ?? ""
 
         if title.isEmpty {
@@ -178,6 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.isReleasedWhenClosed = false
             window.center()
             settingsWindow = window
+            settingsLanguage = UserDefaults.standard.string(forKey: "language") ?? ""
         }
         settingsWindow?.makeKeyAndOrderFront(nil)
         updateActivationPolicy()
@@ -223,5 +248,11 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter, willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         [.banner, .sound, .list]
+    }
+
+    /// Opens the link a notification carries, e.g. the release page for an update.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        guard let text = response.notification.request.content.userInfo["url"] as? String, let url = URL(string: text) else { return }
+        await MainActor.run { _ = NSWorkspace.shared.open(url) }
     }
 }

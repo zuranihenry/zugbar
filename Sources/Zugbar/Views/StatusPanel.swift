@@ -16,6 +16,7 @@ struct StatusPanel: View {
     var layout: PanelLayout = .popover
     @AppStorage("showMap") private var showMap = true
     @AppStorage("estimatedSpeed") private var estimatedSpeed = true
+    @Environment(\.strings) private var strings
 
     private var isWindow: Bool { layout != .popover }
 
@@ -63,10 +64,15 @@ struct StatusPanel: View {
     @ViewBuilder
     private func details(_ status: TrainStatus, map: CGFloat?) -> some View {
         TripHeader(status: status, showsPopOut: !isWindow)
-        let profile = estimatedSpeed ? monitor.profileEstimate(status) : nil
+        let estimate = estimatedSpeed ? monitor.speedEstimate(status) : nil
         SpeedRow(speed: monitor.displaySpeed, top: monitor.topSpeed, online: status.isOnline,
-                 estimate: status.isOnline && estimatedSpeed ? (profile?.speed ?? status.estimatedSpeed(at: monitor.now)) : nil,
-                 fromProfile: profile != nil)
+                 estimate: estimate?.speed, fromProfile: estimate?.fromProfile ?? false)
+        if estimate != nil, monitor.profileState == .serverDown {
+            Label(strings.overpassDown, systemImage: "exclamationmark.icloud")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
         if status.wagonClass != nil || status.internet != nil {
             OnboardRow(status: status, now: monitor.now)
         }
@@ -240,9 +246,13 @@ private struct NextStopCard: View {
                         .monospacedDigit()
                     Text(arrival, format: .dateTime.hour().minute())
                 }
-                DelayBadge(minutes: stop.delayMinutes)
-                if let track = stop.track {
-                    Label(strings.track(track), systemImage: "signpost.right")
+                if stop.cancelled {
+                    Text(strings.cancelled).foregroundStyle(.red).fontWeight(.semibold)
+                } else {
+                    DelayBadge(minutes: stop.delayMinutes)
+                    if let track = stop.track {
+                        Label(strings.track(track), systemImage: "signpost.right")
+                    }
                 }
             }
             .font(.callout)
@@ -339,21 +349,29 @@ private struct StopRow: View {
     let isNext: Bool
     let isDestination: Bool
     let isBoarding: Bool
+    @Environment(\.strings) private var strings
 
     var body: some View {
         HStack(spacing: 10) {
             marker.frame(width: 14)
             Text(stop.name)
                 .fontWeight(isNext || isDestination ? .semibold : .regular)
+                .strikethrough(stop.cancelled)
                 .lineLimit(1)
             Spacer()
-            DelayBadge(minutes: stop.delayMinutes).font(.caption)
+            if stop.cancelled {
+                Text(strings.cancelled).font(.caption.weight(.semibold)).foregroundStyle(.red)
+            } else {
+                DelayBadge(minutes: stop.delayMinutes).font(.caption)
+            }
             if let time = stop.arrival ?? stop.departure {
                 Text(time, format: .dateTime.hour().minute())
                     .monospacedDigit()
+                    .strikethrough(stop.cancelled)
                     .foregroundStyle(.secondary)
             }
         }
+        .help(stop.cancelled ? strings.noStopHere : "")
         .font(.callout)
         .opacity(stop.passed ? 0.45 : 1)
         .padding(.vertical, 4)
@@ -416,6 +434,10 @@ private struct Footer: View {
 
     private var menuItems: [PopUpMenu.Item] {
         var items: [PopUpMenu.Item] = []
+        if let release = monitor.updates.available {
+            items.append(.init(title: strings.updateAvailable(release.version)) { NSWorkspace.shared.open(release.url) })
+            items.append(.separator)
+        }
         if let links = monitor.status?.links, !links.isEmpty {
             items.append(.header(strings.openIn))
             items += links.map { link in .init(title: strings.title(of: link.kind)) { NSWorkspace.shared.open(link.url) } }

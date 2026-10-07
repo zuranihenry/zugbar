@@ -69,22 +69,39 @@ public actor Transitous: TrainProvider {
 
     private struct NamedPlace: Decodable { let name: String }
 
+    /// A map area as Transitous expects it: "lat,lon" of the south-west and north-east corners.
+    typealias Area = (min: String, max: String)
+    /// Germany, Austria, Switzerland and the Benelux, where most trips are followed.
+    static let coreArea: Area = ("45.5,2.5", "55.5,17.5")
+    /// Europe from Lisbon to Helsinki.
+    static let europe: Area = ("35,-10", "62,32")
+
+    /// Where and how far ahead to look, in order. Transitous rejects answers that get too large (422),
+    /// so the long look-ahead is limited to the core area, and Europe-wide searches stay short.
+    static let searches: [(area: Area, window: TimeInterval)] = [(europe, 60), (coreArea, 90 * 60), (europe, 30 * 60)]
+
     /// Transitous has no train-number search, so list what's moving and match the name.
     /// At this zoom level the map only includes long-distance trains.
     private func findTrip(named query: String, now: Date) async throws -> String? {
-        for window: TimeInterval in [60, 90 * 60] {
-            let data = try await loader(Self.mapTripsURL(from: now, to: now.addingTimeInterval(window)))
+        for search in Self.searches {
+            let url = Self.mapTripsURL(from: now, to: now.addingTimeInterval(search.window), area: search.area)
+            let data: Data
+            do {
+                data = try await loader(url)
+            } catch ProviderError.badStatus(422) {
+                continue
+            }
             if let id = try Self.matchTrip(in: data, query: query) { return id }
         }
         return nil
     }
 
-    static func mapTripsURL(from start: Date, to end: Date) -> URL {
+    static func mapTripsURL(from start: Date, to end: Date, area: Area = europe) -> URL {
         var url = base.appending(path: "v6/map/trips")
         url.append(queryItems: [
             URLQueryItem(name: "zoom", value: "6"),
-            URLQueryItem(name: "min", value: "45.5,2.5"),
-            URLQueryItem(name: "max", value: "55.5,17.5"),
+            URLQueryItem(name: "min", value: area.min),
+            URLQueryItem(name: "max", value: area.max),
             URLQueryItem(name: "startTime", value: start.formatted(.iso8601)),
             URLQueryItem(name: "endTime", value: end.formatted(.iso8601)),
             URLQueryItem(name: "precision", value: "2"),
@@ -125,6 +142,7 @@ public actor Transitous: TrainProvider {
         }
 
         let places = [leg.from] + (leg.intermediateStops ?? []) + [leg.to]
+        let tripCancelled = leg.cancelled ?? false
         let stops = places.enumerated().map { index, place in
             Stop(
                 id: "\(index)-\(place.stopId ?? place.name)",
@@ -135,7 +153,8 @@ public actor Transitous: TrainProvider {
                 expectedDeparture: place.departure,
                 track: place.track ?? place.scheduledTrack,
                 passed: (place.departure ?? place.arrival).map { $0 <= now } ?? false,
-                coordinate: Coordinate(place.lat, place.lon)
+                coordinate: Coordinate(place.lat, place.lon),
+                cancelled: tripCancelled || place.cancelled == true
             )
         }
 
@@ -152,7 +171,7 @@ public actor Transitous: TrainProvider {
             trainName: leg.displayName ?? leg.tripShortName,
             destination: StationName.tidy(leg.headsign ?? leg.to.name),
             stops: stops,
-            nextStopID: stops.first { !$0.passed }?.id,
+            nextStopID: stops.first { !$0.passed && !$0.cancelled }?.id,
             progress: progress,
             route: route.flatMap { $0.points.count > 1 ? $0 : nil }
         )
@@ -181,6 +200,7 @@ public actor Transitous: TrainProvider {
         let to: Place
         let intermediateStops: [Place]?
         let legGeometry: Geometry?
+        let cancelled: Bool?
     }
 
     struct Geometry: Decodable {
@@ -199,5 +219,6 @@ public actor Transitous: TrainProvider {
         let scheduledTrack: String?
         let lat: Double?
         let lon: Double?
+        let cancelled: Bool?
     }
 }

@@ -6,6 +6,8 @@ public struct MenuTitleOptions: Sendable, Equatable {
     }
 
     public var showSpeed: Bool
+    /// Show estimated speed, as "≈ 180", when there's no live speed.
+    public var showEstimate: Bool
     public var showStation: Bool
     public var showCountdown: Bool
     public var showTopSpeedFlame: Bool
@@ -14,10 +16,11 @@ public struct MenuTitleOptions: Sendable, Equatable {
     public var minutesOnly: Bool
 
     public init(
-        showSpeed: Bool = true, showStation: Bool = true, showCountdown: Bool = true, showTopSpeedFlame: Bool = true,
+        showSpeed: Bool = true, showEstimate: Bool = true, showStation: Bool = true, showCountdown: Bool = true, showTopSpeedFlame: Bool = true,
         stationStyle: StationStyle = .full, showUnit: Bool = true, minutesOnly: Bool = false
     ) {
         self.showSpeed = showSpeed
+        self.showEstimate = showEstimate
         self.showStation = showStation
         self.showCountdown = showCountdown
         self.showTopSpeedFlame = showTopSpeedFlame
@@ -28,20 +31,24 @@ public struct MenuTitleOptions: Sendable, Equatable {
 }
 
 public enum MenuTitle {
-    /// e.g. "🔥 248 km/h · → Augsburg Hbf 6:42"
+    /// e.g. "🔥 248 km/h · → Augsburg Hbf 6:42", or "≈ 180 km/h · …" from `estimatedSpeed` when there's no live speed.
     public static func make(
         status: TrainStatus,
         displaySpeed: Int?,
         isTopSpeed: Bool,
         now: Date,
         options: MenuTitleOptions,
-        nowLabel: String = "now"
+        nowLabel: String = "now",
+        estimatedSpeed: Int? = nil
     ) -> String {
         var parts: [String] = []
+        let unit = options.showUnit ? " km/h" : ""
 
         if options.showSpeed, let displaySpeed {
             let flame = options.showTopSpeedFlame && isTopSpeed && displaySpeed > 0 ? "🔥 " : ""
-            parts.append("\(flame)\(displaySpeed)" + (options.showUnit ? " km/h" : ""))
+            parts.append("\(flame)\(displaySpeed)" + unit)
+        } else if options.showSpeed, options.showEstimate, let estimatedSpeed {
+            parts.append("≈ \(estimatedSpeed)" + unit)
         }
 
         if options.showStation, let stop = status.nextStop {

@@ -1,0 +1,46 @@
+name: Release
+
+# Push a tag like v1.2.0 to build, zip and publish Zugbar.app. If the release already exists
+# (e.g. written by hand), only a missing zip is uploaded and its notes are left alone.
+# The runner's Xcode predates the macOS 26 SDK, so these builds use the classic look without
+# Liquid Glass; a zip uploaded from a newer local build is kept rather than replaced.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Test
+        run: swift test
+      - name: Build
+        run: VERSION="${GITHUB_REF_NAME#v}" ./scripts/bundle.sh
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          ZIP="Zugbar-${TAG#v}.zip"
+          ditto -c -k --keepParent build/Zugbar.app "$ZIP"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx "$ZIP"; then
+              echo "$ZIP is already attached; keeping it."
+            else
+              gh release upload "$TAG" "$ZIP"
+            fi
+            exit 0
+          fi
+          PREVIOUS="$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)"
+          {
+            git log --no-merges --format='- %s' "${PREVIOUS:+$PREVIOUS..}$TAG"
+            echo
+            echo "SHA-256: \`$(shasum -a 256 "$ZIP" | cut -d' ' -f1)\`"
+          } > notes.md
+          gh release create "$TAG" "$ZIP" --title "Zugbar ${TAG#v}" --notes-file notes.md
