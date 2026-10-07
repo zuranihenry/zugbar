@@ -181,3 +181,37 @@ struct PortalConnectionTests {
         #expect(first.portalStationID == "8000284_00")
     }
 }
+
+struct RepeatedWarningTests {
+    @Test func warnsOncePerLevel() {
+        let connection = Connection(tripID: "s4", name: "S4", headsign: nil, station: "Hannover Hbf",
+                                    scheduledDeparture: nil, expectedDeparture: nil, track: "2")
+        var plan = JourneyPlan(trainName: "ICE 619", destinationStopID: "h", connection: connection)
+        let tight: [JourneyEvent] = [.transferChanged(name: "S4", .tight(minutes: 3))]
+        #expect(plan.withoutRepeatedWarnings(tight).count == 1)
+        // Swinging back to comfortable and tight again stays quiet.
+        #expect(plan.withoutRepeatedWarnings(tight).isEmpty)
+        // Getting worse still notifies.
+        #expect(plan.withoutRepeatedWarnings([.transferChanged(name: "S4", .atRisk(minutes: 1))]).count == 1)
+        // Other events are untouched.
+        #expect(plan.withoutRepeatedWarnings([.trackChanged(stop: "Hannover Hbf", from: "7", to: "8")]).count == 1)
+        // A new connection starts over.
+        plan.connection = Connection(tripID: "s5", name: "S5", headsign: nil, station: "Hannover Hbf",
+                                     scheduledDeparture: nil, expectedDeparture: nil, track: "2")
+        #expect(plan.withoutRepeatedWarnings([.transferChanged(name: "S5", .tight(minutes: 3))]).count == 1)
+    }
+
+    @Test func survivesSaving() throws {
+        var plan = JourneyPlan(trainName: "ICE 619", connection: Connection(tripID: "s4", name: "S4", headsign: nil,
+            station: "Hannover Hbf", scheduledDeparture: nil, expectedDeparture: nil, track: nil))
+        _ = plan.withoutRepeatedWarnings([.transferChanged(name: "S4", .tight(minutes: 3))])
+        var restored = try JSONDecoder().decode(JourneyPlan.self, from: JSONEncoder().encode(plan))
+        #expect(restored.withoutRepeatedWarnings([.transferChanged(name: "S4", .tight(minutes: 4))]).isEmpty)
+    }
+
+    @Test func loadsPlansFromOlderVersions() throws {
+        let old = Data(#"{"trainName":"ICE 619","destinationStopID":"h"}"#.utf8)
+        let plan = try JSONDecoder().decode(JourneyPlan.self, from: old)
+        #expect(plan.destinationStopID == "h")
+    }
+}

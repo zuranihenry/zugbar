@@ -6,13 +6,29 @@ public struct JourneyPlan: Codable, Sendable, Equatable {
     public var trainName: String
     public var boardingStopID: String?
     public var destinationStopID: String?
-    public var connection: Connection?
+    public var connection: Connection? {
+        didSet { if connection?.tripID != oldValue?.tripID { warnedTransferLevel = nil } }
+    }
+    /// The worst transfer state already notified for the current connection. Optional so plans saved
+    /// by older versions still load.
+    var warnedTransferLevel: Int?
 
     public init(trainName: String, boardingStopID: String? = nil, destinationStopID: String? = nil, connection: Connection? = nil) {
         self.trainName = trainName
         self.boardingStopID = boardingStopID
         self.destinationStopID = destinationStopID
         self.connection = connection
+    }
+
+    /// Drops transfer warnings that aren't worse than one already sent. A delay swinging around the
+    /// five-minute mark would otherwise send "tight connection" again every time it tips over.
+    public mutating func withoutRepeatedWarnings(_ events: [JourneyEvent]) -> [JourneyEvent] {
+        events.filter { event in
+            guard case .transferChanged(_, let transfer) = event else { return true }
+            guard transfer.severity > (warnedTransferLevel ?? 0) else { return false }
+            warnedTransferLevel = transfer.severity
+            return true
+        }
     }
 }
 
@@ -167,7 +183,7 @@ public enum JourneyWatcher {
                 }
                 let oldTransfer = oldConnection.transfer(after: before.arrival)
                 let newTransfer = newConnection.transfer(after: after.arrival)
-                if let newTransfer, severity(newTransfer) > severity(oldTransfer) {
+                if let newTransfer, newTransfer.severity > (oldTransfer?.severity ?? 0) {
                     events.append(.transferChanged(name: newConnection.name, newTransfer))
                 }
             }
@@ -202,9 +218,13 @@ public enum JourneyWatcher {
         return events
     }
 
-    private static func severity(_ transfer: Connection.Transfer?) -> Int {
-        switch transfer {
-        case .comfortable, nil: 0
+}
+
+extension Connection.Transfer {
+    /// 0 comfortable … 3 cancelled.
+    public var severity: Int {
+        switch self {
+        case .comfortable: 0
         case .tight: 1
         case .atRisk: 2
         case .cancelled: 3
