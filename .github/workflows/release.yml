@@ -2,8 +2,6 @@ name: Release
 
 # Push a tag like v1.2.0 to build, zip and publish Zugbar.app. If the release already exists
 # (e.g. written by hand), only a missing zip is uploaded and its notes are left alone.
-# The runner's Xcode predates the macOS 26 SDK, so these builds use the classic look without
-# Liquid Glass; a zip uploaded from a newer local build is kept rather than replaced.
 on:
   push:
     tags: ['v*']
@@ -13,11 +11,14 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-15
+    # macOS 26 runner: its Xcode has the macOS 26 SDK, so Liquid Glass is compiled in.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Check toolchain
+        run: ./scripts/check-toolchain.sh
       - name: Test
         run: swift test
       - name: Build

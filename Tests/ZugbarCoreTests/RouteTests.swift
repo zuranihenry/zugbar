@@ -123,6 +123,18 @@ struct SpeedProfileTests {
     }
 }
 
+struct SignallingTests {
+    @Test func pzbOnlyLinesStayAt160() {
+        #expect(OverpassClient.signalledSpeed(200, tags: ["railway:pzb": "yes"]) == 160)
+        #expect(OverpassClient.signalledSpeed(200, tags: ["railway:pzb": "yes", "railway:lzb": "no"]) == 160)
+        #expect(OverpassClient.signalledSpeed(200, tags: ["railway:pzb": "yes", "railway:lzb": "yes"]) == 200)
+        #expect(OverpassClient.signalledSpeed(300, tags: ["railway:pzb": "yes", "railway:etcs": "2"]) == 300)
+        // Outside PZB networks (e.g. French LGVs) the tagged speed stands.
+        #expect(OverpassClient.signalledSpeed(320, tags: ["railway:tvm": "430"]) == 320)
+        #expect(OverpassClient.signalledSpeed(120, tags: ["railway:pzb": "yes"]) == 120)
+    }
+}
+
 struct OverpassErrorTests {
     @Test func overloadedServerCountsAsFailure() {
         let json = Data(#"{"elements":[],"remark":"runtime error: Query timed out in \"query\" at line 1 after 26 seconds."}"#.utf8)

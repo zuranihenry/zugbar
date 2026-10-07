@@ -17,16 +17,11 @@ actor LimitCache {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Zugbar", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        file = folder.appendingPathComponent("speed-limits.json")
-        let data = try? Data(contentsOf: file)
-        if let data, let entries = try? JSONDecoder().decode([String: Entry].self, from: data) {
-            self.entries = entries
-        } else if let data, let old = try? JSONDecoder().decode([String: [Int]].self, from: data) {
-            // Files from older versions only stored the limits.
-            entries = old.mapValues { Entry(limits: $0, used: .distantPast) }
-        } else {
-            entries = [:]
-        }
+        // Bump the version when the way limits are derived changes, so stale sections aren't reused.
+        // v2: PZB-only tracks capped at 160 km/h.
+        file = folder.appendingPathComponent("speed-limits-v2.json")
+        try? FileManager.default.removeItem(at: folder.appendingPathComponent("speed-limits.json"))
+        entries = (try? JSONDecoder().decode([String: Entry].self, from: Data(contentsOf: file))) ?? [:]
     }
 
     /// The section's shape (start, end, length rounded) identifies it independent of trip IDs.
