@@ -12,6 +12,9 @@ public struct JourneyPlan: Codable, Sendable, Equatable {
     /// The worst transfer state already notified for the current connection. Optional so plans saved
     /// by older versions still load.
     var warnedTransferLevel: Int?
+    /// Stops carried over from the previous train's connection, by name, until this train's stop list is known.
+    public var pendingBoarding: String?
+    public var pendingDestination: String?
 
     public init(trainName: String, boardingStopID: String? = nil, destinationStopID: String? = nil, connection: Connection? = nil) {
         self.trainName = trainName
