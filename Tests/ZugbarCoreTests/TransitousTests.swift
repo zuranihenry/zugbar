@@ -6,11 +6,26 @@ struct TransitousTests {
     @Test func matchesTrainNames() throws {
         let data = try fixture("transitous_map_trips")
         let id = "20261005_18:16_de-DELFI_3426062749"
-        #expect(try Transitous.matchTrip(in: data, query: "ICE 777") == id)
-        #expect(try Transitous.matchTrip(in: data, query: "ice777") == id)
-        #expect(try Transitous.matchTrip(in: data, query: "777") == id)
+        #expect(try Transitous.matchTrip(in: data, query: "ICE 777")?.tripID == id)
+        #expect(try Transitous.matchTrip(in: data, query: "ice777")?.tripID == id)
+        #expect(try Transitous.matchTrip(in: data, query: "777") == .init(tripID: id, ambiguous: false))
         #expect(try Transitous.matchTrip(in: data, query: "ICE 591") == nil)
         #expect(try Transitous.matchTrip(in: data, query: "CAG-POZ") == nil)
+    }
+
+    /// "1072" is both a Swedish train and ICE 1072; the ICE should win even when only the Swedish one is moving yet.
+    @Test func prefersLongDistanceForBareNumbers() async throws {
+        let swedish = #"[{"mode":"LONG_DISTANCE","trips":[{"tripId":"se-1072","displayName":"1072"}]}]"#
+        let german = #"[{"mode":"HIGHSPEED_RAIL","trips":[{"tripId":"de-1072","displayName":"ICE 1072"}]}]"#
+        let loader: DataLoader = { url in
+            let isCoreArea = url.query?.contains("min=45.5") == true
+            return Data((isCoreArea ? german : swedish).utf8)
+        }
+        let now = Date()
+        #expect(try await Transitous(query: "1072", loader: loader).findTrip(named: "1072", now: now) == "de-1072")
+        #expect(try await Transitous(query: "1072", loader: { _ in Data(swedish.utf8) }).findTrip(named: "1072", now: now) == "se-1072")
+        #expect(try Transitous.matchTrip(in: Data(swedish.utf8), query: "1072")?.ambiguous == true)
+        #expect(try Transitous.matchTrip(in: Data(swedish.utf8), query: "ICE 1072") == nil)
     }
 
     @Test func parsesTrip() throws {
