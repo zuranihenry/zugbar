@@ -82,7 +82,10 @@ public actor Transitous: TrainProvider {
 
     /// Transitous has no train-number search, so list what's moving and match the name.
     /// At this zoom level the map only includes long-distance trains.
-    private func findTrip(named query: String, now: Date) async throws -> String? {
+    /// A bare number like "1072" is ambiguous (ICE 1072, or Swedish train 1072), so a match without a
+    /// long-distance prefix is only taken once no search finds one with it.
+    func findTrip(named query: String, now: Date) async throws -> String? {
+        var fallback: String?
         for search in Self.searches {
             let url = Self.mapTripsURL(from: now, to: now.addingTimeInterval(search.window), area: search.area)
             let data: Data
@@ -91,9 +94,11 @@ public actor Transitous: TrainProvider {
             } catch ProviderError.badStatus(422) {
                 continue
             }
-            if let id = try Self.matchTrip(in: data, query: query) { return id }
+            guard let match = try Self.matchTrip(in: data, query: query) else { continue }
+            if !match.ambiguous { return match.tripID }
+            fallback = fallback ?? match.tripID
         }
-        return nil
+        return fallback
     }
 
     static func mapTripsURL(from start: Date, to end: Date, area: Area = europe) -> URL {
@@ -109,7 +114,13 @@ public actor Transitous: TrainProvider {
         return url
     }
 
-    static func matchTrip(in data: Data, query: String) throws -> String? {
+    struct TripMatch: Equatable {
+        let tripID: String
+        /// A bare number matched a train without a long-distance prefix; a better match may exist elsewhere.
+        let ambiguous: Bool
+    }
+
+    static func matchTrip(in data: Data, query: String) throws -> TripMatch? {
         let segments = try JSONDecoder().decode([MapSegment].self, from: data)
         let wanted = normalize(query)
         let numberOnly = wanted.allSatisfy(\.isNumber)
@@ -123,10 +134,12 @@ public actor Transitous: TrainProvider {
                 return numberOnly ? name.drop(while: \.isLetter) == wanted : name == wanted
             }
 
-        let best = candidates.first { trip in
+        if let best = candidates.first(where: { trip in
             longDistance.contains { normalize(trip.displayName ?? "").hasPrefix($0) }
-        } ?? candidates.first
-        return best?.tripId
+        }) {
+            return TripMatch(tripID: best.tripId, ambiguous: false)
+        }
+        return candidates.first.map { TripMatch(tripID: $0.tripId, ambiguous: numberOnly) }
     }
 
     public static func normalize(_ text: String) -> String {
