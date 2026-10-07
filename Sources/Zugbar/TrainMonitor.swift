@@ -120,6 +120,13 @@ final class TrainMonitor {
     private var profileRequests: Set<String> = []
     private let overpass = OverpassClient()
     private let limitCache = LimitCache()
+    private let learnedStore = LearnedSpeedStore()
+    /// A copy of the learned speeds for synchronous use when building profiles; refreshed from the store.
+    @ObservationIgnored private var learned = LearnedSpeeds()
+    private(set) var learnedCellCount = 0
+    private var learningEnabled: Bool { UserDefaults.standard.object(forKey: "learnSpeeds") as? Bool ?? true }
+
+    enum EstimateSource { case basic, learned, trackProfile }
 
     /// `serverDown`: no OpenStreetMap server answered; retried every two minutes. `unavailable`: no data for the section.
     enum ProfileState: Equatable { case off, loading, ready, unavailable, serverDown }
@@ -144,6 +151,7 @@ final class TrainMonitor {
 
     init() {
         demoMode = CommandLine.arguments.contains("--demo")
+        loadLearnedSpeeds()
         startTicking()
         startFrames()
         restart()
@@ -362,15 +370,40 @@ final class TrainMonitor {
     // MARK: - Map position
 
     /// The current section and its speed profile, refreshed once a second so frames only interpolate.
-    @ObservationIgnored private var section: (estimate: RouteEstimate, profile: SpeedProfile?)?
+    @ObservationIgnored private var section: (estimate: RouteEstimate, profile: SpeedProfile?, source: EstimateSource)?
+    /// Basic profiles lowered to learned speeds, per section; built once instead of every second.
+    @ObservationIgnored private var learnedProfiles: [String: SpeedProfile?] = [:]
 
     private func refreshSection() {
         guard let status, status.position == nil, let estimate = status.routeEstimate(at: now) else {
             section = nil
             return
         }
-        let profile = (profilesEnabled ? profiles[estimate.key] : nil) ?? estimate.basicProfile
-        if section?.estimate != estimate || section?.profile != profile { section = (estimate, profile) }
+        let next: (SpeedProfile?, EstimateSource)
+        if profilesEnabled, let profile = profiles[estimate.key] {
+            next = (profile, .trackProfile)
+        } else if learningEnabled, let route = status.route, let profile = learnedProfile(for: estimate, route: route) {
+            next = (profile, .learned)
+        } else {
+            next = (estimate.basicProfile, .basic)
+        }
+        if section?.estimate != estimate || section?.profile != next.0 { section = (estimate, next.0, next.1) }
+    }
+
+    /// The basic profile with learned speeds applied, when they cover at least a fifth of the section.
+    private func learnedProfile(for estimate: RouteEstimate, route: Route) -> SpeedProfile? {
+        let key = "\(estimate.key)|\(estimate.departure.timeIntervalSince1970)|\(estimate.arrival.timeIntervalSince1970)"
+        if let cached = learnedProfiles[key] { return cached }
+        let points = route.points(from: estimate.startDistance, to: estimate.endDistance)
+        let samples = min(400, max(2, Int(estimate.sectionLength / 200) + 1))
+        let cap = min(estimate.kind.maxSpeed, max(80, estimate.averageSpeed * 14 / 10))
+        let applied = learned.apply(to: Array(repeating: cap, count: samples), along: points, kind: estimate.kind)
+        let profile = applied.covered * 5 >= samples
+            ? SpeedProfile(length: estimate.sectionLength, limits: applied.limits, duration: estimate.duration, kind: estimate.kind)
+            : nil
+        if learnedProfiles.count > 200 { learnedProfiles.removeAll() }
+        learnedProfiles[key] = profile
+        return profile
     }
 
     /// Last two GPS fixes, to move evenly between them (the marker runs one fix behind).
@@ -429,10 +462,18 @@ final class TrainMonitor {
     /// Estimated speed for a train followed online, from the section's speed profile when loaded, else from the timetable.
     /// `nil` when the setting is off or the train has live speed.
     func speedEstimate(_ status: TrainStatus) -> (speed: Int, fromProfile: Bool)? {
+        speedEstimateWithSource(status).map { ($0.speed, $0.source == .trackProfile) }
+    }
+
+    func speedEstimateWithSource(_ status: TrainStatus) -> (speed: Int, source: EstimateSource)? {
         let enabled = UserDefaults.standard.object(forKey: "estimatedSpeed") as? Bool ?? true
         guard enabled, status.isOnline, status.speed == nil else { return nil }
-        if let profile = profileEstimate(status) { return (profile.speed, true) }
-        return status.estimatedSpeed(at: now).map { ($0, false) }
+        if let profile = profileEstimate(status) { return (profile.speed, .trackProfile) }
+        if let section, section.source == .learned, let profile = section.profile,
+           section.estimate == status.routeEstimate(at: now) {
+            return (profile.state(after: now.timeIntervalSince(section.estimate.departure)).speed, .learned)
+        }
+        return status.estimatedSpeed(at: now).map { ($0, .basic) }
     }
 
     /// Speed and position from the section's speed profile, once loaded.
@@ -484,7 +525,10 @@ final class TrainMonitor {
                 }
             }.value
             profileRequests.remove(estimate.key)
-            if case .success(let limits?) = result,
+            let learnedLimits: [Int]? = if case .success(let limits?) = result {
+                learningEnabled ? learned.apply(to: limits, along: points, kind: estimate.kind).limits : limits
+            } else { nil }
+            if let limits = learnedLimits,
                let profile = SpeedProfile(length: estimate.sectionLength, limits: limits, duration: estimate.duration, kind: estimate.kind) {
                 profiles[estimate.key] = profile
                 profileState = .ready
@@ -805,8 +849,35 @@ final class TrainMonitor {
         status = newStatus
         lastUpdate = Date()
         prepareProfile(for: newStatus)
+        learn(from: newStatus)
         failures = 0
         if newStatus.speed == nil { displaySpeed = nil }
+    }
+
+    /// On board, remember how fast the train really is here, to improve estimates for trains followed online.
+    private func learn(from status: TrainStatus) {
+        guard learningEnabled, !demoMode, !status.isOnline, let position = status.position, let speed = status.speed else { return }
+        let kind = TrainKind.of(status.trainName)
+        learned.record(position, speed: speed, kind: kind)
+        learnedCellCount = learned.cellCount
+        let store = learnedStore
+        Task { await store.record(position, speed: speed, kind: kind) }
+    }
+
+    func loadLearnedSpeeds() {
+        let store = learnedStore
+        Task {
+            learned = await store.speeds
+            learnedCellCount = learned.cellCount
+        }
+    }
+
+    func clearLearnedSpeeds() {
+        learned = LearnedSpeeds()
+        learnedCellCount = 0
+        learnedProfiles.removeAll()
+        let store = learnedStore
+        Task { await store.clear() }
     }
 
     private func loadOnBoardRoute(for trainName: String) {
