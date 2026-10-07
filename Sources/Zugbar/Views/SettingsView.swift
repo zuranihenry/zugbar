@@ -241,6 +241,7 @@ struct DebugSettings: View {
     @Bindable var monitor: TrainMonitor
     @Environment(\.strings) private var strings
     @AppStorage("classicDesign") private var classicDesign = false
+    @AppStorage(PortalRecorder.enabledKey) private var recordPortals = false
     @AppStorage("debugNotification") private var selectedSample = 0
 
     var body: some View {
@@ -282,6 +283,13 @@ struct DebugSettings: View {
                 }
             } header: {
                 Text(strings.demoScenario)
+            }
+            Section {
+                Toggle(isOn: $recordPortals) {
+                    Text(strings.recordPortals)
+                    Text(strings.recordPortalsHint)
+                }
+                Button(strings.showRecordings) { PortalRecorder.showInFinder() }
             }
             Section {
                 Toggle(strings.classicDesign, isOn: $classicDesign)
