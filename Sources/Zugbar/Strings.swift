@@ -40,6 +40,26 @@ struct Strings {
     var speedOnlyOnBoard: String { t("Live speed is only available on board", "Live-Geschwindigkeit nur im Zug-WLAN") }
     func top(_ speed: Int) -> String { t("Top \(speed) km/h", "Max. \(speed) km/h") }
     var estimated: String { t("estimated", "geschätzt") }
+    func estimateLabel(_ source: TrainMonitor.EstimateSource) -> String {
+        switch source {
+        case .basic: estimated
+        case .learned: t("estimated · from your trips", "geschätzt · aus deinen Fahrten")
+        case .trackProfile: estimatedFromProfile
+        }
+    }
+    func estimateHelp(_ source: TrainMonitor.EstimateSource) -> String {
+        switch source {
+        case .basic: estimatedHelp
+        case .learned: learnSpeedsHint
+        case .trackProfile: trackProfilesHint
+        }
+    }
+    var learnSpeeds: String { t("Learn from your trips", "Aus eigenen Fahrten lernen") }
+    var learnSpeedsHint: String {
+        t("On board, Zugbar notes how fast the train really is on each stretch and uses that for estimates. Stays on this Mac.",
+          "Im Zug-WLAN merkt sich Zugbar, wie schnell der Zug auf jedem Streckenstück wirklich fährt, und nutzt das für Schätzungen. Bleibt auf diesem Mac.")
+    }
+    func learnedSpeeds(_ count: Int) -> String { t("Learned speeds (\(count) stretches)", "Gelernte Geschwindigkeiten (\(count) Streckenstücke)") }
     var estimatedFromProfile: String { t("estimated · track profile", "geschätzt · Streckenprofil") }
     var trackProfiles: String { t("Track profile from OpenStreetMap (experimental)", "Streckenprofil aus OpenStreetMap (experimentell)") }
     var trackProfilesHint: String {

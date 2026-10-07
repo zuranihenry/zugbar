@@ -64,9 +64,9 @@ struct StatusPanel: View {
     @ViewBuilder
     private func details(_ status: TrainStatus, map: CGFloat?) -> some View {
         TripHeader(status: status, showsPopOut: !isWindow)
-        let estimate = estimatedSpeed ? monitor.speedEstimate(status) : nil
+        let estimate = estimatedSpeed ? monitor.speedEstimateWithSource(status) : nil
         SpeedRow(speed: monitor.displaySpeed, top: monitor.topSpeed, online: status.isOnline,
-                 estimate: estimate?.speed, fromProfile: estimate?.fromProfile ?? false)
+                 estimate: estimate?.speed, source: estimate?.source ?? .basic)
         if estimate != nil, monitor.profileState == .serverDown {
             Label(strings.overpassDown, systemImage: "exclamationmark.icloud")
                 .font(.caption)
@@ -144,7 +144,7 @@ private struct SpeedRow: View {
     let top: Int
     let online: Bool
     let estimate: Int?
-    var fromProfile = false
+    var source: TrainMonitor.EstimateSource = .basic
     @Environment(\.strings) private var strings
 
     var body: some View {
@@ -162,10 +162,10 @@ private struct SpeedRow: View {
                     .contentTransition(.numericText())
                     .foregroundStyle(.secondary)
                 Text("km/h").foregroundStyle(.secondary)
-                Text(fromProfile ? strings.estimatedFromProfile : strings.estimated)
+                Text(strings.estimateLabel(source))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
-                    .help(fromProfile ? strings.trackProfilesHint : strings.estimatedHelp)
+                    .help(strings.estimateHelp(source))
             } else if online {
                 Label(strings.speedOnlyOnBoard, systemImage: "antenna.radiowaves.left.and.right.slash")
                     .font(.callout)

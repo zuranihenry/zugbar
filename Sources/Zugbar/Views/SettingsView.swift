@@ -54,6 +54,7 @@ struct GeneralSettings: View {
     @AppStorage("regionalTrains") private var regionalTrains = false
     @AppStorage("estimatedSpeed") private var estimatedSpeed = true
     @AppStorage("trackProfiles") private var trackProfiles = false
+    @AppStorage("learnSpeeds") private var learnSpeeds = true
     @AppStorage(UpdateChecker.enabledKey) private var checkForUpdates = true
 
     var body: some View {
@@ -80,6 +81,10 @@ struct GeneralSettings: View {
                     Text(strings.trackProfilesHint)
                 }
                 .disabled(!estimatedSpeed)
+                Toggle(isOn: $learnSpeeds) {
+                    Text(strings.learnSpeeds)
+                    Text(strings.learnSpeedsHint)
+                }
             }
             Section(strings.data) {
                 LabeledContent(strings.suggestionHistory) {
@@ -87,6 +92,10 @@ struct GeneralSettings: View {
                 }
                 LabeledContent(strings.destinationAndConnection) {
                     Button(strings.clear, role: .destructive) { monitor.clearPlan() }
+                }
+                LabeledContent(strings.learnedSpeeds(monitor.learnedCellCount)) {
+                    Button(strings.clear, role: .destructive) { monitor.clearLearnedSpeeds() }
+                        .disabled(monitor.learnedCellCount == 0)
                 }
             }
         }
