@@ -223,6 +223,15 @@ public struct OverpassClient: Sendable {
         func set(_ index: Int) { self.index = index }
     }
 
+    /// Lines signalled only with PZB (Germany, Austria) allow at most 160 km/h; more needs LZB or ETCS.
+    /// OpenStreetMap often tags the line's design speed, e.g. 200 on parts of the Kinzigtalbahn without LZB.
+    static func signalledSpeed(_ speed: Int, tags: [String: String]) -> Int {
+        guard speed > 160, tags["railway:pzb"] == "yes" else { return speed }
+        let hasLZB = tags["railway:lzb"] == "yes"
+        let hasETCS = tags["railway:etcs"].map { $0 != "no" } ?? false
+        return hasLZB || hasETCS ? speed : 160
+    }
+
     static func parse(_ data: Data) throws -> [TrackLimit] {
         struct Response: Decodable { let elements: [Element]; let remark: String? }
         struct Element: Decodable {
@@ -236,11 +245,11 @@ public struct OverpassClient: Sendable {
         if let remark = response.remark, remark.contains("error") { throw OverpassError.overloaded(remark) }
         return response.elements.compactMap { element in
             // "160", "200;160" (per direction), "250 km/h": take the first number.
-            guard let raw = element.tags?["maxspeed"],
+            guard let tags = element.tags, let raw = tags["maxspeed"],
                   let speed = Int(raw.prefix { $0.isNumber }), speed > 0,
                   let geometry = element.geometry, !geometry.isEmpty
             else { return nil }
-            return TrackLimit(maxspeed: speed, nodes: geometry.map { Coordinate(latitude: $0.lat, longitude: $0.lon) })
+            return TrackLimit(maxspeed: signalledSpeed(speed, tags: tags), nodes: geometry.map { Coordinate(latitude: $0.lat, longitude: $0.lon) })
         }
     }
 }

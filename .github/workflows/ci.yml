@@ -7,9 +7,12 @@ on:
 
 jobs:
   test:
-    runs-on: macos-15
+    # macOS 26 runner: its Xcode has the macOS 26 SDK, so Liquid Glass is compiled in.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - name: Check toolchain
+        run: ./scripts/check-toolchain.sh
       - name: Build
         run: swift build
       - name: Test
