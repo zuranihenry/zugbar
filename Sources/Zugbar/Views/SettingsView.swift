@@ -38,12 +38,11 @@ enum SettingsTab: CaseIterable {
 private struct SettingsPane<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
+    /// Scrolls when the content outgrows the window (rows that appear later, a tall tab on a small screen).
     var body: some View {
         Form { content() }
             .formStyle(.grouped)
-            .scrollDisabled(true)
             .frame(width: 480)
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -241,6 +240,7 @@ struct DebugSettings: View {
     @Bindable var monitor: TrainMonitor
     @Environment(\.strings) private var strings
     @AppStorage("classicDesign") private var classicDesign = false
+    @AppStorage(PortalRecorder.enabledKey) private var recordPortals = false
     @AppStorage("debugNotification") private var selectedSample = 0
 
     var body: some View {
@@ -282,6 +282,13 @@ struct DebugSettings: View {
                 }
             } header: {
                 Text(strings.demoScenario)
+            }
+            Section {
+                Toggle(isOn: $recordPortals) {
+                    Text(strings.recordPortals)
+                    Text(strings.recordPortalsHint)
+                }
+                Button(strings.showRecordings) { PortalRecorder.showInFinder() }
             }
             Section {
                 Toggle(strings.classicDesign, isOn: $classicDesign)

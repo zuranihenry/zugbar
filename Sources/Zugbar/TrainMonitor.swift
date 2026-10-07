@@ -775,7 +775,7 @@ final class TrainMonitor {
                 if demoMode {
                     provider = DemoProvider()
                     continue
-                } else if !onBoardDismissed, let (found, first) = await Self.firstResponding(Providers.onBoard()) {
+                } else if !onBoardDismissed, let (found, first) = await Self.firstResponding(Providers.onBoard(loader: PortalRecorder.wrap(URLSession.portal.loader))) {
                     provider = found
                     apply(first)
                 } else if let manualTarget {
