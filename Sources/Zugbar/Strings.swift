@@ -52,8 +52,15 @@ struct Strings {
         case .loading: t("loading…", "lädt…")
         case .ready: t("ready", "bereit")
         case .unavailable: t("no data for this section", "keine Daten für diesen Abschnitt")
+        case .serverDown: t("OpenStreetMap unreachable, retrying", "OpenStreetMap nicht erreichbar, neuer Versuch läuft")
         }
     }
+    var overpassDown: String {
+        t("OpenStreetMap is down right now, so this is a simpler estimate. Zugbar reconnects automatically.",
+          "OpenStreetMap ist gerade nicht erreichbar, daher eine einfachere Schätzung. Zugbar verbindet sich automatisch neu.")
+    }
+    var menuBarEstimate: String { t("Estimated speed for trains followed online", "Geschätzte Geschwindigkeit bei online verfolgten Zügen") }
+    var menuBarEstimateHint: String { t("Shown as “≈ 180”.", "Wird als „≈ 180“ angezeigt.") }
     var estimatedSpeedSetting: String { t("Estimated speed for trains followed online", "Geschätzte Geschwindigkeit bei online verfolgten Zügen") }
     var estimatedHelp: String { t("Average speed between the last and next stop, from the timetable", "Durchschnitt zwischen letztem und nächstem Halt, aus dem Fahrplan") }
     var topHelp: String { t("Highest speed this trip", "Höchstgeschwindigkeit dieser Fahrt") }
@@ -126,6 +133,8 @@ struct Strings {
         case .loadingDepartures: t("Loading departures…", "Lade Abfahrten…")
         case .noDepartures: t("No trains leaving soon.", "In Kürze keine Abfahrten.")
         case .failed: t("Couldn't load data.", "Daten konnten nicht geladen werden.")
+        case .noDirectConnection: t("No direct connection found.", "Keine direkte Verbindung gefunden.")
+        case .regionalOff: t("No direct long-distance connection.", "Keine direkte Fernverkehrsverbindung.")
         }
     }
 
@@ -140,6 +149,7 @@ struct Strings {
     var addConnection: String { t("Add connection…", "Anschluss hinzufügen…") }
     var continueTo: String { t("Continue to, e.g. Wunstorf", "Weiter nach, z. B. Wunstorf") }
     var connection: String { t("Connection", "Anschluss") }
+    var enableRegional: String { t("Include regional trains", "Regionalzüge einschalten") }
     func arrives(_ time: String) -> String { t("arr. \(time)", "an \(time)") }
     func transfer(_ transfer: Connection.Transfer) -> String {
         switch transfer {
@@ -150,6 +160,8 @@ struct Strings {
         }
     }
     var reload: String { t("Reload train data", "Zugdaten neu laden") }
+    var cancelled: String { t("Cancelled", "Fällt aus") }
+    var noStopHere: String { t("The train no longer stops here.", "Der Zug hält hier nicht mehr.") }
     var notifications: String { t("Notifications", "Benachrichtigungen") }
 
     func notification(_ event: JourneyEvent) -> (String, String?) {
@@ -157,6 +169,10 @@ struct Strings {
         switch event {
         case .arrivingSoon(let stop, let minutes, let track):
             return (t("\(stop) in \(minutes) min", "In \(minutes) Min. in \(stop)"), trackText(track))
+        case .departingSoon(let stop, let minutes, let track):
+            return (t("Departs \(stop) in \(minutes) min", "Abfahrt in \(stop) in \(minutes) Min."), trackText(track))
+        case .stopCancelled(let stop):
+            return (t("No stop at \(stop)", "Kein Halt in \(stop)"), t("The train no longer stops there.", "Der Zug hält dort nicht mehr."))
         case .delayChanged(let stop, let from, let to):
             return (t("\(stop): now \(signed(to)) min", "\(stop): jetzt \(signed(to)) Min."), t("Was \(signed(from)) min", "Vorher \(signed(from)) Min."))
         case .trackChanged(let stop, let from, let to):
@@ -234,6 +250,10 @@ struct Strings {
     // Settings window
     var general: String { t("General", "Allgemein") }
     var arrivalReminders: String { t("Remind me before arrival", "Erinnerung vor Ankunft") }
+    var departureReminders: String { t("Remind me before departure", "Erinnerung vor Abfahrt") }
+    var departureRemindersHint: String {
+        t("For trains followed online, once you've picked where you get on.", "Bei online verfolgten Zügen, sobald du einen Einstieg gewählt hast.")
+    }
     func minutesBefore(_ minutes: Int) -> String { t("\(minutes) min", "\(minutes) Min.") }
     var delayThreshold: String { t("Report delay changes from", "Verspätungsänderungen melden ab") }
     var trackChanges: String { t("Track changes", "Gleiswechsel") }
@@ -300,6 +320,11 @@ struct Strings {
     }
     var demoMode: String { t("Demo mode", "Demo-Modus") }
     var launchAtLogin: String { t("Launch at login", "Beim Anmelden starten") }
+    var checkForUpdates: String { t("Check for updates", "Nach Updates suchen") }
+    func updateAvailable(_ version: String) -> String { t("Update available: \(version)", "Update verfügbar: \(version)") }
+    func updateNotification(_ version: String) -> (String, String) {
+        (t("Zugbar \(version) is available", "Zugbar \(version) ist verfügbar"), t("Click to see what's new.", "Klicke, um die Neuerungen zu sehen."))
+    }
     func stopFollowing(_ name: String) -> String { t("Stop following \(name)", "\(name) nicht mehr verfolgen") }
     var quit: String { t("Quit Zugbar", "Zugbar beenden") }
 }

@@ -3,6 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Defaults to the latest tag, so the update check compares against the right version.
+VERSION="${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')}"
 VERSION="${VERSION:-1.0.0}"
 BUNDLE_ID="${BUNDLE_ID:-io.github.zuranihenry.zugbar}"
 APP="build/Zugbar.app"

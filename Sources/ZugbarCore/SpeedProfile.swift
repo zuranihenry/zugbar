@@ -131,44 +131,97 @@ public struct TrackLimit: Sendable, Equatable {
     }
 }
 
-/// Speed limits from OpenStreetMap via Overpass. Public instances are shared; queries are small and cached by the caller.
+/// Speed limits from OpenStreetMap via Overpass. Public instances are shared and often overloaded, so several are
+/// tried in turn, each with a short timeout, starting with the one that answered last. Queries are cached by the caller.
 public struct OverpassClient: Sendable {
     static let endpoints = [
+        URL(string: "https://overpass.openstreetmap.fr/api/interpreter")!,
         URL(string: "https://overpass-api.de/api/interpreter")!,
         URL(string: "https://overpass.private.coffee/api/interpreter")!,
     ]
+
+    /// The endpoint that answered last; tried first next time.
+    private let preferred = PreferredEndpoint()
 
     let post: @Sendable (URL, Data) async throws -> Data
 
     public init(post: (@Sendable (URL, Data) async throws -> Data)? = nil) {
         self.post = post ?? { url, body in
-            var request = URLRequest(url: url, timeoutInterval: 30)
+            // A busy server queues requests and answers with a 504 much later; give up early and try the next one.
+            var request = URLRequest(url: url, timeoutInterval: 15)
             request.httpMethod = "POST"
             request.httpBody = body
             request.setValue("Zugbar/1.0 (+https://github.com/zuranihenry/zugbar)", forHTTPHeaderField: "User-Agent")
-            let (data, response) = try await URLSession.shared.data(for: request)
+            // The request timeout only covers silence between packets; a server trickling data could take minutes.
+            let finished = request
+            let (data, response) = try await Self.withDeadline(seconds: 20) { try await URLSession.shared.data(for: finished) }
             if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw ProviderError.badStatus(http.statusCode) }
             return data
         }
     }
 
     /// Tagged railway tracks within 25 m of the given points (thinned to about every 1.5 km).
+    /// Long sections are asked for in pieces of about 30 km: one big query can take longer than the timeout.
     public func tracks(along points: [Coordinate]) async throws -> [TrackLimit] {
         let route = Route(points: points)
         let count = max(2, min(80, Int(route.length / 1500) + 2))
         let samples = (0..<count).compactMap { route.coordinate(at: route.length * Double($0) / Double(count - 1)) }
-        let line = samples.map { String(format: "%.5f,%.5f", $0.latitude, $0.longitude) }.joined(separator: ",")
-        let query = "[out:json][timeout:25];way(around:25,\(line))[railway=rail][maxspeed];out tags geom qt;"
-        let body = Data(("data=" + (query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")).utf8)
-
-        var lastError: Error = ProviderError.badStatus(0)
-        for endpoint in Self.endpoints {
-            do { return try Self.parse(await post(endpoint, body)) } catch { lastError = error }
+        // Neighboring pieces share a point so no track falls between them.
+        let pieces = stride(from: 0, to: max(1, samples.count - 1), by: Self.pointsPerQuery - 1).map {
+            Array(samples[$0..<min(samples.count, $0 + Self.pointsPerQuery)])
         }
-        throw lastError
+        // Two at a time: faster, without taking more than our share of a public server.
+        return try await withThrowingTaskGroup(of: [TrackLimit].self) { group in
+            var tracks: [TrackLimit] = []
+            for (index, piece) in pieces.enumerated() {
+                if index >= 2, let done = try await group.next() { tracks += done }
+                group.addTask { try await query(piece[...]) }
+            }
+            for try await done in group { tracks += done }
+            return tracks
+        }
     }
 
-    enum OverpassError: Error { case overloaded(String) }
+    static let pointsPerQuery = 20
+
+    private static func withDeadline<T: Sendable>(seconds: Double, _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw URLError(.timedOut)
+            }
+            defer { group.cancelAll() }
+            return try await group.next()!
+        }
+    }
+
+    private func query(_ points: ArraySlice<Coordinate>) async throws -> [TrackLimit] {
+        let line = points.map { String(format: "%.5f,%.5f", $0.latitude, $0.longitude) }.joined(separator: ",")
+        let query = "[out:json][timeout:15];way(around:25,\(line))[railway=rail][maxspeed];out tags geom qt;"
+        let body = Data(("data=" + (query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")).utf8)
+
+        let first = await preferred.index
+        for offset in Self.endpoints.indices {
+            let index = (first + offset) % Self.endpoints.count
+            if let tracks = try? Self.parse(await post(Self.endpoints[index], body)) {
+                await preferred.set(index)
+                return tracks
+            }
+        }
+        throw OverpassError.unreachable
+    }
+
+    public enum OverpassError: Error, Equatable {
+        case overloaded(String)
+        /// No server answered: the data exists, it just can't be loaded right now.
+        case unreachable
+    }
+
+    private actor PreferredEndpoint {
+        private(set) var index = 0
+        func set(_ index: Int) { self.index = index }
+    }
 
     static func parse(_ data: Data) throws -> [TrackLimit] {
         struct Response: Decodable { let elements: [Element]; let remark: String? }

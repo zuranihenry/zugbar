@@ -54,6 +54,7 @@ struct GeneralSettings: View {
     @AppStorage("regionalTrains") private var regionalTrains = false
     @AppStorage("estimatedSpeed") private var estimatedSpeed = true
     @AppStorage("trackProfiles") private var trackProfiles = false
+    @AppStorage(UpdateChecker.enabledKey) private var checkForUpdates = true
 
     var body: some View {
         SettingsPane {
@@ -61,7 +62,9 @@ struct GeneralSettings: View {
                 Picker(strings.language, selection: $language) {
                     ForEach(AppLanguage.allCases) { Text(strings.name(of: $0)).tag($0) }
                 }
-                Toggle(strings.launchAtLogin, isOn: launchAtLogin)
+                Toggle(strings.launchAtLogin, isOn: Binding(get: { LoginItem.shared.isEnabled }, set: { LoginItem.shared.set($0) }))
+                Toggle(strings.checkForUpdates, isOn: $checkForUpdates)
+                    .onChange(of: checkForUpdates) { _, enabled in if enabled { monitor.updates.check() } }
             }
             Section {
                 Toggle(isOn: $regionalTrains) {
@@ -89,14 +92,22 @@ struct GeneralSettings: View {
         }
     }
 
-    /// Only works from the bundled .app.
-    private var launchAtLogin: Binding<Bool> {
-        Binding(
-            get: { SMAppService.mainApp.status == .enabled },
-            set: { enabled in
-                try? enabled ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
-            }
-        )
+}
+
+/// Mirrors the system's login item state, which SwiftUI can't observe. Only works from the bundled .app.
+@MainActor
+@Observable
+final class LoginItem {
+    static let shared = LoginItem()
+    private(set) var isEnabled = SMAppService.mainApp.status == .enabled
+
+    /// Reads the state back so the toggle shows what actually happened.
+    func set(_ enabled: Bool) {
+        let service = SMAppService.mainApp
+        try? enabled ? service.register() : service.unregister()
+        // Login items are switched off for Zugbar in System Settings; take the user there.
+        if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
+        isEnabled = service.status == .enabled
     }
 }
 
@@ -104,6 +115,7 @@ struct MenuBarSettings: View {
     @Environment(\.strings) private var strings
     @AppStorage("showSpeed") private var showSpeed = true
     @AppStorage("showUnit") private var showUnit = true
+    @AppStorage("menuBarEstimate") private var menuBarEstimate = true
     @AppStorage("showTopSpeedFlame") private var showTopSpeedFlame = true
     @AppStorage("showStation") private var showStation = true
     @AppStorage("stationStyle") private var stationStyle = MenuTitleOptions.StationStyle.full
@@ -125,6 +137,11 @@ struct MenuBarSettings: View {
                 Toggle(strings.speed, isOn: $showSpeed)
                 Toggle(strings.showUnit, isOn: $showUnit).disabled(!showSpeed)
                 Toggle(strings.flame, isOn: $showTopSpeedFlame).disabled(!showSpeed)
+                Toggle(isOn: $menuBarEstimate) {
+                    Text(strings.menuBarEstimate)
+                    Text(strings.menuBarEstimateHint)
+                }
+                .disabled(!showSpeed)
             }
             Section {
                 Toggle(strings.nextStation, isOn: $showStation)
@@ -169,10 +186,23 @@ struct NotificationSettingsView: View {
             Section(strings.arrivalReminders) {
                 HStack(spacing: 6) {
                     ForEach(NotificationSettings.reminderChoices, id: \.self) { minutes in
-                        Toggle(strings.minutesBefore(minutes), isOn: reminder(minutes))
+                        Toggle(strings.minutesBefore(minutes), isOn: reminder(minutes, in: \.arrivalReminders))
                             .toggleStyle(.button)
                     }
                 }
+            }
+            .disabled(!notifications)
+            Section {
+                HStack(spacing: 6) {
+                    ForEach(NotificationSettings.reminderChoices, id: \.self) { minutes in
+                        Toggle(strings.minutesBefore(minutes), isOn: reminder(minutes, in: \.departureReminders))
+                            .toggleStyle(.button)
+                    }
+                }
+            } header: {
+                Text(strings.departureReminders)
+            } footer: {
+                Text(strings.departureRemindersHint).font(.caption).foregroundStyle(.secondary)
             }
             .disabled(!notifications)
             Section {
@@ -187,12 +217,12 @@ struct NotificationSettingsView: View {
         .onAppear { monitor.refreshNotificationPermission() }
     }
 
-    private func reminder(_ minutes: Int) -> Binding<Bool> {
+    private func reminder(_ minutes: Int, in reminders: WritableKeyPath<NotificationSettings, Set<Int>>) -> Binding<Bool> {
         Binding(
-            get: { monitor.notificationSettings.arrivalReminders.contains(minutes) },
+            get: { monitor.notificationSettings[keyPath: reminders].contains(minutes) },
             set: { on in
-                if on { monitor.notificationSettings.arrivalReminders.insert(minutes) }
-                else { monitor.notificationSettings.arrivalReminders.remove(minutes) }
+                if on { monitor.notificationSettings[keyPath: reminders].insert(minutes) }
+                else { monitor.notificationSettings[keyPath: reminders].remove(minutes) }
             }
         )
     }
@@ -254,6 +284,8 @@ struct DebugSettings: View {
         [
             .arrivingSoon(stop: "Nürnberg Hbf", minutes: 5, track: "8"),
             .arrivingSoon(stop: "Nürnberg Hbf", minutes: 5, track: "8"),
+            .departingSoon(stop: "Frankfurt (Main) Hbf", minutes: 10, track: "7"),
+            .stopCancelled(stop: "Nürnberg Hbf"),
             .delayChanged(stop: "Nürnberg Hbf", from: 2, to: 9),
             .trackChanged(stop: "Nürnberg Hbf", from: "8", to: "10"),
             .connectionDelayChanged(name: "RE 1", from: 0, to: 6),

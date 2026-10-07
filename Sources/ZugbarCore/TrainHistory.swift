@@ -33,6 +33,8 @@ public struct TrainHistory: Codable, Sendable, Equatable {
         } else {
             entries.append(Entry(item: item, uses: [date]))
         }
+        // Uses older than 90 days no longer count toward suggestions, so drop them.
+        entries.removeAll { entry in entry.uses.allSatisfy { date.timeIntervalSince($0) > 90 * 86_400 } }
     }
 
     public mutating func remove(_ item: Item) {

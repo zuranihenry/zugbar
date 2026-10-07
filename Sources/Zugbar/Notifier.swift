@@ -29,13 +29,14 @@ enum Notifier {
         NSWorkspace.shared.open(url)
     }
 
-    /// `force` skips the in-app switch, for test notifications.
-    static func post(title: String, body: String?, force: Bool = false) {
+    /// `force` skips the in-app switch, for test notifications. `url` is opened when the notification is clicked.
+    static func post(title: String, body: String?, url: URL? = nil, force: Bool = false) {
         guard isAvailable, isEnabled || force else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         if let body { content.body = body }
         content.sound = .default
+        if let url { content.userInfo = ["url": url.absoluteString] }
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 }

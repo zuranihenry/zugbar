@@ -94,7 +94,7 @@ public struct TrainStatus: Sendable, Equatable {
     public var isOnline: Bool { provider == "Transitous" }
 
     public var nextStop: Stop? {
-        stops.first { $0.id == nextStopID } ?? stops.first { !$0.passed }
+        stops.first { $0.id == nextStopID } ?? stops.first { !$0.passed && !$0.cancelled }
     }
 
     /// e.g. ("ICE", "503") from "ICE 503", ("RE", "4589") from "RE70 (4589)"; nil for S-Bahn lines without a number.
@@ -202,6 +202,8 @@ public struct Stop: Sendable, Equatable, Identifiable {
     /// e.g. "Reparatur am Zug"
     public var delayReasons: [String]
     public var coordinate: Coordinate?
+    /// The train no longer stops here, e.g. after a cancellation or diversion.
+    public var cancelled: Bool
 
     public init(
         id: String,
@@ -213,7 +215,8 @@ public struct Stop: Sendable, Equatable, Identifiable {
         track: String? = nil,
         passed: Bool = false,
         delayReasons: [String] = [],
-        coordinate: Coordinate? = nil
+        coordinate: Coordinate? = nil,
+        cancelled: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -225,6 +228,7 @@ public struct Stop: Sendable, Equatable, Identifiable {
         self.passed = passed
         self.delayReasons = delayReasons
         self.coordinate = coordinate
+        self.cancelled = cancelled
     }
 
     public var arrival: Date? { expectedArrival ?? scheduledArrival }

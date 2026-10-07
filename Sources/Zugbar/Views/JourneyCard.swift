@@ -29,14 +29,23 @@ struct JourneyCard: View {
                 Text(destination.name).fontWeight(.semibold).lineLimit(1)
                 Spacer(minLength: 4)
                 if let arrival = destination.arrival {
-                    Text(arrival, format: .dateTime.hour().minute()).monospacedDigit()
+                    Text(arrival, format: .dateTime.hour().minute()).monospacedDigit().strikethrough(destination.cancelled)
                 }
-                DelayBadge(minutes: destination.delayMinutes)
-                if let track = destination.track {
-                    Text(strings.track(track)).foregroundStyle(.secondary)
+                if destination.cancelled {
+                    Text(strings.cancelled).fontWeight(.semibold).foregroundStyle(.red)
+                } else {
+                    DelayBadge(minutes: destination.delayMinutes)
+                    if let track = destination.track {
+                        Text(strings.track(track)).foregroundStyle(.secondary)
+                    }
                 }
             }
             .font(.callout)
+            if destination.cancelled {
+                Label(strings.noStopHere, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
 
             Divider()
 
@@ -145,7 +154,14 @@ private struct ConnectionPicker: View {
             }
 
             if let message = monitor.connectionMessage {
-                Text(strings.message(message)).font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Text(strings.message(message)).font(.caption).foregroundStyle(.secondary)
+                    if message == .regionalOff {
+                        Spacer()
+                        Button(strings.enableRegional) { monitor.enableRegionalAndRetry() }
+                            .controlSize(.small)
+                    }
+                }
             }
         }
     }

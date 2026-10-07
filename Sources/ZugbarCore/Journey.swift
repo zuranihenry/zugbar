@@ -86,6 +86,8 @@ public struct Connection: Codable, Sendable, Equatable {
 public struct NotificationSettings: Codable, Sendable, Equatable {
     /// Minutes before arriving at the destination.
     public var arrivalReminders: Set<Int> = [15, 5]
+    /// Minutes before departing from the boarding stop, when following a train online.
+    public var departureReminders: Set<Int> = [10]
     /// Smallest delay change worth a notification, in minutes.
     public var delayThreshold = 3
     public var trackChanges = true
@@ -95,10 +97,28 @@ public struct NotificationSettings: Codable, Sendable, Equatable {
     public static let thresholdChoices = [1, 3, 5, 10]
 
     public init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case arrivalReminders, departureReminders, delayThreshold, trackChanges, connectionAlerts
+    }
+
+    /// Settings saved by older versions lack newer keys; those keep their defaults instead of failing the whole decode.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = NotificationSettings()
+        arrivalReminders = try container.decodeIfPresent(Set<Int>.self, forKey: .arrivalReminders) ?? defaults.arrivalReminders
+        departureReminders = try container.decodeIfPresent(Set<Int>.self, forKey: .departureReminders) ?? defaults.departureReminders
+        delayThreshold = try container.decodeIfPresent(Int.self, forKey: .delayThreshold) ?? defaults.delayThreshold
+        trackChanges = try container.decodeIfPresent(Bool.self, forKey: .trackChanges) ?? defaults.trackChanges
+        connectionAlerts = try container.decodeIfPresent(Bool.self, forKey: .connectionAlerts) ?? defaults.connectionAlerts
+    }
 }
 
 public enum JourneyEvent: Equatable, Sendable {
     case arrivingSoon(stop: String, minutes: Int, track: String?)
+    case departingSoon(stop: String, minutes: Int, track: String?)
+    /// The train no longer stops at the user's boarding stop or destination.
+    case stopCancelled(stop: String)
     case delayChanged(stop: String, from: Int, to: Int)
     case trackChanged(stop: String, from: String, to: String)
     case connectionDelayChanged(name: String, from: Int, to: Int)
@@ -122,20 +142,20 @@ public enum JourneyWatcher {
         // Before boarding: departure delay and track at the boarding stop.
         if let before = stop(plan.boardingStopID, in: old), let after = stop(plan.boardingStopID, in: new), !after.passed {
             events += changes(before: before, after: after, departure: true, settings: settings)
+            if !after.cancelled, let oldDeparture = before.departure, let newDeparture = after.departure, newDeparture > newTime,
+               let minutes = crossedReminder(settings.departureReminders, old: oldDeparture.timeIntervalSince(oldTime),
+                                             new: newDeparture.timeIntervalSince(newTime)) {
+                events.append(.departingSoon(stop: after.name, minutes: minutes, track: after.track))
+            }
         }
 
         if let before = stop(plan.destinationStopID, in: old), let after = stop(plan.destinationStopID, in: new), !after.passed {
             events += changes(before: before, after: after, departure: false, settings: settings)
 
-            // One notification per reminder whose threshold was crossed since the last update.
-            if let oldArrival = before.arrival, let newArrival = after.arrival, newArrival > newTime {
-                let reminder = settings.arrivalReminders.sorted().first { minutes in
-                    let threshold = TimeInterval(minutes * 60)
-                    return oldArrival.timeIntervalSince(oldTime) > threshold && newArrival.timeIntervalSince(newTime) <= threshold
-                }
-                if let reminder {
-                    events.append(.arrivingSoon(stop: after.name, minutes: reminder, track: after.track))
-                }
+            if !after.cancelled, let oldArrival = before.arrival, let newArrival = after.arrival, newArrival > newTime,
+               let minutes = crossedReminder(settings.arrivalReminders, old: oldArrival.timeIntervalSince(oldTime),
+                                             new: newArrival.timeIntervalSince(newTime)) {
+                events.append(.arrivingSoon(stop: after.name, minutes: minutes, track: after.track))
             }
 
             if settings.connectionAlerts, let oldConnection, let newConnection, oldConnection.tripID == newConnection.tripID {
@@ -155,7 +175,19 @@ public enum JourneyWatcher {
         return events
     }
 
+    /// The reminder whose threshold was crossed between two updates, given the seconds left then and now.
+    /// When several were crossed at once, only the closest one is reported.
+    private static func crossedReminder(_ reminders: Set<Int>, old: TimeInterval, new: TimeInterval) -> Int? {
+        reminders.sorted().first { minutes in
+            let threshold = TimeInterval(minutes * 60)
+            return old > threshold && new <= threshold
+        }
+    }
+
     private static func changes(before: Stop, after: Stop, departure: Bool, settings: NotificationSettings) -> [JourneyEvent] {
+        if after.cancelled {
+            return before.cancelled ? [] : [.stopCancelled(stop: after.name)]
+        }
         var events: [JourneyEvent] = []
         let delay = { (stop: Stop) -> Int? in
             if departure, let s = stop.scheduledDeparture, let e = stop.expectedDeparture { return minutes(from: s, to: e) }
@@ -242,6 +274,7 @@ extension TransitousClient {
         updated.scheduledDeparture = stop.scheduledDeparture ?? connection.scheduledDeparture
         updated.expectedDeparture = stop.expectedDeparture
         updated.track = stop.track ?? connection.track
+        updated.cancelled = stop.cancelled
         return updated
     }
 }

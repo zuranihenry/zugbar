@@ -26,6 +26,8 @@ final class TrainMonitor {
 
     enum PickerMessage: Equatable {
         case noStation, loadingDepartures, noDepartures, failed
+        /// No direct connection; `regionalOff` means only long-distance trains were searched.
+        case noDirectConnection, regionalOff
     }
 
     enum Tracking { case onBoard, online, demo }
@@ -53,6 +55,7 @@ final class TrainMonitor {
     private(set) var lastUpdate: Date?
     private(set) var lastError: String?
     private(set) var notificationPermission: Notifier.Permission?
+    let updates = UpdateChecker()
     private(set) var portalConnections: [Connection] = []
     /// Set by "stop tracking" on board; cleared when the network changes.
     private var onBoardDismissed = false
@@ -112,20 +115,24 @@ final class TrainMonitor {
     /// Experimental: speed profiles per section from OpenStreetMap speed limits.
     private(set) var profiles: [String: SpeedProfile] = [:]
     private(set) var profileState: ProfileState = .off
-    /// Failed sections and when; retried after five minutes.
+    /// Failed sections and when; retried after two minutes.
     private var profileFailures: [String: Date] = [:]
     private var profileRequests: Set<String> = []
     private let overpass = OverpassClient()
     private let limitCache = LimitCache()
 
-    enum ProfileState: Equatable { case off, loading, ready, unavailable }
+    /// `serverDown`: no OpenStreetMap server answered; retried every two minutes. `unavailable`: no data for the section.
+    enum ProfileState: Equatable { case off, loading, ready, unavailable, serverDown }
 
     /// Track shape for on-board trains, whose portals only list the stops. Borrowed from Transitous once per train.
     private var onBoardRoutes: [String: Route] = [:]
     private var onBoardRouteRequests: Set<String> = []
+    /// When loading a route failed, e.g. because the train Wi-Fi had no internet yet; retried after two minutes.
+    private var onBoardRouteFailures: [String: Date] = [:]
 
     private(set) var liveTrains: [LiveTrain] = []
     private var liveTrainsLoaded: Date?
+    private var liveTrainsLoading = false
 
     private var provider: (any TrainProvider)?
     private var failures = 0
@@ -263,9 +270,14 @@ final class TrainMonitor {
     /// Refreshes the "live right now" list at most every five minutes.
     func loadLiveTrains() {
         if let loaded = liveTrainsLoaded, Date().timeIntervalSince(loaded) < 300 { return }
-        liveTrainsLoaded = Date()
+        guard !liveTrainsLoading else { return }
+        liveTrainsLoading = true
         Task {
-            if let trains = try? await client.liveTrains() { liveTrains = trains }
+            defer { liveTrainsLoading = false }
+            // Only a successful load counts, so a failed one is retried the next time the list is shown.
+            guard let trains = try? await client.liveTrains() else { return }
+            liveTrains = trains
+            liveTrainsLoaded = Date()
         }
     }
 
@@ -293,12 +305,16 @@ final class TrainMonitor {
         stationQuery = station.name
         selectedLine = line
         pickerMessage = .loadingDepartures
-        Task {
+        // Stored so picking another station or clearing it cancels this load.
+        searchTask = Task {
             do {
                 // Start half an hour back so a train you've just boarded is still listed.
-                departures = try await client.departures(from: station, at: now.addingTimeInterval(-30 * 60), count: 120)
-                pickerMessage = departures.isEmpty ? .noDepartures : nil
+                let found = try await client.departures(from: station, at: now.addingTimeInterval(-30 * 60), count: 120)
+                guard !Task.isCancelled else { return }
+                departures = found
+                pickerMessage = found.isEmpty ? .noDepartures : nil
             } catch {
+                guard !Task.isCancelled else { return }
                 pickerMessage = .failed
             }
         }
@@ -410,6 +426,15 @@ final class TrainMonitor {
 
     private var profilesEnabled: Bool { UserDefaults.standard.bool(forKey: "trackProfiles") }
 
+    /// Estimated speed for a train followed online, from the section's speed profile when loaded, else from the timetable.
+    /// `nil` when the setting is off or the train has live speed.
+    func speedEstimate(_ status: TrainStatus) -> (speed: Int, fromProfile: Bool)? {
+        let enabled = UserDefaults.standard.object(forKey: "estimatedSpeed") as? Bool ?? true
+        guard enabled, status.isOnline, status.speed == nil else { return nil }
+        if let profile = profileEstimate(status) { return (profile.speed, true) }
+        return status.estimatedSpeed(at: now).map { ($0, false) }
+    }
+
     /// Speed and position from the section's speed profile, once loaded.
     func profileEstimate(_ status: TrainStatus, at date: Date? = nil) -> (speed: Int, position: Coordinate?)? {
         let date = date ?? now
@@ -444,21 +469,28 @@ final class TrainMonitor {
         let overpass = overpass, cache = limitCache
         Task {
             // Matching tracks to the route is a bit of work, so keep it off the main thread.
-            let limits: [Int]? = await Task.detached {
-                if let cached = await cache.limits(for: cacheKey) { return cached }
-                guard points.count >= 2, let tracks = try? await overpass.tracks(along: points), !tracks.isEmpty else { return nil }
-                let samples = min(2000, max(2, Int(estimate.sectionLength / 100) + 1))
-                let limits = SpeedProfile.limits(along: points, samples: samples, tracks: tracks)
-                await cache.store(limits, for: cacheKey)
-                return limits
+            let result: Result<[Int]?, Error> = await Task.detached {
+                if let cached = await cache.limits(for: cacheKey) { return .success(cached) }
+                guard points.count >= 2 else { return .success(nil) }
+                do {
+                    let tracks = try await overpass.tracks(along: points)
+                    guard !tracks.isEmpty else { return .success(nil) }
+                    let samples = min(2000, max(2, Int(estimate.sectionLength / 100) + 1))
+                    let limits = SpeedProfile.limits(along: points, samples: samples, tracks: tracks)
+                    await cache.store(limits, for: cacheKey)
+                    return .success(limits)
+                } catch {
+                    return .failure(error)
+                }
             }.value
             profileRequests.remove(estimate.key)
-            if let limits, let profile = SpeedProfile(length: estimate.sectionLength, limits: limits, duration: estimate.duration, kind: estimate.kind) {
+            if case .success(let limits?) = result,
+               let profile = SpeedProfile(length: estimate.sectionLength, limits: limits, duration: estimate.duration, kind: estimate.kind) {
                 profiles[estimate.key] = profile
                 profileState = .ready
             } else {
                 profileFailures[estimate.key] = Date()
-                profileState = .unavailable
+                if case .failure = result { profileState = .serverDown } else { profileState = .unavailable }
             }
         }
     }
@@ -547,25 +579,34 @@ final class TrainMonitor {
         connectionQuery = target.name
         connectionMessage = .loadingDepartures
         let regional = UserDefaults.standard.bool(forKey: "regionalTrains")
-        Task {
+        // Stored so choosing another target or closing the picker cancels this search.
+        connectionSearch = Task {
             do {
                 guard let station = try await client.stations(matching: destination.name).first else {
-                    connectionMessage = .noStation
+                    if !Task.isCancelled { connectionMessage = .noStation }
                     return
                 }
                 let options = try await client.connections(
                     from: station, to: target, after: destination.arrival ?? now, regional: regional
                 )
+                guard !Task.isCancelled else { return }
                 connectionOptions = options.map { option in
                     var option = option
                     option.station = destination.name
                     return option
                 }
-                connectionMessage = options.isEmpty ? .noDepartures : nil
+                connectionMessage = options.isEmpty ? (regional ? .noDirectConnection : .regionalOff) : nil
             } catch {
+                guard !Task.isCancelled else { return }
                 connectionMessage = .failed
             }
         }
+    }
+
+    /// Turns on regional trains and searches the same target again.
+    func enableRegionalAndRetry() {
+        UserDefaults.standard.set(true, forKey: "regionalTrains")
+        if let target = connectionTarget { chooseConnectionTarget(target) }
     }
 
     func chooseConnection(_ connection: Connection) {
@@ -757,7 +798,8 @@ final class TrainMonitor {
         if newStatus.route == nil, !isOnline, !demoMode, let name = newStatus.trainName {
             if let route = onBoardRoutes[name] { newStatus.route = route } else { loadOnBoardRoute(for: name) }
         }
-        if let plan, plan.trainName != newStatus.trainName { self.plan = nil }
+        // A portal briefly reporting no train name shouldn't throw away the plan.
+        if let plan, let name = newStatus.trainName, plan.trainName != name { self.plan = nil }
         notifyChanges(to: newStatus)
         refreshConnectionIfNeeded()
         status = newStatus
@@ -769,12 +811,17 @@ final class TrainMonitor {
 
     private func loadOnBoardRoute(for trainName: String) {
         guard !onBoardRouteRequests.contains(trainName) else { return }
+        if let failed = onBoardRouteFailures[trainName], Date().timeIntervalSince(failed) < 120 { return }
         onBoardRouteRequests.insert(trainName)
         Task {
             // Needs the train Wi-Fi to have internet access; without it the map keeps straight lines between stops.
             if let route = try? await Transitous(query: trainName).fetch().route {
                 onBoardRoutes[trainName] = route
+                onBoardRouteFailures[trainName] = nil
+            } else {
+                onBoardRouteFailures[trainName] = Date()
             }
+            onBoardRouteRequests.remove(trainName)
         }
     }
 
@@ -784,6 +831,8 @@ final class TrainMonitor {
         trainPosition = nil
         displaySpeed = nil
         topSpeed = 0
+        // The next train's first fix shouldn't glide from where this one was.
+        gpsFixes = []
     }
 
     nonisolated private static func firstResponding(_ providers: [any TrainProvider]) async -> (any TrainProvider, TrainStatus)? {

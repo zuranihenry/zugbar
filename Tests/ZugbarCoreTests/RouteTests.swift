@@ -105,12 +105,21 @@ struct SpeedProfileTests {
         let counter = Counter()
         let client = OverpassClient { url, _ in
             await counter.increment()
-            if url.host == "overpass-api.de" { throw URLError(.timedOut) }
+            if url == OverpassClient.endpoints[0] { throw URLError(.timedOut) }
             return try fixture("overpass_tracks")
         }
-        let tracks = try await client.tracks(along: [Coordinate(latitude: 50, longitude: 8), Coordinate(latitude: 50.1, longitude: 8.1)])
-        #expect(!tracks.isEmpty)
+        let points = [Coordinate(latitude: 50, longitude: 8), Coordinate(latitude: 50.1, longitude: 8.1)]
+        #expect(try await !client.tracks(along: points).isEmpty)
         #expect(await counter.value == 2)
+        // The server that answered is asked first next time.
+        #expect(try await !client.tracks(along: points).isEmpty)
+        #expect(await counter.value == 3)
+    }
+
+    @Test func overpassDownEverywhereIsUnreachable() async {
+        let client = OverpassClient { _, _ in throw URLError(.timedOut) }
+        let points = [Coordinate(latitude: 50, longitude: 8), Coordinate(latitude: 50.1, longitude: 8.1)]
+        await #expect(throws: OverpassClient.OverpassError.unreachable) { try await client.tracks(along: points) }
     }
 }
 
