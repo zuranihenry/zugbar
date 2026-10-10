@@ -258,6 +258,7 @@ public struct Stop: Sendable, Equatable, Identifiable {
     }
 }
 
+/// Whole minutes of delay, cut off like DB and the portals count them: 1:58 late is +1, 0:43 late is on time.
 func minutes(from start: Date, to end: Date) -> Int {
-    Int((end.timeIntervalSince(start) / 60).rounded())
+    Int((end.timeIntervalSince(start) / 60).rounded(.towardZero))
 }
