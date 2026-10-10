@@ -7,6 +7,7 @@ struct TrainMap: View {
     @Bindable var monitor: TrainMonitor
     let status: TrainStatus
     @Environment(\.strings) private var strings
+    @AppStorage("mapHeadingUp") private var headingUp = false
 
     var body: some View {
         let route = status.route.map { Self.thinned($0.points).map(CLLocationCoordinate2D.init) }
@@ -47,6 +48,12 @@ struct TrainMap: View {
                     if monitor.mapFollowsTrain, let position { center(on: position) }
                 }
                 .disabled(position == nil)
+                MapButton(icon: headingUp ? "location.north.line.fill" : "location.north.line", help: strings.headingUp) {
+                    headingUp.toggle()
+                    monitor.mapFollowsTrain = monitor.mapFollowsTrain || headingUp
+                    if monitor.mapFollowsTrain, let position { center(on: position) }
+                }
+                .disabled(position == nil)
                 MapButton(icon: "plus", help: strings.zoomIn) { zoom(by: 0.5, train: position) }
                 MapButton(icon: "minus", help: strings.zoomOut) { zoom(by: 2, train: position) }
                 MapButton(icon: "arrow.up.left.and.arrow.down.right", help: strings.wholeRoute) {
@@ -67,7 +74,7 @@ struct TrainMap: View {
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
-                monitor.mapCamera = .camera(MapCamera(centerCoordinate: CLLocationCoordinate2D(newPosition), distance: monitor.mapFollowDistance))
+                monitor.mapCamera = .camera(camera(at: newPosition))
             }
             monitor.mapExpectedCenter = newPosition
         }
@@ -112,7 +119,13 @@ struct TrainMap: View {
     }
 
     private func center(on position: Coordinate) {
-        moveCamera(to: .camera(MapCamera(centerCoordinate: CLLocationCoordinate2D(position), distance: monitor.mapFollowDistance)))
+        moveCamera(to: .camera(camera(at: position)))
+    }
+
+    /// Following the train: north up, or turned with the train when that's switched on.
+    private func camera(at position: Coordinate) -> MapCamera {
+        MapCamera(centerCoordinate: CLLocationCoordinate2D(position), distance: monitor.mapFollowDistance,
+                  heading: headingUp ? monitor.mapHeading.degrees ?? 0 : 0)
     }
 
     /// Zooms around the train when following, else around the map's center. Works from the remembered zoom,
@@ -120,7 +133,8 @@ struct TrainMap: View {
     private func zoom(by factor: Double, train: Coordinate?) {
         guard let center = (monitor.mapFollowsTrain ? train : nil) ?? monitor.mapCenter else { return }
         monitor.mapFollowDistance = min(max(monitor.mapFollowDistance * factor, 400), 4_000_000)
-        moveCamera(to: .camera(MapCamera(centerCoordinate: CLLocationCoordinate2D(center), distance: monitor.mapFollowDistance)), duration: 0.25)
+        moveCamera(to: .camera(monitor.mapFollowsTrain ? camera(at: center)
+            : MapCamera(centerCoordinate: CLLocationCoordinate2D(center), distance: monitor.mapFollowDistance)), duration: 0.25)
     }
 
     private func moveCamera(to camera: MapCameraPosition, duration: Double = 0.6) {

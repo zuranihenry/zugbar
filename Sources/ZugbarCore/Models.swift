@@ -166,6 +166,14 @@ public struct Coordinate: Sendable, Equatable, Codable {
         return 6371 * 2 * asin(min(1, sqrt(a)))
     }
 
+    /// Initial compass bearing towards `other`, 0–360° clockwise from north.
+    public func bearing(to other: Coordinate) -> Double {
+        let (φ1, φ2) = (latitude * .pi / 180, other.latitude * .pi / 180)
+        let Δλ = (other.longitude - longitude) * .pi / 180
+        let θ = atan2(sin(Δλ) * cos(φ2), cos(φ1) * sin(φ2) - sin(φ1) * cos(φ2) * cos(Δλ))
+        return (θ * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
+    }
+
     /// `nil` for the 0,0 placeholders some portals send.
     init?(_ latitude: Double?, _ longitude: Double?) {
         guard let latitude, let longitude, latitude != 0 || longitude != 0 else { return nil }
