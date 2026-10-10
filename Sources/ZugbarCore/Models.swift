@@ -54,7 +54,7 @@ public struct TrainStatus: Sendable, Equatable {
 
     /// Average km/h between the last and the next stop, for trains without live speed. 0 while standing at a stop.
     public func estimatedSpeed(at now: Date) -> Int? {
-        guard let nextIndex = stops.firstIndex(where: { !$0.passed }), nextIndex > 0 else { return nil }
+        guard let nextIndex = nextStopIndex(at: now), nextIndex > 0 else { return nil }
         let next = stops[nextIndex], previous = stops[nextIndex - 1]
         if next.isCurrent(at: now) || previous.isCurrent(at: now) { return 0 }
         if let estimate = routeEstimate(at: now), now >= estimate.departure {
@@ -77,7 +77,12 @@ public struct TrainStatus: Sendable, Equatable {
             let fraction = min(max(now.timeIntervalSince(estimate.departure) / estimate.duration, 0), 1)
             return route.coordinate(at: estimate.startDistance + estimate.sectionLength * fraction)
         }
-        guard let nextIndex = stops.firstIndex(where: { !$0.passed }) else { return stops.last?.coordinate }
+        // Standing at a stop: on the track, where the section ended and the next one starts, not at the
+        // station's own coordinate a little to the side.
+        if let route, let stop = stops.first(where: { $0.isCurrent(at: now) }), let coordinate = stop.coordinate {
+            return route.coordinate(at: route.distance(of: coordinate))
+        }
+        guard let nextIndex = nextStopIndex(at: now) else { return stops.last?.coordinate }
         let next = stops[nextIndex]
         guard nextIndex > 0 else { return next.coordinate }
         let previous = stops[nextIndex - 1]
@@ -92,6 +97,14 @@ public struct TrainStatus: Sendable, Equatable {
 
     /// Followed online rather than read from an on-board portal.
     public var isOnline: Bool { provider == "Transitous" }
+
+    /// The first stop not yet left behind. Online, a stop counts as left once its departure time is reached,
+    /// not only from the next poll on: otherwise the train waits there for up to half a minute and then jumps ahead.
+    func nextStopIndex(at now: Date) -> Int? {
+        stops.firstIndex { stop in
+            !stop.passed && !(isOnline && (stop.departure ?? stop.arrival).map { $0 <= now } == true)
+        }
+    }
 
     public var nextStop: Stop? {
         stops.first { $0.id == nextStopID } ?? stops.first { !$0.passed && !$0.cancelled }
