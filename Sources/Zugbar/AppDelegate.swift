@@ -15,6 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelWindow: NSWindow?
     private var settingsWindow: NSWindow?
 
+    func applicationWillTerminate(_ notification: Notification) {
+        monitor.finishTrip()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         if Notifier.isAvailable { UNUserNotificationCenter.current().delegate = self }
