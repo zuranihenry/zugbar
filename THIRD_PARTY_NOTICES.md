@@ -30,3 +30,7 @@ SOFTWARE.```
 ## Transitous
 
 Online lookups use [Transitous](https://transitous.org). Its timetable data comes from the operators and aggregators listed at https://transitous.org/sources/. `Tests/ZugbarCoreTests/Fixtures/transitous_*.json` are recorded API responses.
+
+## OpenStreetMap
+
+Track speed limits come from [OpenStreetMap](https://www.openstreetmap.org), © OpenStreetMap contributors, via Overpass. `Sources/ZugbarCore/Resources/main_line_tracks.lzfse` (LZFSE-compressed JSON) is a database derived from it (main-line tracks in and around Germany and Austria with their `maxspeed`, built with `Zugbar --bundle-tracks`) and is available under the [Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/). `Tests/ZugbarCoreTests/Fixtures/overpass_tracks.json` is a recorded Overpass response.

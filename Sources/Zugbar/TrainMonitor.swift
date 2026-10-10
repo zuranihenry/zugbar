@@ -535,10 +535,16 @@ final class TrainMonitor {
             let result: Result<[Int]?, Error> = await Task.detached {
                 if let cached = await cache.limits(for: cacheKey) { return .success(cached) }
                 guard points.count >= 2 else { return .success(nil) }
+                let samples = min(2000, max(2, Int(estimate.sectionLength / 100) + 1))
+                // Main lines ship with the app; only other sections need a public Overpass server.
+                if let tracks = TrackBundle.shared?.tracks(along: points) {
+                    let limits = SpeedProfile.limits(along: points, samples: samples, tracks: tracks)
+                    await cache.store(limits, for: cacheKey)
+                    return .success(limits)
+                }
                 do {
                     let tracks = try await overpass.tracks(along: points)
                     guard !tracks.isEmpty else { return .success(nil) }
-                    let samples = min(2000, max(2, Int(estimate.sectionLength / 100) + 1))
                     let limits = SpeedProfile.limits(along: points, samples: samples, tracks: tracks)
                     await cache.store(limits, for: cacheKey)
                     return .success(limits)

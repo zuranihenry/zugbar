@@ -63,8 +63,8 @@ struct Strings {
     var estimatedFromProfile: String { t("estimated · track profile", "geschätzt · Streckenprofil") }
     var trackProfiles: String { t("Track profile from OpenStreetMap (experimental)", "Streckenprofil aus OpenStreetMap (experimentell)") }
     var trackProfilesHint: String {
-        t("Uses the line's speed limits, acceleration and braking for a more realistic speed. Loads data from OpenStreetMap per section.",
-          "Nutzt Streckenhöchstgeschwindigkeiten, Anfahren und Bremsen für eine realistischere Geschwindigkeit. Lädt pro Abschnitt Daten von OpenStreetMap.")
+        t("Uses the line's speed limits, acceleration and braking for a more realistic speed. Main lines in Germany and Austria are built in; others are loaded from OpenStreetMap per section. © OpenStreetMap contributors.",
+          "Nutzt Streckenhöchstgeschwindigkeiten, Anfahren und Bremsen für eine realistischere Geschwindigkeit. Hauptstrecken in Deutschland und Österreich sind eingebaut, andere Abschnitte werden von OpenStreetMap geladen. © OpenStreetMap-Mitwirkende.")
     }
     func profileStateName(_ state: TrainMonitor.ProfileState) -> String {
         switch state {
