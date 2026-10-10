@@ -59,6 +59,8 @@ final class TrainMonitor {
     @ObservationIgnored var mapExpectedCenter: Coordinate?
     /// Whether the current gesture changed the zoom; zooming never ends following.
     @ObservationIgnored var mapGestureZoomed = false
+    /// Direction of travel for a map turned with the train; follows the marker, not the raw fixes.
+    @ObservationIgnored private(set) var mapHeading = Heading()
     private(set) var lastUpdate: Date?
     private(set) var lastError: String?
     private(set) var notificationPermission: Notifier.Permission?
@@ -456,6 +458,7 @@ final class TrainMonitor {
         } else {
             trainPosition = status.position(at: date)
         }
+        if let trainPosition { mapHeading.update(trainPosition, at: date) }
     }
 
     private func interpolatedGPS(_ latest: Coordinate, at date: Date) -> Coordinate {
