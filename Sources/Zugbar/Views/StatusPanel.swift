@@ -421,10 +421,11 @@ private struct Footer: View {
                     Button { showMap.toggle() } label: { Image(systemName: showMap ? "map.fill" : "map") }
                         .help(strings.map)
                 }
-                ShareLink(item: strings.shareText(status, destination: monitor.destination, connection: monitor.plan?.connection)) {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .help(strings.share)
+                Button {
+                    SharePicker.show(strings.shareText(status, destination: monitor.destination, connection: monitor.plan?.connection),
+                                     copyTitle: strings.copy)
+                } label: { Image(systemName: "square.and.arrow.up") }
+                    .help(strings.share)
             }
             Button { PopUpMenu.show(menuItems) } label: { Image(systemName: "ellipsis.circle") }
         }

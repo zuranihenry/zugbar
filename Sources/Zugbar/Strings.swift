@@ -235,6 +235,7 @@ struct Strings {
         count == 1 ? t("1 passed stop", "1 vergangener Halt") : t("\(count) passed stops", "\(count) vergangene Halte")
     }
     var share: String { t("Share trip", "Fahrt teilen") }
+    var copy: String { t("Copy", "Kopieren") }
     var openWindow: String { t("Open in window", "In eigenem Fenster öffnen") }
     var alwaysOnTop: String { t("Keep on top", "Immer im Vordergrund") }
     var settings: String { t("Settings…", "Einstellungen…") }
