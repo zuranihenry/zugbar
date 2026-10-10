@@ -115,7 +115,7 @@ private struct TripHeader: View {
                 if showsPopOut { PopOutButton() }
             }
             if let vehicle = status.vehicle {
-                Text(vehicle).font(.caption).foregroundStyle(.tertiary)
+                Text(vehicle).font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -136,6 +136,7 @@ private struct PopOutButton: View {
         }
         .buttonStyle(.plain)
         .help(strings.openWindow)
+        .accessibilityLabel(strings.openWindow)
     }
 }
 
@@ -164,7 +165,7 @@ private struct SpeedRow: View {
                 Text("km/h").foregroundStyle(.secondary)
                 Text(strings.estimateLabel(source))
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                     .help(strings.estimateHelp(source))
             } else if online {
                 Label(strings.speedOnlyOnBoard, systemImage: "antenna.radiowaves.left.and.right.slash")
@@ -183,6 +184,21 @@ private struct SpeedRow: View {
                     .help(strings.topHelp)
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(spoken)
+    }
+
+    private var spoken: String {
+        var parts: [String] = []
+        if let speed {
+            parts.append(strings.spokenSpeed(speed))
+        } else if let estimate {
+            parts.append(strings.spokenEstimate(estimate, source: strings.estimateLabel(source)))
+        } else {
+            parts.append(online ? strings.speedOnlyOnBoard : strings.noGPS)
+        }
+        if top > 0 { parts.append(strings.top(top)) }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -266,6 +282,27 @@ private struct NextStopCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .cardStyle()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(spoken(isCurrent: isCurrent))
+    }
+
+    /// "Next stop Göttingen in 15 min, 18:28, 3 min late, Track 10", instead of each piece on its own.
+    private func spoken(isCurrent: Bool) -> String {
+        var parts = ["\(isCurrent ? strings.nowAt : strings.nextStop) \(stop.name)"]
+        if isCurrent {
+            if let departure = stop.departure { parts.append(strings.departs(departure.formatted(.dateTime.hour().minute()))) }
+        } else if let arrival = stop.arrival {
+            parts.append(MenuTitle.countdown(to: arrival, from: now, nowLabel: strings.now))
+            parts.append(arrival.formatted(.dateTime.hour().minute()))
+        }
+        if stop.cancelled {
+            parts.append(strings.cancelled)
+        } else {
+            if let delay = stop.delayMinutes, delay != 0 { parts.append(strings.spokenDelay(delay)) }
+            if let track = stop.track { parts.append(strings.track(track)) }
+        }
+        parts += stop.delayReasons
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -306,15 +343,19 @@ private struct StopList: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(visible) { stop in
-                            StopRow(
-                                stop: stop,
-                                isNext: stop.id == status.nextStop?.id,
-                                isDestination: stop.id == monitor.plan?.destinationStopID,
-                                isBoarding: stop.id == monitor.plan?.boardingStopID
-                            )
+                            // A button rather than a tap gesture, so the keyboard and VoiceOver can reach it too.
+                            Button { monitor.toggleDestination(stop) } label: {
+                                StopRow(
+                                    stop: stop,
+                                    isNext: stop.id == status.nextStop?.id,
+                                    isDestination: stop.id == monitor.plan?.destinationStopID,
+                                    isBoarding: stop.id == monitor.plan?.boardingStopID
+                                )
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(stop.passed)
                             .id(stop.id)
-                            .contentShape(Rectangle())
-                            .onTapGesture { if !stop.passed { monitor.toggleDestination(stop) } }
                             .contextMenu { menu(for: stop) }
                         }
                     }
@@ -325,7 +366,7 @@ private struct StopList: View {
                 .onAppear { proxy.scrollTo(status.nextStop?.id, anchor: .center) }
             }
             if monitor.plan?.destinationStopID == nil {
-                Text(strings.destinationHint).font(.caption2).foregroundStyle(.tertiary)
+                Text(strings.destinationHint).font(.caption2).foregroundStyle(.secondary)
             }
         }
     }
@@ -375,6 +416,9 @@ private struct StopRow: View {
         .font(.callout)
         .opacity(stop.passed ? 0.45 : 1)
         .padding(.vertical, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(strings.spokenStop(stop, isNext: isNext, isDestination: isDestination, isBoarding: isBoarding))
+        .accessibilityHint(stop.passed ? "" : isDestination ? strings.removeDestination : strings.getOffHere)
     }
 
     @ViewBuilder
@@ -415,11 +459,14 @@ private struct Footer: View {
                 if isWindow {
                     Button { windowShowMap.toggle() } label: { Image(systemName: windowShowMap ? "map.fill" : "map") }
                         .help(strings.map)
+                        .accessibilityLabel(strings.map)
                     Button { alwaysOnTop.toggle() } label: { Image(systemName: alwaysOnTop ? "pin.fill" : "pin") }
                         .help(strings.alwaysOnTop)
+                        .accessibilityLabel(strings.alwaysOnTop)
                 } else {
                     Button { showMap.toggle() } label: { Image(systemName: showMap ? "map.fill" : "map") }
                         .help(strings.map)
+                        .accessibilityLabel(strings.map)
                 }
                 ShareLink(item: strings.shareText(status, destination: monitor.destination, connection: monitor.plan?.connection)) {
                     Image(systemName: "square.and.arrow.up")
@@ -427,6 +474,8 @@ private struct Footer: View {
                 .help(strings.share)
             }
             Button { PopUpMenu.show(menuItems) } label: { Image(systemName: "ellipsis.circle") }
+                .help(strings.moreOptions)
+                .accessibilityLabel(strings.moreOptions)
         }
         .buttonStyle(.borderless)
         .font(.body)
