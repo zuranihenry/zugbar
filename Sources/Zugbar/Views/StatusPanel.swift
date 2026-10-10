@@ -443,6 +443,9 @@ private struct Footer: View {
             items += links.map { link in .init(title: strings.title(of: link.kind)) { NSWorkspace.shared.open(link.url) } }
             items.append(.separator)
         }
+        if let plan = monitor.plan, plan.connection != nil || (monitor.isOnline && plan.boardingStopID != nil) {
+            items.append(.init(title: strings.takeNextTrain) { monitor.takeNextTrain() })
+        }
         if monitor.status != nil {
             items.append(.init(title: strings.reload) { monitor.refresh() })
         }
