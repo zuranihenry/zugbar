@@ -50,7 +50,7 @@ struct GeneralSettings: View {
     let monitor: TrainMonitor
     @Environment(\.strings) private var strings
     @AppStorage("language") private var language = AppLanguage.system
-    @AppStorage("regionalTrains") private var regionalTrains = false
+    @AppStorage("regionalTrains") private var regionalTrains = true
     @AppStorage("estimatedSpeed") private var estimatedSpeed = true
     @AppStorage("trackProfiles") private var trackProfiles = false
     @AppStorage("learnSpeeds") private var learnSpeeds = true
