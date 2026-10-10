@@ -65,6 +65,17 @@ struct ICEPortalTests {
         #expect(ICEVehicle.describe(tzn: "Tz4651")?.hasPrefix("ICE 3 · Tz 4651") == true)
         #expect(ICEVehicle.describe(tzn: nil) == nil)
     }
+
+    /// Seconds from a real ICE trip: the portal showed Weidenhagen +1 and Tanndorf Nord on time.
+    @Test func delaysCutOffToWholeMinutes() {
+        let scheduled = utc("2026-10-10T15:49:00Z")
+        let station = Stop(id: "8000001", name: "Weidenhagen Hbf", scheduledArrival: scheduled, expectedArrival: scheduled.addingTimeInterval(118))
+        let nord = Stop(id: "8000002", name: "Tanndorf Nord", scheduledDeparture: scheduled, expectedDeparture: scheduled.addingTimeInterval(43))
+        let early = Stop(id: "1", name: "Early", scheduledArrival: scheduled, expectedArrival: scheduled.addingTimeInterval(-50))
+        #expect(station.delayMinutes == 1)
+        #expect(nord.delayMinutes == 0)
+        #expect(early.delayMinutes == 0)
+    }
 }
 
 struct OEBBRailnetTests {
