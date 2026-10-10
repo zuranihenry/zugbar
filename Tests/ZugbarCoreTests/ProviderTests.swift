@@ -57,6 +57,25 @@ struct ICEPortalTests {
         #expect(status.internet == Internet(current: .none, next: .good, nextChange: now.addingTimeInterval(60)))
     }
 
+    /// Recorded on ICE 9 Hamburg → Basel, 10 Oct 2026, ten minutes before Frankfurt.
+    @Test func realTrip() throws {
+        let now = utc("2026-10-10T18:04:39Z")
+        let status = try ICEPortal.parse(status: fixture("ice9_status"), trip: fixture("ice9_trip"), now: now)
+        #expect(status.trainName == "ICE 9")
+        #expect(status.destination == "Basel Bad Bf")
+        #expect(status.vehicle?.hasPrefix("ICE 4 · Tz 9037") == true)
+        #expect(status.wagonClass == 1)
+        #expect(status.speed == 117)
+        #expect(status.stops.count == 12)
+        #expect(status.stops.prefix(6).allSatisfy { $0.passed })
+        let next = try #require(status.nextStop)
+        #expect(next.name == "Frankfurt(Main)Hbf")
+        #expect(next.track == "8")
+        // The portal's own figures: delays are cut off to whole minutes, not rounded.
+        let delays = status.stops.prefix(6).map(\.delayMinutes)
+        #expect(delays == [0, 0, 6, 1, 4, 2])
+    }
+
     @Test func vehicleModels() {
         #expect(ICEVehicle.model(for: 304) == "ICE 3")
         #expect(ICEVehicle.model(for: 8012) == "ICE 3neo")
