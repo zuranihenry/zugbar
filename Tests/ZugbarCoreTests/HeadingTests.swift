@@ -3,7 +3,7 @@ import Testing
 @testable import ZugbarCore
 
 struct HeadingTests {
-    let start = utc("2026-10-10T16:00:00Z")
+    let start = utc("2026-06-12T16:00:00Z")
 
     @Test func bearings() {
         let origin = Coordinate(latitude: 50, longitude: 8)
