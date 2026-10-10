@@ -238,6 +238,30 @@ struct Strings {
     var share: String { t("Share trip", "Fahrt teilen") }
     var openWindow: String { t("Open in window", "In eigenem Fenster öffnen") }
     var alwaysOnTop: String { t("Keep on top", "Immer im Vordergrund") }
+    var moreOptions: String { t("More", "Mehr") }
+    var removeConnection: String { t("Remove connection", "Anschluss entfernen") }
+    var cancel: String { t("Cancel", "Abbrechen") }
+
+    // VoiceOver: whole sentences instead of the panel's separate bits
+    func spokenDelay(_ minutes: Int) -> String {
+        minutes > 0 ? t("\(minutes) min late", "\(minutes) Min. später") : t("\(-minutes) min early", "\(-minutes) Min. früher")
+    }
+    func spokenSpeed(_ speed: Int) -> String { t("\(speed) km/h", "\(speed) km/h") }
+    func spokenEstimate(_ speed: Int, source: String) -> String { t("about \(speed) km/h, \(source)", "etwa \(speed) km/h, \(source)") }
+    func spokenStop(_ stop: Stop, isNext: Bool, isDestination: Bool, isBoarding: Bool) -> String {
+        var parts = [stop.name]
+        if let time = stop.arrival ?? stop.departure { parts.append(time.formatted(.dateTime.hour().minute())) }
+        if stop.cancelled {
+            parts.append(cancelled)
+        } else if let delay = stop.delayMinutes, delay != 0 {
+            parts.append(spokenDelay(delay))
+        }
+        if isDestination { parts.append(yourDestination) }
+        if isBoarding { parts.append(t("your boarding stop", "dein Einstieg")) }
+        if isNext { parts.append(nextStop) }
+        if stop.passed { parts.append(t("passed", "passiert")) }
+        return parts.joined(separator: ", ")
+    }
     var settings: String { t("Settings…", "Einstellungen…") }
     var settingsTitle: String { t("Zugbar Settings", "Zugbar-Einstellungen") }
     var fromICEPortal: String { t("From the ICE Portal", "Laut ICE Portal") }
