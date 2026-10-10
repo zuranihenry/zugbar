@@ -227,4 +227,40 @@ struct TrainNameTests {
     func different(_ a: String, _ b: String) {
         #expect(!TrainName.same(a, b))
     }
+
+    @Test func missedConnection() {
+        let departure = utc("2026-06-12T16:20:00Z")
+        let connection = Connection(tripID: "re-1", name: "RE 1", headsign: "B", station: "A",
+                                    scheduledDeparture: departure, expectedDeparture: departure, track: "1", finalStop: "B")
+        #expect(!Handover.isMissed(connection, arrival: departure.addingTimeInterval(-6 * 60)))
+        #expect(Handover.isMissed(connection, arrival: departure.addingTimeInterval(4 * 60)))
+        #expect(!Handover.isMissed(connection, arrival: nil))
+    }
+
+    @Test func replacementIsTheNextTrainThatRuns() {
+        let missed = utc("2026-06-12T16:20:00Z")
+        func train(_ id: String, minutes: Double, cancelled: Bool = false) -> Connection {
+            let time = missed.addingTimeInterval(minutes * 60)
+            return Connection(tripID: id, name: "RE 1", headsign: nil, station: "A",
+                              scheduledDeparture: time, expectedDeparture: time, track: nil, cancelled: cancelled)
+        }
+        let connection = train("missed", minutes: 0)
+        let options = [train("missed", minutes: 0), train("later", minutes: 60), train("cancelled", minutes: 30, cancelled: true), train("soon", minutes: 45)]
+        let next = Handover.replacement(for: connection, in: options, after: missed.addingTimeInterval(5 * 60))
+        #expect(next?.tripID == "soon")
+        #expect(Handover.replacement(for: connection, in: [connection], after: missed) == nil)
+    }
+
+    @Test func replacementArrivesFirst() {
+        // The RE leaves later than the S-Bahn but overtakes it.
+        let base = utc("2026-06-12T16:00:00Z")
+        func train(_ name: String, leaves: Double, arrives: Double) -> Connection {
+            Connection(tripID: name, name: name, headsign: nil, station: "A",
+                       scheduledDeparture: base.addingTimeInterval(leaves * 60), expectedDeparture: nil, track: nil,
+                       finalArrival: base.addingTimeInterval(arrives * 60))
+        }
+        let options = [train("S 1 late", leaves: 88, arrives: 122), train("RE 1", leaves: 80, arrives: 107), train("S 1 later", leaves: 118, arrives: 152)]
+        let next = Handover.replacement(for: train("RE 1 missed", leaves: 20, arrives: 47), in: options, after: base.addingTimeInterval(70 * 60))
+        #expect(next?.name == "RE 1")
+    }
 }
