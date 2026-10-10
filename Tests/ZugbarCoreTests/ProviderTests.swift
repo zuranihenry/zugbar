@@ -65,6 +65,17 @@ struct ICEPortalTests {
         #expect(ICEVehicle.describe(tzn: "Tz4651")?.hasPrefix("ICE 3 · Tz 4651") == true)
         #expect(ICEVehicle.describe(tzn: nil) == nil)
     }
+
+    /// Seconds from a real ICE 9 trip: the portal showed Hannover +1 and Hamburg Dammtor on time.
+    @Test func delaysCutOffToWholeMinutes() {
+        let scheduled = utc("2026-10-10T15:49:00Z")
+        let hannover = Stop(id: "8000152", name: "Hannover Hbf", scheduledArrival: scheduled, expectedArrival: scheduled.addingTimeInterval(118))
+        let dammtor = Stop(id: "8002548", name: "Hamburg Dammtor", scheduledDeparture: scheduled, expectedDeparture: scheduled.addingTimeInterval(43))
+        let early = Stop(id: "1", name: "Early", scheduledArrival: scheduled, expectedArrival: scheduled.addingTimeInterval(-50))
+        #expect(hannover.delayMinutes == 1)
+        #expect(dammtor.delayMinutes == 0)
+        #expect(early.delayMinutes == 0)
+    }
 }
 
 struct OEBBRailnetTests {
