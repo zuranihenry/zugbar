@@ -336,7 +336,7 @@ struct Strings {
     var flame: String { t("🔥 at top speed", "🔥 bei Höchstgeschwindigkeit") }
     var trainsSection: String { t("Trains", "Züge") }
     var appSection: String { t("App", "App") }
-    var regionalTrains: String { t("Regional trains (beta)", "Regionalzüge (Beta)") }
+    var regionalTrains: String { t("Regional trains", "Regionalzüge") }
     var language: String { t("Language", "Sprache") }
     func name(of language: AppLanguage) -> String {
         switch language {

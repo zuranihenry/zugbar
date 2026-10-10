@@ -60,7 +60,7 @@ struct SpeedProfileTests {
     }
 
     @Test func neverFasterThanTheLimit() throws {
-        // RE70 Biebesheim → Stockstadt: ~5.5 km in a minute-rounded "3 min" is tighter than a regional train can do.
+        // ~5.5 km between two regional stops in a minute-rounded "3 min" is tighter than a regional train can do.
         let profile = try #require(SpeedProfile(length: 5_500, limits: Array(repeating: 160, count: 56), duration: 180, kind: .regional))
         let peak = stride(from: 0.0, through: 400, by: 2).map { profile.state(after: $0).speed }.max() ?? 0
         #expect(peak <= 160)
@@ -76,10 +76,10 @@ struct SpeedProfileTests {
 
     @Test func regionalEstimateStaysRealistic() {
         let start = utc("2026-06-12T16:00:00Z")
-        let route = Route(points: [Coordinate(latitude: 49.80, longitude: 8.46), Coordinate(latitude: 49.85, longitude: 8.45)])
+        let route = Route(points: [Coordinate(latitude: 50.00, longitude: 8.00), Coordinate(latitude: 50.05, longitude: 7.99)])
         let stops = [
-            Stop(id: "a", name: "Biebesheim", scheduledDeparture: start, passed: true, coordinate: route.points[0]),
-            Stop(id: "b", name: "Stockstadt", scheduledArrival: start.addingTimeInterval(180), coordinate: route.points[1]),
+            Stop(id: "a", name: "A", scheduledDeparture: start, passed: true, coordinate: route.points[0]),
+            Stop(id: "b", name: "B", scheduledArrival: start.addingTimeInterval(180), coordinate: route.points[1]),
         ]
         let status = TrainStatus(provider: "Transitous", trainName: "RE70 (4589)", stops: stops, route: route)
         let speeds = stride(from: 5.0, through: 175, by: 5).compactMap { status.estimatedSpeed(at: start.addingTimeInterval($0)) }
