@@ -213,6 +213,7 @@ final class TrainMonitor {
         case .demo: demoMode = false
         case .online: stopTracking()
         case .onBoard:
+            finishTrip()
             onBoardDismissed = true
             onBoardTrain = nil
             restart()
@@ -987,9 +988,48 @@ final class TrainMonitor {
         lastUpdate = Date()
         prepareProfile(for: newStatus)
         learn(from: newStatus)
+        recordTrip(newStatus)
         failures = 0
         if newStatus.speed == nil { displaySpeed = nil }
         if Handover.isDue(plan: plan, status: newStatus, now: Date()) { followConnection() }
+    }
+
+    // MARK: - Trips
+
+    /// Finished trips on board, newest first; kept in Application Support like the learned speeds.
+    private(set) var tripLog = TrainMonitor.loadTrips()
+    @ObservationIgnored private var tripRecorder = TripRecorder()
+
+    private static var tripsFile: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Zugbar/trips.json")
+    }
+
+    private static func loadTrips() -> TripLog {
+        (try? JSONDecoder().decode(TripLog.self, from: Data(contentsOf: tripsFile))) ?? TripLog()
+    }
+
+    private func saveTrips() {
+        try? FileManager.default.createDirectory(at: Self.tripsFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(tripLog).write(to: Self.tripsFile, options: .atomic)
+    }
+
+    private func recordTrip(_ status: TrainStatus) {
+        guard !demoMode, let trip = tripRecorder.update(status, at: Date()) else { return }
+        tripLog.add(trip)
+        saveTrips()
+    }
+
+    /// Ends the trip on board, e.g. when the train Wi-Fi is gone or the app quits.
+    func finishTrip() {
+        guard let trip = tripRecorder.finish() else { return }
+        tripLog.add(trip)
+        saveTrips()
+    }
+
+    func deleteTrip(_ id: Trip.ID) {
+        tripLog.remove(id)
+        saveTrips()
     }
 
     /// On board, remember how fast the train really is here, to improve estimates for trains followed online.
@@ -1035,6 +1075,7 @@ final class TrainMonitor {
     }
 
     private func lost() {
+        finishTrip()
         provider = nil
         status = nil
         trainPosition = nil

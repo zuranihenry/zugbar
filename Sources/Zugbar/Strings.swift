@@ -280,6 +280,15 @@ struct Strings {
     var trackChanges: String { t("Track changes", "Gleiswechsel") }
     var connectionAlerts: String { t("Connection alerts", "Anschluss-Warnungen") }
     var debug: String { "Debug" }
+    var trips: String { t("Trips", "Fahrten") }
+    func tripsThisYear(_ km: Int) -> String { t("\(km.formatted()) km this year", "\(km.formatted()) km dieses Jahr") }
+    func fastestTrip(_ speed: Int, train: String) -> String { t("Fastest: \(speed) km/h in \(train)", "Am schnellsten: \(speed) km/h im \(train)") }
+    var noTrips: String {
+        t("Trips are recorded while you're on a train with on-board Wi-Fi, and stay on this Mac.",
+          "Fahrten werden aufgezeichnet, solange du in einem Zug mit Zug-WLAN bist, und bleiben auf diesem Mac.")
+    }
+    var exportCSV: String { t("Export as CSV…", "Als CSV exportieren…") }
+    var deleteTrip: String { t("Delete trip", "Fahrt löschen") }
     var testNotifications: String { t("Test notifications", "Testbenachrichtigungen") }
     var demoScenario: String { t("Demo train", "Demo-Zug") }
     var demoHint: String { t("Turns on demo mode. Changes show up within a few seconds.", "Schaltet den Demo-Modus ein. Änderungen erscheinen nach ein paar Sekunden.") }
