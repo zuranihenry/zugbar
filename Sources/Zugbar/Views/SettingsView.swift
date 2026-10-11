@@ -93,11 +93,11 @@ struct GeneralSettings: View {
                     Button(strings.clear, role: .destructive) { monitor.clearHistory() }
                 }
                 LabeledContent(strings.destinationAndConnection) {
-                    Button(strings.clear, role: .destructive) { monitor.clearPlan() }
+                    Button(strings.clear, role: .destructive) { monitor.journey.clear() }
                 }
-                LabeledContent(strings.learnedSpeeds(monitor.learnedCellCount)) {
-                    Button(strings.clear, role: .destructive) { monitor.clearLearnedSpeeds() }
-                        .disabled(monitor.learnedCellCount == 0)
+                LabeledContent(strings.learnedSpeeds(monitor.estimates.learnedCellCount)) {
+                    Button(strings.clear, role: .destructive) { monitor.estimates.clearLearnedSpeeds() }
+                        .disabled(monitor.estimates.learnedCellCount == 0)
                 }
             }
         }
@@ -111,7 +111,7 @@ struct TripsView: View {
     @Environment(\.strings) private var strings
 
     var body: some View {
-        let log = monitor.tripLog
+        let log = monitor.trips.log
         SettingsPane {
             if log.trips.isEmpty {
                 Text(strings.noTrips).foregroundStyle(.secondary)
@@ -127,7 +127,7 @@ struct TripsView: View {
                     ForEach(log.trips) { trip in
                         TripRow(trip: trip)
                             .contextMenu {
-                                Button(strings.deleteTrip, role: .destructive) { monitor.deleteTrip(trip.id) }
+                                Button(strings.deleteTrip, role: .destructive) { monitor.trips.delete(trip.id) }
                             }
                     }
                 }
@@ -251,6 +251,7 @@ struct NotificationSettingsView: View {
     @AppStorage("notifications") private var notifications = true
 
     var body: some View {
+        @Bindable var journey = monitor.journey
         SettingsPane {
             if monitor.notificationPermission != .allowed, monitor.notificationPermission != nil {
                 Section { PermissionNotice(monitor: monitor, compact: false) }
@@ -281,11 +282,11 @@ struct NotificationSettingsView: View {
             }
             .disabled(!notifications)
             Section {
-                Picker(strings.delayThreshold, selection: $monitor.notificationSettings.delayThreshold) {
+                Picker(strings.delayThreshold, selection: $journey.notificationSettings.delayThreshold) {
                     ForEach(NotificationSettings.thresholdChoices, id: \.self) { Text(strings.minutesBefore($0)).tag($0) }
                 }
-                Toggle(strings.trackChanges, isOn: $monitor.notificationSettings.trackChanges)
-                Toggle(strings.connectionAlerts, isOn: $monitor.notificationSettings.connectionAlerts)
+                Toggle(strings.trackChanges, isOn: $journey.notificationSettings.trackChanges)
+                Toggle(strings.connectionAlerts, isOn: $journey.notificationSettings.connectionAlerts)
             }
             .disabled(!notifications)
         }
@@ -294,10 +295,10 @@ struct NotificationSettingsView: View {
 
     private func reminder(_ minutes: Int, in reminders: WritableKeyPath<NotificationSettings, Set<Int>>) -> Binding<Bool> {
         Binding(
-            get: { monitor.notificationSettings[keyPath: reminders].contains(minutes) },
+            get: { monitor.journey.notificationSettings[keyPath: reminders].contains(minutes) },
             set: { on in
-                if on { monitor.notificationSettings[keyPath: reminders].insert(minutes) }
-                else { monitor.notificationSettings[keyPath: reminders].remove(minutes) }
+                if on { monitor.journey.notificationSettings[keyPath: reminders].insert(minutes) }
+                else { monitor.journey.notificationSettings[keyPath: reminders].remove(minutes) }
             }
         )
     }
@@ -316,7 +317,7 @@ struct DebugSettings: View {
                 LabeledContent(strings.source, value: monitor.status?.provider ?? strings.none)
                 LabeledContent(strings.lastUpdate, value: monitor.lastUpdate?.formatted(date: .omitted, time: .standard) ?? "–")
                 LabeledContent(strings.permission, value: strings.permissionName(monitor.notificationPermission))
-                LabeledContent(strings.trackProfiles, value: strings.profileStateName(monitor.profileState))
+                LabeledContent(strings.trackProfiles, value: strings.profileStateName(monitor.estimates.profileState))
                 if let error = monitor.lastError {
                     LabeledContent(strings.lastError, value: error).lineLimit(2)
                 }

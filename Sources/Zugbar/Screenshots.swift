@@ -38,18 +38,18 @@ enum Screenshots {
         }
 
         let discover = TrainMonitor(snapshot: nil, history: history)
-        discover.loadLiveTrains()
-        wait { !discover.liveTrains.isEmpty }
+        discover.picker.loadLiveTrains()
+        wait { !discover.picker.liveTrains.isEmpty }
         save(discover, .english, dark: false, "panel-discover", in: directory, defaults: settings(regional: false))
 
         if let station {
             let monitor = TrainMonitor(snapshot: nil)
-            monitor.stationQuery = station
-            wait { !monitor.stations.isEmpty }
-            if let first = monitor.stations.first { monitor.choose(first) }
-            wait { !monitor.departures.isEmpty }
-            monitor.loadLiveTrains()
-            wait { !monitor.liveTrains.isEmpty }
+            monitor.picker.query = station
+            wait { !monitor.picker.stations.isEmpty }
+            if let first = monitor.picker.stations.first { monitor.picker.choose(first) }
+            wait { !monitor.picker.departures.isEmpty }
+            monitor.picker.loadLiveTrains()
+            wait { !monitor.picker.liveTrains.isEmpty }
             save(monitor, .english, dark: false, "panel-regional", in: directory, defaults: settings(regional: true))
         }
         exit(0)

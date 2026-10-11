@@ -40,14 +40,14 @@ struct Strings {
     var speedOnlyOnBoard: String { t("Live speed is only available on board", "Live-Geschwindigkeit nur im Zug-WLAN") }
     func top(_ speed: Int) -> String { t("Top \(speed) km/h", "Max. \(speed) km/h") }
     var estimated: String { t("estimated", "geschätzt") }
-    func estimateLabel(_ source: TrainMonitor.EstimateSource) -> String {
+    func estimateLabel(_ source: SpeedEstimator.Source) -> String {
         switch source {
         case .basic: estimated
         case .learned: t("estimated · from your trips", "geschätzt · aus deinen Fahrten")
         case .trackProfile: estimatedFromProfile
         }
     }
-    func estimateHelp(_ source: TrainMonitor.EstimateSource) -> String {
+    func estimateHelp(_ source: SpeedEstimator.Source) -> String {
         switch source {
         case .basic: estimatedHelp
         case .learned: learnSpeedsHint
@@ -66,7 +66,7 @@ struct Strings {
         t("Uses the line's speed limits, acceleration and braking for a more realistic speed. Main lines in Germany and Austria are built in; others are loaded from OpenStreetMap per section. © OpenStreetMap contributors.",
           "Nutzt Streckenhöchstgeschwindigkeiten, Anfahren und Bremsen für eine realistischere Geschwindigkeit. Hauptstrecken in Deutschland und Österreich sind eingebaut, andere Abschnitte werden von OpenStreetMap geladen. © OpenStreetMap-Mitwirkende.")
     }
-    func profileStateName(_ state: TrainMonitor.ProfileState) -> String {
+    func profileStateName(_ state: SpeedEstimator.ProfileState) -> String {
         switch state {
         case .off: t("not used", "nicht aktiv")
         case .loading: t("loading…", "lädt…")
@@ -147,7 +147,7 @@ struct Strings {
         }
     }
 
-    func message(_ message: TrainMonitor.PickerMessage) -> String {
+    func message(_ message: PickerMessage) -> String {
         switch message {
         case .noStation: t("No station found.", "Kein Bahnhof gefunden.")
         case .loadingDepartures: t("Loading departures…", "Lade Abfahrten…")

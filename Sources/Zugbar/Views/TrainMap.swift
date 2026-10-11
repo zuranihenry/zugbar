@@ -13,9 +13,10 @@ struct TrainMap: View {
         let route = status.route.map { Self.thinned($0.points).map(CLLocationCoordinate2D.init) }
             ?? status.stops.compactMap { $0.coordinate.map(CLLocationCoordinate2D.init) }
         let position = monitor.trainPosition
-        let destinationID = monitor.plan?.destinationStopID
+        let destinationID = monitor.journey.plan?.destinationStopID
+        @Bindable var map = monitor.map
 
-        Map(position: $monitor.mapCamera) {
+        Map(position: $map.camera) {
             if route.count > 1 {
                 MapPolyline(coordinates: route).stroke(.secondary, lineWidth: 3)
             }
@@ -43,68 +44,68 @@ struct TrainMap: View {
         .mapControls {}
         .overlay(alignment: .topTrailing) {
             VStack(spacing: 6) {
-                MapButton(icon: monitor.mapFollowsTrain ? "location.fill" : "location", help: strings.followTrain) {
-                    monitor.mapFollowsTrain.toggle()
-                    if monitor.mapFollowsTrain, let position { center(on: position) }
+                MapButton(icon: monitor.map.followsTrain ? "location.fill" : "location", help: strings.followTrain) {
+                    monitor.map.followsTrain.toggle()
+                    if monitor.map.followsTrain, let position { center(on: position) }
                 }
                 .disabled(position == nil)
                 MapButton(icon: headingUp ? "location.north.line.fill" : "location.north.line", help: strings.headingUp) {
                     headingUp.toggle()
-                    monitor.mapFollowsTrain = monitor.mapFollowsTrain || headingUp
-                    if monitor.mapFollowsTrain, let position { center(on: position) }
+                    monitor.map.followsTrain = monitor.map.followsTrain || headingUp
+                    if monitor.map.followsTrain, let position { center(on: position) }
                 }
                 .disabled(position == nil)
                 MapButton(icon: "plus", help: strings.zoomIn) { zoom(by: 0.5, train: position) }
                 MapButton(icon: "minus", help: strings.zoomOut) { zoom(by: 2, train: position) }
                 MapButton(icon: "arrow.up.left.and.arrow.down.right", help: strings.wholeRoute) {
-                    monitor.mapFollowsTrain = false
+                    monitor.map.followsTrain = false
                     withAnimation { fitRoute(route + [position].compactMap { $0.map(CLLocationCoordinate2D.init) }) }
                 }
             }
             .padding(8)
         }
         .onAppear {
-            if !monitor.mapFollowsTrain { fitRoute(route + [position].compactMap { $0.map(CLLocationCoordinate2D.init) }) }
+            if !monitor.map.followsTrain { fitRoute(route + [position].compactMap { $0.map(CLLocationCoordinate2D.init) }) }
         }
         .onChange(of: position) { _, newPosition in
-            guard monitor.mapFollowsTrain, let newPosition, !monitor.mapMovingProgrammatically,
-                  Date().timeIntervalSince(monitor.mapTouchedAt) > 2
+            guard monitor.map.followsTrain, let newPosition, !monitor.map.movingProgrammatically,
+                  Date().timeIntervalSince(monitor.map.touchedAt) > 2
             else { return }
             // Follow frame by frame without animation; the marker itself moves at a constant pace.
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
-                monitor.mapCamera = .camera(camera(at: newPosition))
+                monitor.map.camera = .camera(camera(at: newPosition))
             }
-            monitor.mapExpectedCenter = newPosition
+            monitor.map.expectedCenter = newPosition
         }
         .onMapCameraChange(frequency: .continuous) { context in
             let camera = context.camera
             let center = Coordinate(latitude: camera.centerCoordinate.latitude, longitude: camera.centerCoordinate.longitude)
-            monitor.mapCenter = center
-            guard !monitor.mapMovingProgrammatically else { return }
-            if abs(camera.distance - monitor.mapFollowDistance) > monitor.mapFollowDistance * 0.03 {
+            monitor.map.center = center
+            guard !monitor.map.movingProgrammatically else { return }
+            if abs(camera.distance - monitor.map.followDistance) > monitor.map.followDistance * 0.03 {
                 // Zoom changed: only the user does that (pinch, scroll).
-                monitor.mapFollowDistance = camera.distance
-                monitor.mapGestureZoomed = true
-                monitor.mapTouchedAt = Date()
-            } else if let expected = monitor.mapExpectedCenter, monitor.mapFollowsTrain,
+                monitor.map.followDistance = camera.distance
+                monitor.map.gestureZoomed = true
+                monitor.map.touchedAt = Date()
+            } else if let expected = monitor.map.expectedCenter, monitor.map.followsTrain,
                       center.distance(to: expected) * 1000 > camera.distance * 0.1 {
                 // The camera left where following put it: the user is panning.
-                monitor.mapTouchedAt = Date()
-            } else if !monitor.mapFollowsTrain {
-                monitor.mapTouchedAt = Date()
+                monitor.map.touchedAt = Date()
+            } else if !monitor.map.followsTrain {
+                monitor.map.touchedAt = Date()
             }
         }
         // Dragging the map well away from the train ends following; a gesture that zoomed never does.
         .onMapCameraChange(frequency: .onEnd) { context in
-            defer { monitor.mapGestureZoomed = false }
-            if !monitor.mapMovingProgrammatically { monitor.mapFollowDistance = context.camera.distance }
-            guard monitor.mapFollowsTrain, !monitor.mapMovingProgrammatically, !monitor.mapGestureZoomed, let position else { return }
+            defer { monitor.map.gestureZoomed = false }
+            if !monitor.map.movingProgrammatically { monitor.map.followDistance = context.camera.distance }
+            guard monitor.map.followsTrain, !monitor.map.movingProgrammatically, !monitor.map.gestureZoomed, let position else { return }
             let camera = context.camera
             let offset = Coordinate(latitude: camera.centerCoordinate.latitude, longitude: camera.centerCoordinate.longitude)
                 .distance(to: position) * 1000
-            if offset > camera.distance * 0.5 { monitor.mapFollowsTrain = false }
+            if offset > camera.distance * 0.5 { monitor.map.followsTrain = false }
         }
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
@@ -124,23 +125,23 @@ struct TrainMap: View {
 
     /// Following the train: north up, or turned with the train when that's switched on.
     private func camera(at position: Coordinate) -> MapCamera {
-        MapCamera(centerCoordinate: CLLocationCoordinate2D(position), distance: monitor.mapFollowDistance,
-                  heading: headingUp ? monitor.mapHeading.degrees ?? 0 : 0)
+        MapCamera(centerCoordinate: CLLocationCoordinate2D(position), distance: monitor.map.followDistance,
+                  heading: headingUp ? monitor.map.heading.degrees ?? 0 : 0)
     }
 
     /// Zooms around the train when following, else around the map's center. Works from the remembered zoom,
     /// so quick repeated clicks add up instead of fighting the running animation.
     private func zoom(by factor: Double, train: Coordinate?) {
-        guard let center = (monitor.mapFollowsTrain ? train : nil) ?? monitor.mapCenter else { return }
-        monitor.mapFollowDistance = min(max(monitor.mapFollowDistance * factor, 400), 4_000_000)
-        moveCamera(to: .camera(monitor.mapFollowsTrain ? camera(at: center)
-            : MapCamera(centerCoordinate: CLLocationCoordinate2D(center), distance: monitor.mapFollowDistance)), duration: 0.25)
+        guard let center = (monitor.map.followsTrain ? train : nil) ?? monitor.map.center else { return }
+        monitor.map.followDistance = min(max(monitor.map.followDistance * factor, 400), 4_000_000)
+        moveCamera(to: .camera(monitor.map.followsTrain ? camera(at: center)
+            : MapCamera(centerCoordinate: CLLocationCoordinate2D(center), distance: monitor.map.followDistance)), duration: 0.25)
     }
 
     private func moveCamera(to camera: MapCameraPosition, duration: Double = 0.6) {
-        monitor.mapProgrammaticMoves += 1
-        withAnimation(.easeInOut(duration: duration)) { monitor.mapCamera = camera }
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.3) { monitor.mapProgrammaticMoves -= 1 }
+        monitor.map.programmaticMoves += 1
+        withAnimation(.easeInOut(duration: duration)) { monitor.map.camera = camera }
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.3) { monitor.map.programmaticMoves -= 1 }
     }
 
     /// At most ~1500 points; full Transitous shapes have up to ten thousand, which slows redraws.

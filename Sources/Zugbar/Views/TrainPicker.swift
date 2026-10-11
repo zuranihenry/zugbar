@@ -38,7 +38,7 @@ struct TrainPicker: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if monitor.selectedStation == nil {
+            if monitor.picker.selectedStation == nil {
                 LiveNow(monitor: monitor)
             }
 
@@ -48,7 +48,7 @@ struct TrainPicker: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
-        .onAppear { monitor.loadLiveTrains() }
+        .onAppear { monitor.picker.loadLiveTrains() }
     }
 }
 
@@ -91,9 +91,9 @@ private struct LiveNow: View {
     @Environment(\.strings) private var strings
 
     var body: some View {
-        let fastest = LiveTrain.fastest(monitor.liveTrains)
-        let delayed = LiveTrain.mostDelayed(monitor.liveTrains.filter { !fastest.contains($0) })
-        if !monitor.liveTrains.isEmpty {
+        let fastest = LiveTrain.fastest(monitor.picker.liveTrains)
+        let delayed = LiveTrain.mostDelayed(monitor.picker.liveTrains.filter { !fastest.contains($0) })
+        if !monitor.picker.liveTrains.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     SectionTitle(strings.liveNow)
@@ -165,6 +165,7 @@ private struct StationPicker: View {
     @Environment(\.strings) private var strings
 
     var body: some View {
+        @Bindable var search = monitor.picker
         VStack(alignment: .leading, spacing: 6) {
             Text(strings.regionalHint)
                 .font(.caption)
@@ -174,11 +175,11 @@ private struct StationPicker: View {
 
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField(strings.stationPlaceholder, text: $monitor.stationQuery)
+                TextField(strings.stationPlaceholder, text: $search.query)
                     .textFieldStyle(.roundedBorder)
-                    .onSubmit { if let first = monitor.stations.first { monitor.choose(first) } }
-                if !monitor.stationQuery.isEmpty {
-                    Button { monitor.clearStation() } label: { Image(systemName: "xmark.circle.fill") }
+                    .onSubmit { if let first = monitor.picker.stations.first { monitor.picker.choose(first) } }
+                if !monitor.picker.query.isEmpty {
+                    Button { monitor.picker.clear() } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.borderless)
                         .foregroundStyle(.secondary)
                         .help(strings.otherStation)
@@ -186,9 +187,9 @@ private struct StationPicker: View {
                 }
             }
 
-            if monitor.selectedStation == nil {
-                ForEach(monitor.stations.prefix(5)) { station in
-                    Button { monitor.choose(station) } label: {
+            if monitor.picker.selectedStation == nil {
+                ForEach(monitor.picker.stations.prefix(5)) { station in
+                    Button { monitor.picker.choose(station) } label: {
                         Label(station.name, systemImage: "tram")
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
@@ -196,12 +197,12 @@ private struct StationPicker: View {
                     .buttonStyle(.plain)
                     .padding(.vertical, 2)
                 }
-            } else if !monitor.departures.isEmpty {
-                LineChips(lines: monitor.lines, selection: $monitor.selectedLine)
+            } else if !monitor.picker.departures.isEmpty {
+                LineChips(lines: monitor.picker.lines, selection: $search.selectedLine)
                 DepartureList(monitor: monitor)
             }
 
-            if let message = monitor.pickerMessage {
+            if let message = monitor.picker.message {
                 Text(strings.message(message))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -245,8 +246,8 @@ private struct DepartureList: View {
     let monitor: TrainMonitor
 
     var body: some View {
-        let departures = monitor.filteredDepartures
-        let likely = monitor.likelyDeparture
+        let departures = monitor.picker.filteredDepartures
+        let likely = monitor.picker.likelyDeparture(at: monitor.now)
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
@@ -260,7 +261,7 @@ private struct DepartureList: View {
             }
             .frame(height: min(CGFloat(max(departures.count, 1)) * 40, 240))
             .onAppear { scroll(proxy, departures: departures, likely: likely) }
-            .onChange(of: monitor.selectedLine) { scroll(proxy, departures: monitor.filteredDepartures, likely: monitor.likelyDeparture) }
+            .onChange(of: monitor.picker.selectedLine) { scroll(proxy, departures: monitor.picker.filteredDepartures, likely: monitor.picker.likelyDeparture(at: monitor.now)) }
         }
     }
 

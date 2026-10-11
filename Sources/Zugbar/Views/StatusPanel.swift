@@ -64,10 +64,10 @@ struct StatusPanel: View {
     @ViewBuilder
     private func details(_ status: TrainStatus, map: CGFloat?) -> some View {
         TripHeader(status: status, showsPopOut: !isWindow)
-        let estimate = estimatedSpeed ? monitor.speedEstimateWithSource(status) : nil
+        let estimate = estimatedSpeed ? monitor.estimates.speed(status, at: monitor.now) : nil
         SpeedRow(speed: monitor.displaySpeed, top: monitor.topSpeed, online: status.isOnline,
                  estimate: estimate?.speed, source: estimate?.source ?? .basic)
-        if estimate != nil, monitor.profileState == .serverDown {
+        if estimate != nil, monitor.estimates.profileState == .serverDown {
             Label(strings.overpassDown, systemImage: "exclamationmark.icloud")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -82,10 +82,10 @@ struct StatusPanel: View {
         if let map {
             TrainMap(monitor: monitor, status: status).frame(height: map)
         }
-        if let next = status.nextStop, next.id != monitor.destination?.id {
+        if let next = status.nextStop, next.id != monitor.journey.destination?.id {
             NextStopCard(stop: next, now: monitor.now)
         }
-        if let destination = monitor.destination {
+        if let destination = monitor.journey.destination {
             JourneyCard(monitor: monitor, destination: destination)
         }
         StopList(monitor: monitor, status: status, fillsHeight: isWindow)
@@ -145,7 +145,7 @@ private struct SpeedRow: View {
     let top: Int
     let online: Bool
     let estimate: Int?
-    var source: TrainMonitor.EstimateSource = .basic
+    var source: SpeedEstimator.Source = .basic
     @Environment(\.strings) private var strings
 
     var body: some View {
@@ -344,12 +344,12 @@ private struct StopList: View {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(visible) { stop in
                             // A button rather than a tap gesture, so the keyboard and VoiceOver can reach it too.
-                            Button { monitor.toggleDestination(stop) } label: {
+                            Button { monitor.journey.toggleDestination(stop) } label: {
                                 StopRow(
                                     stop: stop,
                                     isNext: stop.id == status.nextStop?.id,
-                                    isDestination: stop.id == monitor.plan?.destinationStopID,
-                                    isBoarding: stop.id == monitor.plan?.boardingStopID
+                                    isDestination: stop.id == monitor.journey.plan?.destinationStopID,
+                                    isBoarding: stop.id == monitor.journey.plan?.boardingStopID
                                 )
                                 .contentShape(Rectangle())
                             }
@@ -365,7 +365,7 @@ private struct StopList: View {
                 .frame(height: fillsHeight ? nil : min(CGFloat(visible.count) * 27, 220))
                 .onAppear { proxy.scrollTo(status.nextStop?.id, anchor: .center) }
             }
-            if monitor.plan?.destinationStopID == nil {
+            if monitor.journey.plan?.destinationStopID == nil {
                 Text(strings.destinationHint).font(.caption2).foregroundStyle(.secondary)
             }
         }
@@ -374,12 +374,12 @@ private struct StopList: View {
     @ViewBuilder
     private func menu(for stop: Stop) -> some View {
         if !stop.passed {
-            let isDestination = stop.id == monitor.plan?.destinationStopID
-            Button(isDestination ? strings.removeDestination : strings.getOffHere) { monitor.toggleDestination(stop) }
+            let isDestination = stop.id == monitor.journey.plan?.destinationStopID
+            Button(isDestination ? strings.removeDestination : strings.getOffHere) { monitor.journey.toggleDestination(stop) }
             // Only useful before boarding, i.e. when following a train online.
             if monitor.isOnline {
-                let isBoarding = stop.id == monitor.plan?.boardingStopID
-                Button(isBoarding ? strings.removeBoarding : strings.getOnHere) { monitor.toggleBoarding(stop) }
+                let isBoarding = stop.id == monitor.journey.plan?.boardingStopID
+                Button(isBoarding ? strings.removeBoarding : strings.getOnHere) { monitor.journey.toggleBoarding(stop) }
             }
         }
     }
@@ -469,7 +469,7 @@ private struct Footer: View {
                         .accessibilityLabel(strings.map)
                 }
                 Button {
-                    SharePicker.show(strings.shareText(status, destination: monitor.destination, connection: monitor.plan?.connection),
+                    SharePicker.show(strings.shareText(status, destination: monitor.journey.destination, connection: monitor.journey.plan?.connection),
                                      copyTitle: strings.copy)
                 } label: { Image(systemName: "square.and.arrow.up") }
                     .help(strings.share)
@@ -493,7 +493,7 @@ private struct Footer: View {
             items += links.map { link in .init(title: strings.title(of: link.kind)) { NSWorkspace.shared.open(link.url) } }
             items.append(.separator)
         }
-        if let plan = monitor.plan, plan.connection != nil || (monitor.isOnline && plan.boardingStopID != nil) {
+        if let plan = monitor.journey.plan, plan.connection != nil || (monitor.isOnline && plan.boardingStopID != nil) {
             items.append(.init(title: strings.takeNextTrain) { monitor.takeNextTrain() })
         }
         if monitor.status != nil {

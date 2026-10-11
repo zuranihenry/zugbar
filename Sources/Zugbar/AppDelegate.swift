@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
 
     func applicationWillTerminate(_ notification: Notification) {
-        monitor.finishTrip()
+        monitor.trips.finish()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -148,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let title = monitor.status.map {
             MenuTitle.make(status: $0, displaySpeed: monitor.displaySpeed, isTopSpeed: monitor.isTopSpeed,
                            now: monitor.now, options: options, nowLabel: strings.now,
-                           estimatedSpeed: options.showEstimate ? monitor.speedEstimate($0)?.speed : nil)
+                           estimatedSpeed: options.showEstimate ? monitor.estimates.speed($0, at: monitor.now)?.speed : nil)
         } ?? ""
 
         if title.isEmpty {

@@ -20,7 +20,7 @@ struct JourneyCard: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button { monitor.toggleDestination(destination) } label: { Image(systemName: "xmark") }
+                Button { monitor.journey.toggleDestination(destination) } label: { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
                     .font(.caption)
                     .help(strings.removeDestination)
@@ -50,12 +50,12 @@ struct JourneyCard: View {
 
             Divider()
 
-            if let connection = monitor.plan?.connection {
-                ConnectionRow(connection: connection, arrival: destination.arrival) { monitor.removeConnection() }
-            } else if monitor.isAddingConnection {
+            if let connection = monitor.journey.plan?.connection {
+                ConnectionRow(connection: connection, arrival: destination.arrival) { monitor.journey.removeConnection() }
+            } else if monitor.journey.connections.isAdding {
                 ConnectionPicker(monitor: monitor)
             } else {
-                Button { monitor.isAddingConnection = true } label: {
+                Button { monitor.journey.connections.isAdding = true } label: {
                     Label(strings.addConnection, systemImage: "plus.circle")
                 }
                 .buttonStyle(.borderless)
@@ -122,14 +122,15 @@ private struct ConnectionPicker: View {
     @Environment(\.strings) private var strings
 
     var body: some View {
+        @Bindable var search = monitor.journey.connections
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Image(systemName: "arrow.triangle.swap").foregroundStyle(.secondary)
-                TextField(strings.continueTo, text: $monitor.connectionQuery)
+                TextField(strings.continueTo, text: $search.query)
                     .textFieldStyle(.roundedBorder)
-                    .onSubmit { if let first = monitor.connectionTargets.first { monitor.chooseConnectionTarget(first) } }
-                    .onExitCommand { monitor.isAddingConnection = false }
-                Button { monitor.isAddingConnection = false } label: { Image(systemName: "xmark.circle.fill") }
+                    .onSubmit { if let first = monitor.journey.connections.targets.first { monitor.journey.connections.choose(first) } }
+                    .onExitCommand { monitor.journey.connections.isAdding = false }
+                Button { monitor.journey.connections.isAdding = false } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
                     .help(strings.cancel)
@@ -137,15 +138,15 @@ private struct ConnectionPicker: View {
             }
             .font(.callout)
 
-            if !monitor.portalConnections.isEmpty, monitor.connectionQuery.isEmpty {
+            if !monitor.journey.connections.portalConnections.isEmpty, monitor.journey.connections.query.isEmpty {
                 Text(strings.fromICEPortal).font(.caption).foregroundStyle(.secondary)
-                ForEach(monitor.portalConnections, id: \.tripID) { option in
-                    ConnectionOption(option: option) { monitor.chooseConnection(option) }
+                ForEach(monitor.journey.connections.portalConnections, id: \.tripID) { option in
+                    ConnectionOption(option: option) { monitor.journey.chooseConnection(option) }
                 }
             }
 
-            ForEach(monitor.connectionTargets.prefix(4)) { station in
-                Button { monitor.chooseConnectionTarget(station) } label: {
+            ForEach(monitor.journey.connections.targets.prefix(4)) { station in
+                Button { monitor.journey.connections.choose(station) } label: {
                     Label(station.name, systemImage: "tram")
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
@@ -154,16 +155,16 @@ private struct ConnectionPicker: View {
                 .font(.callout)
             }
 
-            ForEach(monitor.connectionOptions, id: \.tripID) { option in
-                ConnectionOption(option: option) { monitor.chooseConnection(option) }
+            ForEach(monitor.journey.connections.options, id: \.tripID) { option in
+                ConnectionOption(option: option) { monitor.journey.chooseConnection(option) }
             }
 
-            if let message = monitor.connectionMessage {
+            if let message = monitor.journey.connections.message {
                 HStack {
                     Text(strings.message(message)).font(.caption).foregroundStyle(.secondary)
                     if message == .regionalOff {
                         Spacer()
-                        Button(strings.enableRegional) { monitor.enableRegionalAndRetry() }
+                        Button(strings.enableRegional) { monitor.journey.connections.enableRegionalAndRetry() }
                             .controlSize(.small)
                     }
                 }
