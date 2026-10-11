@@ -18,9 +18,11 @@ actor LimitCache {
             .appendingPathComponent("Zugbar", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         // Bump the version when the way limits are derived changes, so stale sections aren't reused.
-        // v2: PZB-only tracks capped at 160 km/h.
-        file = folder.appendingPathComponent("speed-limits-v2.json")
-        try? FileManager.default.removeItem(at: folder.appendingPathComponent("speed-limits.json"))
+        // v2: PZB-only tracks capped at 160 km/h. v3: distance to the track's line, not its nodes.
+        file = folder.appendingPathComponent("speed-limits-v3.json")
+        for old in ["speed-limits.json", "speed-limits-v2.json"] {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(old))
+        }
         entries = (try? JSONDecoder().decode([String: Entry].self, from: Data(contentsOf: file))) ?? [:]
     }
 

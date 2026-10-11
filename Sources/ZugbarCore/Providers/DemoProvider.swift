@@ -45,10 +45,10 @@ public struct DemoProvider: TrainProvider {
         return status
     }
 
-    public static func resource(_ name: String) throws -> Data {
+    public static func resource(_ name: String, extension: String = "json") throws -> Data {
         // The packaged .app keeps these in Contents/Resources; `swift run` uses the SwiftPM bundle.
-        let url = Bundle.main.url(forResource: name, withExtension: "json")
-            ?? Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Resources")
+        let url = Bundle.main.url(forResource: name, withExtension: `extension`)
+            ?? Bundle.module.url(forResource: name, withExtension: `extension`, subdirectory: "Resources")
         guard let url else { throw ProviderError.missingResource(name) }
         return try Data(contentsOf: url)
     }

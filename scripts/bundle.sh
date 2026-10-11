@@ -16,7 +16,7 @@ BIN="$(swift build -c release "${ARCHS[@]}" --show-bin-path)"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/Zugbar" "$APP/Contents/MacOS/Zugbar"
-cp Sources/ZugbarCore/Resources/*.json "$APP/Contents/Resources/"
+cp Sources/ZugbarCore/Resources/*.json Sources/ZugbarCore/Resources/*.lzfse "$APP/Contents/Resources/"
 cp Assets/AppIcon.icns "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST

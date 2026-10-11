@@ -94,7 +94,7 @@ public struct SpeedProfile: Sendable, Equatable {
             var fastestClose: Int?
             var nearest: (Int, Double)?
             for track in tracks where track.isNear(point) {
-                let d = track.nodes.map { $0.distance(to: point) }.min() ?? .infinity
+                let d = track.distance(to: point)
                 if d < 0.03 { fastestClose = max(fastestClose ?? 0, track.maxspeed) }
                 if d < 0.06, d < (nearest?.1 ?? .infinity) { nearest = (track.maxspeed, d) }
             }
@@ -128,6 +128,53 @@ public struct TrackLimit: Sendable, Equatable {
     func isNear(_ point: Coordinate) -> Bool {
         point.latitude >= south - 0.001 && point.latitude <= north + 0.001
             && point.longitude >= west - 0.0015 && point.longitude <= east + 0.0015
+    }
+
+    /// Distance in km from `point` to the track's line, not just its nodes: on straight high-speed lines
+    /// OpenStreetMap nodes can be hundreds of meters apart.
+    func distance(to point: Coordinate) -> Double {
+        guard nodes.count > 1 else { return nodes.first?.distance(to: point) ?? .infinity }
+        // Flat projection around the point, in km; plenty accurate over a few hundred meters.
+        let kmPerLat = 111.2, kmPerLon = 111.2 * cos(point.latitude * .pi / 180)
+        func xy(_ c: Coordinate) -> (Double, Double) {
+            ((c.longitude - point.longitude) * kmPerLon, (c.latitude - point.latitude) * kmPerLat)
+        }
+        var best = Double.infinity
+        var a = xy(nodes[0])
+        for node in nodes.dropFirst() {
+            let b = xy(node)
+            let (dx, dy) = (b.0 - a.0, b.1 - a.1)
+            let length = dx * dx + dy * dy
+            let t = length > 0 ? min(max(-(a.0 * dx + a.1 * dy) / length, 0), 1) : 0
+            let (x, y) = (a.0 + t * dx, a.1 + t * dy)
+            best = min(best, (x * x + y * y).squareRoot())
+            a = b
+        }
+        return best
+    }
+
+    /// Fewer nodes, staying within `tolerance` meters of the original line (Douglas–Peucker).
+    public func simplified(tolerance: Double) -> TrackLimit {
+        guard nodes.count > 2 else { return self }
+        var keep = [Bool](repeating: false, count: nodes.count)
+        keep[0] = true
+        keep[nodes.count - 1] = true
+        var stack = [(0, nodes.count - 1)]
+        while let (first, last) = stack.popLast() {
+            guard last > first + 1 else { continue }
+            let segment = TrackLimit(maxspeed: maxspeed, nodes: [nodes[first], nodes[last]])
+            var farthest = (index: first, distance: 0.0)
+            for index in (first + 1)..<last {
+                let d = segment.distance(to: nodes[index]) * 1000
+                if d > farthest.distance { farthest = (index, d) }
+            }
+            if farthest.distance > tolerance {
+                keep[farthest.index] = true
+                stack.append((first, farthest.index))
+                stack.append((farthest.index, last))
+            }
+        }
+        return TrackLimit(maxspeed: maxspeed, nodes: nodes.indices.filter { keep[$0] }.map { nodes[$0] })
     }
 }
 
@@ -233,8 +280,18 @@ public struct OverpassClient: Sendable {
     }
 
     static func parse(_ data: Data) throws -> [TrackLimit] {
+        try parseElements(data).map(\.track)
+    }
+
+    /// Tracks by OpenStreetMap way ID, so overlapping queries can be merged.
+    public static func parseWays(_ data: Data) throws -> [Int: TrackLimit] {
+        Dictionary(try parseElements(data).map { ($0.id, $0.track) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private static func parseElements(_ data: Data) throws -> [(id: Int, track: TrackLimit)] {
         struct Response: Decodable { let elements: [Element]; let remark: String? }
         struct Element: Decodable {
+            let id: Int?
             let tags: [String: String]?
             let geometry: [Node]?
         }
@@ -243,13 +300,17 @@ public struct OverpassClient: Sendable {
         let response = try JSONDecoder().decode(Response.self, from: data)
         // An overloaded server answers 200 with a "runtime error" remark and no elements.
         if let remark = response.remark, remark.contains("error") { throw OverpassError.overloaded(remark) }
-        return response.elements.compactMap { element in
+        var ways: [(id: Int, track: TrackLimit)] = []
+        for (index, element) in response.elements.enumerated() {
             // "160", "200;160" (per direction), "250 km/h": take the first number.
             guard let tags = element.tags, let raw = tags["maxspeed"],
                   let speed = Int(raw.prefix { $0.isNumber }), speed > 0,
                   let geometry = element.geometry, !geometry.isEmpty
-            else { return nil }
-            return TrackLimit(maxspeed: signalledSpeed(speed, tags: tags), nodes: geometry.map { Coordinate(latitude: $0.lat, longitude: $0.lon) })
+            else { continue }
+            ways.append((element.id ?? -index - 1, TrackLimit(
+                maxspeed: signalledSpeed(speed, tags: tags), nodes: geometry.map { Coordinate(latitude: $0.lat, longitude: $0.lon) }
+            )))
         }
+        return ways
     }
 }
