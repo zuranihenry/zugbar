@@ -920,7 +920,22 @@ final class TrainMonitor {
 
     /// Switches to the planned connection after the user changed trains at the destination.
     private func followConnection() {
-        guard !demoMode, let plan, let connection = plan.connection else { return }
+        guard !demoMode, !findingReplacement, let plan, let connection = plan.connection else { return }
+        let arrival = status?.stops.first { $0.id == plan.destinationStopID }?.arrival
+        if Handover.isMissed(connection, arrival: arrival) {
+            // The connection left before the train got in: take the next train to the same place instead.
+            findingReplacement = true
+            Task {
+                defer { findingReplacement = false }
+                let next = await replacement(for: connection, after: arrival ?? Date())
+                if let next {
+                    Notifier.post(title: strings.connectionMissed, body: strings.nextTrain(next), force: true)
+                    self.plan?.connection = next
+                }
+                followConnection()
+            }
+            return
+        }
         leftTrain = (plan.trainName, Date())
         onBoardTrain = nil
         self.plan = Handover.plan(after: connection)
@@ -929,6 +944,53 @@ final class TrainMonitor {
         quietlySetTarget(ManualTarget(target))
         restart()
         if case .name = target { findTrip(of: connection) }
+    }
+
+    @ObservationIgnored private var findingReplacement = false
+
+    /// The earliest direct train after `connection` from the same station to the same final stop.
+    private func replacement(for connection: Connection, after earliest: Date) async -> Connection? {
+        guard let final = connection.finalStop,
+              let from = try? await client.stations(matching: connection.station).first,
+              let to = try? await client.stations(matching: final).first,
+              let options = try? await client.connections(from: from, to: to, after: earliest, regional: true)
+        else { return nil }
+        guard var next = Handover.replacement(for: connection, in: options, after: earliest) else { return nil }
+        next.station = connection.station
+        return next
+    }
+
+    /// Missed the train, or would rather take a later one: before changing, swaps the planned connection
+    /// for the next one; after changing, follows the next train between the same two stops instead.
+    func takeNextTrain() {
+        guard let plan else { return }
+        let leg: Connection
+        if let connection = plan.connection {
+            leg = connection
+        } else if let status, let boarding = status.stops.first(where: { $0.id == plan.boardingStopID }),
+                  let final = status.stops.first(where: { $0.id == plan.destinationStopID })?.name ?? plan.pendingDestination {
+            let tripID = if case .trip(let id, _) = manualTarget { id } else { "" }
+            leg = Connection(tripID: tripID, name: status.trainName ?? "", headsign: nil, station: boarding.name,
+                             scheduledDeparture: boarding.departure, expectedDeparture: nil, track: nil, finalStop: final)
+        } else {
+            return
+        }
+        let following = plan.connection == nil
+        Task {
+            guard let next = await replacement(for: leg, after: (leg.departure ?? Date()).addingTimeInterval(60)) else {
+                Notifier.post(title: strings.takeNextTrain, body: strings.noNextTrain, force: true)
+                return
+            }
+            Notifier.post(title: strings.nextTrainTitle, body: strings.nextTrain(next), force: true)
+            if following {
+                self.plan = Handover.plan(after: next)
+                lastSnapshot = nil
+                quietlySetTarget(ManualTarget(Handover.target(for: next)))
+                restart()
+            } else {
+                updatePlan { $0.connection = next }
+            }
+        }
     }
 
     /// Connections from the ICE portal are first searched by name, which only finds long-distance trains.

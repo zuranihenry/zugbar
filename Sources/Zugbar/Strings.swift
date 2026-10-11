@@ -180,6 +180,20 @@ struct Strings {
         }
     }
     var reload: String { t("Reload train data", "Zugdaten neu laden") }
+    var takeNextTrain: String { t("Take the next train", "Nächsten Zug nehmen") }
+    var connectionMissed: String { t("Connection missed", "Anschluss verpasst") }
+    var nextTrainTitle: String { t("Next train", "Nächster Zug") }
+    func nextTrain(_ connection: Connection) -> String {
+        var text = connection.name
+        if let departure = connection.departure {
+            let time = departure.formatted(.dateTime.hour().minute())
+            text += t(" at \(time)", " um \(time)")
+        }
+        if let track = connection.track { text += ", " + self.track(track) }
+        if let final = connection.finalStop { text += t(" to \(final)", " nach \(final)") }
+        return text
+    }
+    var noNextTrain: String { t("No later direct train found.", "Kein späterer direkter Zug gefunden.") }
     var cancelled: String { t("Cancelled", "Fällt aus") }
     var noStopHere: String { t("The train no longer stops here.", "Der Zug hält hier nicht mehr.") }
     var notifications: String { t("Notifications", "Benachrichtigungen") }

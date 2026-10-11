@@ -73,6 +73,23 @@ public enum Handover {
         }
     }
 
+    /// Whether the connection leaves before the followed train gets there, so it can't be caught.
+    public static func isMissed(_ connection: Connection, arrival: Date?) -> Bool {
+        guard !connection.cancelled, let arrival, let departure = connection.departure else { return false }
+        return departure < arrival
+    }
+
+    /// The train to take instead of a missed one: of the direct trains leaving from `earliest` on, the one that
+    /// gets there first. An RE leaving a few minutes after an S-Bahn often overtakes it.
+    public static func replacement(for connection: Connection, in options: [Connection], after earliest: Date) -> Connection? {
+        options
+            .filter { !$0.cancelled && $0.tripID != connection.tripID && ($0.departure ?? .distantPast) >= earliest }
+            .min { a, b in
+                let (arrivalA, arrivalB) = (a.finalArrival ?? .distantFuture, b.finalArrival ?? .distantFuture)
+                return arrivalA != arrivalB ? arrivalA < arrivalB : (a.departure ?? .distantFuture) < (b.departure ?? .distantFuture)
+            }
+    }
+
     /// The plan for the connecting train: boarding where the user changes, getting off at the connection's
     /// final stop. Stops are matched by name once the train's own stop list is known.
     public static func plan(after connection: Connection) -> JourneyPlan {
