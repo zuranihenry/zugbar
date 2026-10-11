@@ -28,7 +28,7 @@ enum Screenshots {
             finalStop: "Regensburg Hbf", finalArrival: nuremberg.scheduledArrival!.addingTimeInterval(74 * 60)
         )
         let plan = JourneyPlan(trainName: ice.trainName!, destinationStopID: nuremberg.id, connection: connection)
-        save(TrainMonitor(snapshot: ice, topSpeed: 300, now: iceNow, plan: plan), .english, dark: true, "panel-ice-dark", in: directory, defaults: defaults)
+        save(TrainMonitor(snapshot: ice, topSpeed: 300, now: iceNow, plan: plan), .english, dark: false, "panel-ice", in: directory, defaults: defaults)
 
         var history = TrainHistory()
         for day in 1...4 {
@@ -40,7 +40,7 @@ enum Screenshots {
         let discover = TrainMonitor(snapshot: nil, history: history)
         discover.loadLiveTrains()
         wait { !discover.liveTrains.isEmpty }
-        save(discover, .english, dark: true, "panel-discover", in: directory, defaults: settings(regional: false))
+        save(discover, .english, dark: false, "panel-discover", in: directory, defaults: settings(regional: false))
 
         if let station {
             let monitor = TrainMonitor(snapshot: nil)
@@ -50,7 +50,7 @@ enum Screenshots {
             wait { !monitor.departures.isEmpty }
             monitor.loadLiveTrains()
             wait { !monitor.liveTrains.isEmpty }
-            save(monitor, .english, dark: true, "panel-regional", in: directory, defaults: settings(regional: true))
+            save(monitor, .english, dark: false, "panel-regional", in: directory, defaults: settings(regional: true))
         }
         exit(0)
     }
@@ -63,6 +63,7 @@ enum Screenshots {
         defaults.set(false, forKey: "showMap")
         // Liquid Glass doesn't render offscreen, so screenshots use the classic look.
         defaults.set(true, forKey: "classicDesign")
+        defaults.set(true, forKey: "solidBackground")
         return defaults
     }
 

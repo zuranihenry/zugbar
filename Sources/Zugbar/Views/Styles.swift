@@ -41,9 +41,13 @@ private struct ActionButtonStyle: ViewModifier {
 /// In classic mode the popover gets the vibrant material popovers had before macOS 26.
 struct ClassicBackground: ViewModifier {
     @AppStorage("classicDesign") private var classicDesign = false
+    /// Set by `--screenshots`: the material renders a flat gray offscreen, so use the window color instead.
+    @AppStorage("solidBackground") private var solidBackground = false
 
     func body(content: Content) -> some View {
-        if classicDesign {
+        if solidBackground {
+            content.background(Color(nsColor: .windowBackgroundColor))
+        } else if classicDesign {
             content.background(VisualEffect().ignoresSafeArea())
         } else {
             content

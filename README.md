@@ -2,7 +2,7 @@
 
 Live train info in your Mac's menu bar.
 
-<img src="docs/screenshots/window.jpg" alt="Following an ICE online, with the route on the map">
+<img src="docs/screenshots/window.png" alt="Following an ICE online, with the route on the map">
 
 - **On board:** speed, next stop, delays and tracks from the train's Wi-Fi (DB ICE, ÖBB Railjet, SNCF TGV INOUI)
 - **Online:** follow any train in Europe via [Transitous](https://transitous.org), with estimated position and speed
@@ -11,7 +11,7 @@ Live train info in your Mac's menu bar.
 
 <table>
   <tr>
-    <td valign="top"><img src="docs/screenshots/panel-ice-dark.png" width="230" alt="On an ICE, with destination and connection"></td>
+    <td valign="top"><img src="docs/screenshots/panel-ice.png" width="230" alt="On an ICE, with destination and connection"></td>
     <td valign="top"><img src="docs/screenshots/panel-discover.png" width="230" alt="Suggestions and live trains"></td>
     <td valign="top"><img src="docs/screenshots/panel-regional.png" width="230" alt="Picking a regional train at a station"></td>
   </tr>
