@@ -2,9 +2,10 @@
 
 Live train info in your Mac's menu bar: speed, next stop, delays, tracks, map and route, straight from the
 train's Wi-Fi (DB ICE, ÖBB Railjet, SNCF TGV INOUI). Set a destination and connection to get notified about
-delays, track changes and tight transfers. Off the train, follow any train online via
-[Transitous](https://transitous.org), with its position and speed estimated along the track, optionally from
-OpenStreetMap speed limits (experimental). English and German.
+delays, track changes and tight transfers, and switch to the next train if you miss one. Off the train, follow
+any train online via [Transitous](https://transitous.org), with its position and speed estimated along the
+track, optionally from OpenStreetMap speed limits (built in for main lines in Germany and Austria). Trips on
+board are kept in a local log. English and German.
 
 <table>
   <tr>
