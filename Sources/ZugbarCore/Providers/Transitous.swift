@@ -182,7 +182,8 @@ public actor Transitous: TrainProvider {
         return TrainStatus(
             provider: "Transitous",
             trainName: leg.displayName ?? leg.tripShortName,
-            destination: StationName.tidy(leg.headsign ?? leg.to.name),
+            // Some trips (e.g. TGVs) come with an empty headsign.
+            destination: StationName.tidy(leg.headsign.flatMap { $0.isEmpty ? nil : $0 } ?? leg.to.name),
             stops: stops,
             nextStopID: stops.first { !$0.passed && !$0.cancelled }?.id,
             progress: progress,

@@ -236,6 +236,7 @@ struct Strings {
         count == 1 ? t("1 passed stop", "1 vergangener Halt") : t("\(count) passed stops", "\(count) vergangene Halte")
     }
     var share: String { t("Share trip", "Fahrt teilen") }
+    var copy: String { t("Copy", "Kopieren") }
     var openWindow: String { t("Open in window", "In eigenem Fenster öffnen") }
     var alwaysOnTop: String { t("Keep on top", "Immer im Vordergrund") }
     var settings: String { t("Settings…", "Einstellungen…") }
@@ -249,7 +250,7 @@ struct Strings {
             let time = arrival.formatted(.dateTime.hour().minute())
             text += t(", arriving at \(destination.name) at \(time)", " und komme um \(time) in \(destination.name) an")
             if let delay = destination.delayMinutes, delay > 0 { text += " (+\(delay))" }
-        } else if let to = status.destination {
+        } else if let to = status.destination, !to.isEmpty {
             text += t(" to \(to)", " nach \(to)")
         }
         text += "."
