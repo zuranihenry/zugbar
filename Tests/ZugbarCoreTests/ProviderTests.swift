@@ -66,14 +66,14 @@ struct ICEPortalTests {
         #expect(ICEVehicle.describe(tzn: nil) == nil)
     }
 
-    /// Seconds from a real ICE trip: the portal showed Weidenhagen +1 and Tanndorf Nord on time.
+    /// Like the portals: 1:58 late is +1, 0:43 late is on time.
     @Test func delaysCutOffToWholeMinutes() {
-        let scheduled = utc("2026-10-10T15:49:00Z")
-        let station = Stop(id: "8000001", name: "Weidenhagen Hbf", scheduledArrival: scheduled, expectedArrival: scheduled.addingTimeInterval(118))
-        let nord = Stop(id: "8000002", name: "Tanndorf Nord", scheduledDeparture: scheduled, expectedDeparture: scheduled.addingTimeInterval(43))
-        let early = Stop(id: "1", name: "Early", scheduledArrival: scheduled, expectedArrival: scheduled.addingTimeInterval(-50))
-        #expect(station.delayMinutes == 1)
-        #expect(nord.delayMinutes == 0)
+        let scheduled = utc("2026-06-12T16:00:00Z")
+        let late = Stop(id: "1", name: "A", scheduledArrival: scheduled, expectedArrival: scheduled.addingTimeInterval(118))
+        let slightly = Stop(id: "2", name: "B", scheduledDeparture: scheduled, expectedDeparture: scheduled.addingTimeInterval(43))
+        let early = Stop(id: "3", name: "C", scheduledArrival: scheduled, expectedArrival: scheduled.addingTimeInterval(-50))
+        #expect(late.delayMinutes == 1)
+        #expect(slightly.delayMinutes == 0)
         #expect(early.delayMinutes == 0)
     }
 }
