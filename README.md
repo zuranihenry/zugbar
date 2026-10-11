@@ -1,17 +1,19 @@
 # Zugbar
 
-Live train info in your Mac's menu bar: speed, next stop, delays, tracks, map and route, straight from the
-train's Wi-Fi (DB ICE, ÖBB Railjet, SNCF TGV INOUI). Set a destination and connection to get notified about
-delays, track changes and tight transfers, and switch to the next train if you miss one. Off the train, follow
-any train online via [Transitous](https://transitous.org), with its position and speed estimated along the
-track, optionally from OpenStreetMap speed limits (built in for main lines in Germany and Austria). Trips on
-board are kept in a local log. English and German.
+Live train info in your Mac's menu bar.
+
+<img src="docs/screenshots/window.jpg" alt="Following an ICE online, with the route on the map">
+
+- **On board:** speed, next stop, delays and tracks from the train's Wi-Fi (DB ICE, ÖBB Railjet, SNCF TGV INOUI)
+- **Online:** follow any train in Europe via [Transitous](https://transitous.org), with estimated position and speed
+- **Your journey:** destination and connection, with alerts for delays, track changes and tight or missed transfers
+- English and German
 
 <table>
   <tr>
-    <td valign="top"><img src="docs/screenshots/panel-ice-dark.png" width="230" alt="On an ICE"></td>
+    <td valign="top"><img src="docs/screenshots/panel-ice-dark.png" width="230" alt="On an ICE, with destination and connection"></td>
     <td valign="top"><img src="docs/screenshots/panel-discover.png" width="230" alt="Suggestions and live trains"></td>
-    <td valign="top"><img src="docs/screenshots/panel-regional.png" width="230" alt="Regional train picker"></td>
+    <td valign="top"><img src="docs/screenshots/panel-regional.png" width="230" alt="Picking a regional train at a station"></td>
   </tr>
 </table>
 

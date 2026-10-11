@@ -50,7 +50,7 @@ enum Screenshots {
             wait { !monitor.departures.isEmpty }
             monitor.loadLiveTrains()
             wait { !monitor.liveTrains.isEmpty }
-            save(monitor, .german, dark: true, "panel-regional", in: directory, defaults: settings(regional: true))
+            save(monitor, .english, dark: true, "panel-regional", in: directory, defaults: settings(regional: true))
         }
         exit(0)
     }
@@ -59,6 +59,8 @@ enum Screenshots {
         let defaults = UserDefaults(suiteName: "zugbar.screenshots")!
         defaults.removePersistentDomain(forName: "zugbar.screenshots")
         defaults.set(regional, forKey: "regionalTrains")
+        // Map tiles don't load offscreen; an empty grid looks broken.
+        defaults.set(false, forKey: "showMap")
         // Liquid Glass doesn't render offscreen, so screenshots use the classic look.
         defaults.set(true, forKey: "classicDesign")
         return defaults
