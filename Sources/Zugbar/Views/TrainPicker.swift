@@ -5,7 +5,7 @@ import ZugbarCore
 struct TrainPicker: View {
     @Bindable var monitor: TrainMonitor
     @Environment(\.strings) private var strings
-    @AppStorage("regionalTrains") private var regionalTrains = false
+    @AppStorage("regionalTrains") private var regionalTrains = true
 
     var body: some View {
         VStack(spacing: 8) {

@@ -336,15 +336,22 @@ final class TrainMonitor {
         pickerMessage = .loadingDepartures
         // Stored so picking another station or clearing it cancels this load.
         searchTask = Task {
-            do {
-                // Start half an hour back so a train you've just boarded is still listed.
-                let found = try await client.departures(from: station, at: now.addingTimeInterval(-30 * 60), count: 120)
-                guard !Task.isCancelled else { return }
-                departures = found
-                pickerMessage = found.isEmpty ? .noDepartures : nil
-            } catch {
-                guard !Task.isCancelled else { return }
-                pickerMessage = .failed
+            // Reloaded every minute for new delays, tracks and departures; for half an hour at most, since
+            // Transitous is a shared service and the list may sit there unseen.
+            for _ in 0..<30 where !Task.isCancelled {
+                do {
+                    // Start half an hour back so a train you've just boarded is still listed.
+                    let found = try await client.departures(from: station, at: Date().addingTimeInterval(-30 * 60), count: 120)
+                    guard !Task.isCancelled else { return }
+                    departures = found
+                    pickerMessage = found.isEmpty ? .noDepartures : nil
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    // A failed reload keeps the list that's already there.
+                    if departures.isEmpty { pickerMessage = .failed }
+                }
+                try? await Task.sleep(for: .seconds(60))
+                guard status == nil, selectedStation == station else { return }
             }
         }
     }
@@ -648,7 +655,7 @@ final class TrainMonitor {
         connectionTarget = target
         connectionQuery = target.name
         connectionMessage = .loadingDepartures
-        let regional = UserDefaults.standard.bool(forKey: "regionalTrains")
+        let regional = UserDefaults.standard.object(forKey: "regionalTrains") as? Bool ?? true
         // Stored so choosing another target or closing the picker cancels this search.
         connectionSearch = Task {
             do {

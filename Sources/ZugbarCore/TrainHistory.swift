@@ -5,7 +5,7 @@ public struct TrainHistory: Codable, Sendable, Equatable {
     public enum Item: Codable, Sendable, Hashable {
         /// A long-distance train, e.g. "ICE 123".
         case train(String)
-        /// A regional line at a station, e.g. RE80 from Riedstadt-Goddelau.
+        /// A regional line at a station, e.g. S3 from Altstadt Hbf.
         case line(stationID: String, stationName: String, line: String)
 
         public var title: String {

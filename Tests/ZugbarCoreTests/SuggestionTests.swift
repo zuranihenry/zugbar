@@ -34,7 +34,7 @@ struct TrainHistoryTests {
 
     @Test func timeOfDayWins() {
         var history = TrainHistory()
-        let commute = TrainHistory.Item.line(stationID: "x", stationName: "Riedstadt-Goddelau", line: "RE80")
+        let commute = TrainHistory.Item.line(stationID: "x", stationName: "Weidenhagen Hbf", line: "S3")
         for day in 1...5 { history.record(commute, at: date(day: day, 7, 50)) }
         for day in 1...6 { history.record(.train("ICE 123"), at: date(day: day, 18, 10)) }
 
