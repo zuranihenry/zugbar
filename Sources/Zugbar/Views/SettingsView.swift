@@ -3,13 +3,14 @@ import SwiftUI
 import ZugbarCore
 
 enum SettingsTab: CaseIterable {
-    case general, menuBar, notifications, debug
+    case general, menuBar, notifications, trips, debug
 
     var icon: String {
         switch self {
         case .general: "gearshape"
         case .menuBar: "menubar.rectangle"
         case .notifications: "bell.badge"
+        case .trips: "clock.arrow.circlepath"
         case .debug: "ladybug"
         }
     }
@@ -19,6 +20,7 @@ enum SettingsTab: CaseIterable {
         case .general: strings.general
         case .menuBar: strings.menuBar
         case .notifications: strings.notifications
+        case .trips: strings.trips
         case .debug: strings.debug
         }
     }
@@ -29,6 +31,7 @@ enum SettingsTab: CaseIterable {
         case .general: GeneralSettings(monitor: monitor)
         case .menuBar: MenuBarSettings()
         case .notifications: NotificationSettingsView(monitor: monitor)
+        case .trips: TripsView(monitor: monitor)
         case .debug: DebugSettings(monitor: monitor)
         }
     }
@@ -100,6 +103,70 @@ struct GeneralSettings: View {
         }
     }
 
+}
+
+/// Trips recorded on board, with totals and CSV export.
+struct TripsView: View {
+    let monitor: TrainMonitor
+    @Environment(\.strings) private var strings
+
+    var body: some View {
+        let log = monitor.tripLog
+        SettingsPane {
+            if log.trips.isEmpty {
+                Text(strings.noTrips).foregroundStyle(.secondary)
+            } else {
+                Section {
+                    Text(strings.tripsThisYear(Int(log.distance(inYearOf: Date()).rounded())))
+                    if let fastest = log.fastest, fastest.topSpeed > 0 {
+                        Text(strings.fastestTrip(fastest.topSpeed, train: fastest.train))
+                    }
+                    Button(strings.exportCSV) { export(log) }
+                }
+                Section {
+                    ForEach(log.trips) { trip in
+                        TripRow(trip: trip)
+                            .contextMenu {
+                                Button(strings.deleteTrip, role: .destructive) { monitor.deleteTrip(trip.id) }
+                            }
+                    }
+                }
+            }
+        }
+    }
+
+    private func export(_ log: TripLog) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Zugbar.csv"
+        panel.allowedContentTypes = [.commaSeparatedText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? log.csv().write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
+private struct TripRow: View {
+    let trip: Trip
+    @Environment(\.strings) private var strings
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(trip.train) · \(trip.from) → \(trip.to)").lineLimit(1)
+                Text(details).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            DelayBadge(minutes: trip.arrivalDelay).font(.caption)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var details: String {
+        let date = trip.start.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted).locale(locale))
+        let hours = Int(trip.duration / 3600), minutes = Int(trip.duration / 60) % 60
+        let duration = hours > 0 ? "\(hours) h \(minutes) min" : "\(minutes) min"
+        return "\(date) · \(Int(trip.distance.rounded())) km · \(duration) · \(strings.top(trip.topSpeed))"
+    }
 }
 
 /// Mirrors the system's login item state, which SwiftUI can't observe. Only works from the bundled .app.

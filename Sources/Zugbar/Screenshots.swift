@@ -88,6 +88,7 @@ enum Screenshots {
         save(NotificationSettingsView(monitor: monitor), .german, dark: true, "settings-notifications", in: directory, defaults: defaults)
         save(DebugSettings(monitor: monitor), .german, dark: true, "settings-debug", in: directory, defaults: defaults)
         save(MenuBarSettings(), .german, dark: true, "settings-menubar", in: directory, defaults: defaults)
+        save(TripsView(monitor: monitor), .german, dark: true, "settings-trips", in: directory, defaults: defaults)
         let iceNow = try! Date("2026-06-12T16:56:00Z", strategy: .iso8601)
         let ice = try! ICEPortal.parse(status: DemoProvider.resource("demo_db_status"), trip: DemoProvider.resource("demo_db_trip"), now: iceNow)
         let window = StatusPanel(monitor: TrainMonitor(snapshot: ice, now: iceNow), layout: .column(mapHeight: 240))
