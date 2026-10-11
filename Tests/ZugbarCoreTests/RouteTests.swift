@@ -36,6 +36,33 @@ struct RouteTests {
         let position = status.position(at: start.addingTimeInterval(0.35 * 3600))
         #expect(position.map { abs($0.latitude - 50) < 0.01 } == true)
     }
+
+    /// Online data is polled every 30 s, so `passed` lags behind the clock. Passing a stop must not make the
+    /// train wait there until the next poll and then jump (#10).
+    @Test func movesOnFromAStopBeforeTheNextPoll() throws {
+        let start = utc("2026-06-12T16:00:00Z")
+        let route = Route(points: [Coordinate(latitude: 50, longitude: 8), Coordinate(latitude: 50, longitude: 9), Coordinate(latitude: 50, longitude: 10)])
+        // Fetched at 16:00: B (16:30–16:32) not passed yet. B's coordinate is 300 m off the track.
+        let stops = [
+            Stop(id: "a", name: "A", scheduledDeparture: start, passed: true, coordinate: Coordinate(latitude: 50, longitude: 8)),
+            Stop(id: "b", name: "B", scheduledArrival: start.addingTimeInterval(1800), scheduledDeparture: start.addingTimeInterval(1920),
+                 coordinate: Coordinate(latitude: 50.003, longitude: 9)),
+            Stop(id: "c", name: "C", scheduledArrival: start.addingTimeInterval(3720), coordinate: Coordinate(latitude: 50, longitude: 10)),
+        ]
+        let status = TrainStatus(provider: "Transitous", stops: stops, route: route)
+
+        // Standing at B: on the track, not at the station's coordinate.
+        let atStop = try #require(status.position(at: start.addingTimeInterval(1860)))
+        #expect(abs(atStop.latitude - 50) < 0.0001)
+        #expect(status.estimatedSpeed(at: start.addingTimeInterval(1860)) == 0)
+
+        // 20 s after leaving B, still before the next poll: already in the next section and moving.
+        let after = start.addingTimeInterval(1940)
+        #expect(status.routeEstimate(at: after)?.previousStopID == "b")
+        #expect(try #require(status.estimatedSpeed(at: after)) > 0)
+        let moved = try #require(status.position(at: after))
+        #expect(moved.longitude > 9 && moved.longitude < 9.02)
+    }
 }
 
 struct SpeedProfileTests {

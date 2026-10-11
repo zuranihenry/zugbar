@@ -114,7 +114,7 @@ extension TrainStatus {
     /// The section the train is on, measured along `route`. `nil` before departure, at a stop or without a route.
     public func routeEstimate(at now: Date) -> RouteEstimate? {
         guard let route, route.length > 0,
-              let nextIndex = stops.firstIndex(where: { !$0.passed }), nextIndex > 0
+              let nextIndex = nextStopIndex(at: now), nextIndex > 0
         else { return nil }
         let previous = stops[nextIndex - 1], next = stops[nextIndex]
         guard let from = previous.coordinate, let to = next.coordinate,
