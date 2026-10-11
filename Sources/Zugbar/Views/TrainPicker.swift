@@ -182,6 +182,7 @@ private struct StationPicker: View {
                         .buttonStyle(.borderless)
                         .foregroundStyle(.secondary)
                         .help(strings.otherStation)
+                        .accessibilityLabel(strings.otherStation)
                 }
             }
 

@@ -165,6 +165,7 @@ private struct MapButton: View {
         .buttonStyle(.plain)
         .mapButtonStyle()
         .help(help)
+        .accessibilityLabel(help)
     }
 }
 

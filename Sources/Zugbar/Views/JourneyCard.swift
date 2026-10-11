@@ -24,6 +24,7 @@ struct JourneyCard: View {
                     .buttonStyle(.borderless)
                     .font(.caption)
                     .help(strings.removeDestination)
+                    .accessibilityLabel(strings.removeDestination)
             }
             HStack(spacing: 8) {
                 Text(destination.name).fontWeight(.semibold).lineLimit(1)
@@ -84,6 +85,8 @@ private struct ConnectionRow: View {
                 Button(action: remove) { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
                     .font(.caption)
+                    .help(strings.removeConnection)
+                    .accessibilityLabel(strings.removeConnection)
             }
             HStack(spacing: 8) {
                 if let departure = connection.departure {
@@ -129,6 +132,8 @@ private struct ConnectionPicker: View {
                 Button { monitor.isAddingConnection = false } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
+                    .help(strings.cancel)
+                    .accessibilityLabel(strings.cancel)
             }
             .font(.callout)
 
