@@ -276,6 +276,20 @@ final class TrainMonitor {
         if let trainPosition { map.trainMoved(to: trainPosition, at: date) }
     }
 
+    /// Where the marker will be at `date`, for camera animations that should end on the moving train.
+    func predictedPosition(at date: Date) -> Coordinate? {
+        guard let status else { return nil }
+        guard status.position != nil else { return estimates.position(of: status, at: date) }
+        guard gpsFixes.count == 2 else { return status.position }
+        let (from, to) = (gpsFixes[0], gpsFixes[1])
+        guard from.coordinate.distance(to: to.coordinate) < 5 else { return to.coordinate }
+        let t = min(max(date.timeIntervalSince(to.time) / max(to.time.timeIntervalSince(from.time), 1), 0), 1)
+        return Coordinate(
+            latitude: from.coordinate.latitude + (to.coordinate.latitude - from.coordinate.latitude) * t,
+            longitude: from.coordinate.longitude + (to.coordinate.longitude - from.coordinate.longitude) * t
+        )
+    }
+
     private func interpolatedGPS(_ latest: Coordinate, at date: Date) -> Coordinate {
         if gpsFixes.last?.coordinate != latest {
             gpsFixes = Array((gpsFixes + [(latest, date)]).suffix(2))

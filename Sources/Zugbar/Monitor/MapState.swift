@@ -36,6 +36,12 @@ final class MapState {
         heading.update(position, at: date)
     }
 
+    /// After an animated turn, continue from where it ended instead of easing again.
+    func setCameraHeading(_ heading: Double, at date: Date) {
+        shownHeading = heading
+        shownHeadingAt = date
+    }
+
     func cameraHeading(toward target: Double, at date: Date) -> Double {
         let elapsed = shownHeadingAt.map { min(max(date.timeIntervalSince($0), 0), 1) } ?? 1
         shownHeadingAt = date

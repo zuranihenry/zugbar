@@ -120,16 +120,18 @@ struct TrainMap: View {
     }
 
     private func cycleTracking(_ position: Coordinate?) {
+        // All three steps use the same animation, so turning one way doesn't feel faster than the other.
         if !monitor.map.followsTrain {
             headingUp = false
             monitor.map.followsTrain = true
-            if let position { center(on: position) }
+            turn(to: 0)
         } else if !headingUp {
-            // The frames turn the map while following.
             headingUp = true
+            turn(to: monitor.map.heading.degrees ?? 0)
         } else {
             headingUp = false
             monitor.map.followsTrain = false
+            turn(to: 0)
         }
     }
 
@@ -140,10 +142,6 @@ struct TrainMap: View {
         var rect = points.reduce(MKMapRect.null) { $0.union(MKMapRect(origin: $1, size: MKMapSize(width: 1, height: 1))) }
         rect = rect.insetBy(dx: -rect.width * 0.12 - 2_000, dy: -rect.height * 0.12 - 2_000)
         moveCamera(to: .rect(rect))
-    }
-
-    private func center(on position: Coordinate) {
-        moveCamera(to: .camera(camera(at: position)))
     }
 
     /// Following the train: north up, or turned with the train when that's switched on.
@@ -161,10 +159,24 @@ struct TrainMap: View {
             : MapCamera(centerCoordinate: CLLocationCoordinate2D(center), distance: monitor.map.followDistance)), duration: 0.25)
     }
 
-    private func moveCamera(to camera: MapCameraPosition, duration: Double = 0.6) {
+    private func moveCamera(to camera: MapCameraPosition, duration: Double = 0.6, settle: Double = 0.3) {
         monitor.map.programmaticMoves += 1
         withAnimation(.easeInOut(duration: duration)) { monitor.map.camera = camera }
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.3) { monitor.map.programmaticMoves -= 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration + settle) { monitor.map.programmaticMoves -= 1 }
+    }
+
+    /// Turns the map with MapKit's own animation, at the display's frame rate; stepping the heading frame by frame
+    /// only gets the marker's 30 updates a second and stutters. Ends where the train will be by then, so following
+    /// picks up without a jump.
+    private func turn(to heading: Double) {
+        let duration = 0.8
+        let end = Date().addingTimeInterval(duration)
+        // Following: where the train will be by then. Not following: stay where the map is.
+        let center = monitor.map.followsTrain ? monitor.predictedPosition(at: end) : monitor.map.center
+        guard let target = center else { return }
+        monitor.map.setCameraHeading(heading, at: end)
+        moveCamera(to: .camera(MapCamera(centerCoordinate: CLLocationCoordinate2D(target), distance: monitor.map.followDistance,
+                                         heading: heading)), duration: duration, settle: 0)
     }
 
     /// At most ~1500 points; full Transitous shapes have up to ten thousand, which slows redraws.
