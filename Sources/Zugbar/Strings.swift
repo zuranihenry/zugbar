@@ -243,6 +243,7 @@ struct Strings {
     var map: String { t("Map", "Karte") }
     var followTrain: String { t("Follow train", "Zug folgen") }
     var headingUp: String { t("Turn map with the train", "Karte in Fahrtrichtung drehen") }
+    var stopFollowingTrain: String { t("Stop following the train", "Zug nicht mehr folgen") }
     var zoomIn: String { t("Zoom in", "Vergrößern") }
     var zoomOut: String { t("Zoom out", "Verkleinern") }
     var wholeRoute: String { t("Whole route", "Ganze Strecke") }

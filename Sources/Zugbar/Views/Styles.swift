@@ -88,6 +88,11 @@ extension View {
         modifier(GlassStyle(shape: Circle(), interactive: true, fallback: AnyShapeStyle(.regularMaterial)))
     }
 
+    /// Map buttons that belong together, stacked in one glass capsule like Apple Maps.
+    func mapControlGroupStyle() -> some View {
+        modifier(GlassStyle(shape: Capsule(), fallback: AnyShapeStyle(.regularMaterial)))
+    }
+
     func actionButtonStyle() -> some View {
         modifier(ActionButtonStyle())
     }

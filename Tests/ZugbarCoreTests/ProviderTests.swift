@@ -57,6 +57,18 @@ struct ICEPortalTests {
         #expect(status.internet == Internet(current: .none, next: .good, nextChange: now.addingTimeInterval(60)))
     }
 
+    @Test func demoTrainDrivesAlongItsTrack() async throws {
+        let status = try await DemoProvider().fetch()
+        let route = try #require(status.route)
+        let now = try #require(status.position)
+        let later = try #require(DemoProvider.drive(status, along: route, at: Date().addingTimeInterval(60)))
+        // On the track, and about a minute's worth further along it.
+        #expect(TrackLimit(maxspeed: 0, nodes: route.points).distance(to: now) < 0.01)
+        let moved = route.distance(of: later.0) - route.distance(of: now)
+        #expect(moved > 1_000 && moved < 6_000)
+        #expect(later.1 > 80)
+    }
+
     @Test func vehicleModels() {
         #expect(ICEVehicle.model(for: 304) == "ICE 3")
         #expect(ICEVehicle.model(for: 8012) == "ICE 3neo")

@@ -43,27 +43,23 @@ struct TrainMap: View {
         .mapStyle(.standard(pointsOfInterest: .excludingAll))
         .mapControls {}
         .overlay(alignment: .topTrailing) {
-            VStack(spacing: 6) {
-                MapButton(icon: monitor.map.followsTrain ? "location.fill" : "location", help: strings.followTrain) {
-                    monitor.map.followsTrain.toggle()
-                    if monitor.map.followsTrain, let position { center(on: position) }
-                }
-                .disabled(position == nil)
-                MapButton(icon: headingUp ? "location.north.line.fill" : "location.north.line", help: strings.headingUp) {
-                    headingUp.toggle()
-                    // While following, the frames turn the map; only jump to the train when it wasn't followed.
-                    if headingUp, !monitor.map.followsTrain, let position {
-                        monitor.map.followsTrain = true
-                        center(on: position)
-                    }
-                }
-                .disabled(position == nil)
-                MapButton(icon: "plus", help: strings.zoomIn) { zoom(by: 0.5, train: position) }
-                MapButton(icon: "minus", help: strings.zoomOut) { zoom(by: 2, train: position) }
-                MapButton(icon: "arrow.up.left.and.arrow.down.right", help: strings.wholeRoute) {
+            MapControlGroup {
+                // Like Apple Maps: free → follow the train → follow, turned with it → free.
+                MapControl(icon: trackingIcon, help: trackingHelp) { cycleTracking(position) }
+                    .disabled(position == nil)
+                Divider().frame(width: 18)
+                MapControl(icon: "arrow.up.left.and.arrow.down.right", help: strings.wholeRoute) {
                     monitor.map.followsTrain = false
                     withAnimation { fitRoute(route + [position].compactMap { $0.map(CLLocationCoordinate2D.init) }) }
                 }
+            }
+            .padding(8)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            MapControlGroup {
+                MapControl(icon: "plus", help: strings.zoomIn) { zoom(by: 0.5, train: position) }
+                Divider().frame(width: 18)
+                MapControl(icon: "minus", help: strings.zoomOut) { zoom(by: 2, train: position) }
             }
             .padding(8)
         }
@@ -113,6 +109,30 @@ struct TrainMap: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
+    private var trackingIcon: String {
+        guard monitor.map.followsTrain else { return "location" }
+        return headingUp ? "location.north.line.fill" : "location.fill"
+    }
+
+    private var trackingHelp: String {
+        guard monitor.map.followsTrain else { return strings.followTrain }
+        return headingUp ? strings.stopFollowingTrain : strings.headingUp
+    }
+
+    private func cycleTracking(_ position: Coordinate?) {
+        if !monitor.map.followsTrain {
+            headingUp = false
+            monitor.map.followsTrain = true
+            if let position { center(on: position) }
+        } else if !headingUp {
+            // The frames turn the map while following.
+            headingUp = true
+        } else {
+            headingUp = false
+            monitor.map.followsTrain = false
+        }
+    }
+
     /// Zooms to the route with a little margin; `.automatic` leaves too much empty map around it.
     private func fitRoute(_ coordinates: [CLLocationCoordinate2D]) {
         guard !coordinates.isEmpty else { return }
@@ -155,7 +175,17 @@ struct TrainMap: View {
     }
 }
 
-private struct MapButton: View {
+private struct MapControlGroup<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(spacing: 0) { content }
+            .padding(.vertical, 4)
+            .mapControlGroupStyle()
+    }
+}
+
+private struct MapControl: View {
     let icon: String
     let help: String
     let action: () -> Void
@@ -163,11 +193,11 @@ private struct MapButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .frame(width: 28, height: 28)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 30, height: 28)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .mapButtonStyle()
         .help(help)
         .accessibilityLabel(help)
     }

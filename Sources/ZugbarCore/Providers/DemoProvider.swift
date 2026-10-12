@@ -40,9 +40,44 @@ public struct DemoProvider: TrainProvider {
             return stop
         }
 
-        let base = Double(status.speed ?? 200)
-        status.speed = Int(base + 25 * sin(now.timeIntervalSince(startedAt) / 20))
+        if recording == .deutscheBahn, let route = Self.route {
+            // The recording has one GPS fix; drive the train along the real track instead, so the map,
+            // following and heading can be tried out.
+            status.route = route
+            if let (position, speed) = Self.drive(status, along: route, at: now) {
+                status.position = position
+                status.speed = speed
+            }
+        } else {
+            let base = Double(status.speed ?? 200)
+            status.speed = Int(base + 25 * sin(now.timeIntervalSince(startedAt) / 20))
+        }
         return status
+    }
+
+    /// The demo ICE's track, Berlin Hbf – München Hbf, from Transitous.
+    static let route: Route? = (try? resource("demo_route")).flatMap { data in
+        struct File: Decodable { let polyline: String }
+        return (try? JSONDecoder().decode(File.self, from: data)).map { Route(points: Route.decode($0.polyline)) }
+    }
+
+    /// Where the train is between its last and next stop at `now`, accelerating and braking like a real one.
+    static func drive(_ status: TrainStatus, along route: Route, at now: Date) -> (Coordinate, Int)? {
+        guard let nextIndex = status.stops.firstIndex(where: { !$0.passed }), nextIndex > 0 else { return nil }
+        let previous = status.stops[nextIndex - 1], next = status.stops[nextIndex]
+        guard let from = previous.coordinate, let to = next.coordinate,
+              let departure = previous.departure, let arrival = next.arrival, arrival > departure
+        else { return nil }
+        let start = route.distance(of: from)
+        let end = route.distance(of: to, from: start)
+        guard end > start else { return nil }
+        let estimate = RouteEstimate(previousStopID: previous.id, nextStopID: next.id, startDistance: start, endDistance: end,
+                                     departure: departure, arrival: arrival, kind: TrainKind.of(status.trainName))
+        guard let profile = SpeedProfile(length: estimate.sectionLength, limits: Array(repeating: 300, count: 400),
+                                         duration: estimate.duration, kind: estimate.kind),
+              let position = route.coordinate(at: start + profile.state(after: now.timeIntervalSince(departure)).distance)
+        else { return nil }
+        return (position, profile.state(after: now.timeIntervalSince(departure)).speed)
     }
 
     public static func resource(_ name: String, extension: String = "json") throws -> Data {
