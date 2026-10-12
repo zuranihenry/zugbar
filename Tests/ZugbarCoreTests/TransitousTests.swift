@@ -94,6 +94,10 @@ struct MenuTitleTests {
         #expect(MenuTitle.make(status: status, displaySpeed: 248, isTopSpeed: false, now: now, options: compact) == "248 · → Oberwald Flugh. 7′")
         #expect(MenuTitle.shorten("Mönchengladbach Hbf", style: .short) == "Mönchenglad…")
         #expect(MenuTitle.shorten("Ulm Hbf", style: .short) == "Ulm Hbf")
+        // The ICE portal writes some names without spaces around the parentheses.
+        #expect(MenuTitle.shorten("Oberwald(Main)Hbf", style: .compact) == "Oberwald Hbf")
+        #expect(MenuTitle.shorten("Freiburg(Breisgau) Hbf", style: .compact) == "Freiburg Hbf")
+        #expect(MenuTitle.shorten("Berlin Hauptbahnhof", style: .compact) == "Berlin Hbf")
     }
 
     @Test func standingAtStation() {

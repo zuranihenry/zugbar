@@ -79,8 +79,9 @@ public enum MenuTitle {
     /// compact: "Düsseldorf Flughafen Fernbahnhof" → "Düsseldorf Flugh."; short: compact, cut to 12 characters.
     public static func shorten(_ name: String, style: MenuTitleOptions.StationStyle) -> String {
         guard style != .full else { return name }
-        var result = name.replacingOccurrences(of: #"\s*\([^)]*\)"#, with: "", options: .regularExpression)
-        for (long, short) in [("Fernbahnhof", ""), ("Flughafen", "Flugh."), ("Bahnhof", "Bf"), ("Hauptbahnhof", "Hbf"), ("Sankt ", "St. ")] {
+        // "Halle(Saale)Hbf" has no spaces around the parentheses, so leave one in their place.
+        var result = name.replacingOccurrences(of: #"\s*\([^)]*\)\s*"#, with: " ", options: .regularExpression)
+        for (long, short) in [("Fernbahnhof", ""), ("Flughafen", "Flugh."), ("Hauptbahnhof", "Hbf"), ("Bahnhof", "Bf"), ("Sankt ", "St. ")] {
             result = result.replacingOccurrences(of: long, with: short)
         }
         result = result.split(separator: " ").joined(separator: " ")

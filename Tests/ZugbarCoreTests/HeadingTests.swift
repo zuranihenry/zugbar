@@ -56,4 +56,39 @@ struct HeadingTests {
             #expect(degrees > 340 || degrees < 20)
         }
     }
+
+    /// Northbound at 50 m/s, one fix a second.
+    func north(_ heading: inout Heading, seconds: ClosedRange<Int>, from latitude: Double = 50) {
+        for second in seconds {
+            heading.update(Coordinate(latitude: latitude + Double(second - seconds.lowerBound) * 0.00045, longitude: 8),
+                           at: start.addingTimeInterval(Double(second)))
+        }
+    }
+
+    @Test func ignoresABadFixBehindTheTrain() throws {
+        var heading = Heading()
+        north(&heading, seconds: 0...20)
+        // One fix 300 m behind, then back on track and onwards.
+        heading.update(Coordinate(latitude: 50 + 20 * 0.00045 - 0.0027, longitude: 8), at: start.addingTimeInterval(21))
+        north(&heading, seconds: 22...30, from: 50 + 22 * 0.00045)
+        let degrees = try #require(heading.degrees)
+        #expect(Heading.angle(between: degrees, and: 0) < 5)
+        // Not even briefly: the map shouldn't swing round and back.
+        var glitch = Heading()
+        north(&glitch, seconds: 0...20)
+        glitch.update(Coordinate(latitude: 50 + 20 * 0.00045 - 0.0027, longitude: 8), at: start.addingTimeInterval(21))
+        glitch.update(Coordinate(latitude: 50 + 20 * 0.00045 - 0.0027, longitude: 8), at: start.addingTimeInterval(22))
+        #expect(Heading.angle(between: try #require(glitch.degrees), and: 0) < 5)
+    }
+
+    @Test func takesAReversalThatLasts() throws {
+        var heading = Heading()
+        north(&heading, seconds: 0...20)
+        // The train reverses at a terminus and heads south for half a minute.
+        let turn = 50 + 20 * 0.00045
+        for second in 21...60 {
+            heading.update(Coordinate(latitude: turn - Double(second - 20) * 0.00045, longitude: 8), at: start.addingTimeInterval(Double(second)))
+        }
+        #expect(try abs(#require(heading.degrees) - 180) < 10)
+    }
 }

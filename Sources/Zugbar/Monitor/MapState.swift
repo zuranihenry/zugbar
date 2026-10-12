@@ -27,7 +27,21 @@ final class MapState {
     /// Direction of travel for a map turned with the train; follows the marker, not the raw fixes.
     @ObservationIgnored private(set) var heading = Heading()
 
+    /// The heading the camera shows, eased toward the wanted one so switching heading-up turns the map
+    /// smoothly while it keeps following the train.
+    @ObservationIgnored private var shownHeading = 0.0
+    @ObservationIgnored private var shownHeadingAt: Date?
+
     func trainMoved(to position: Coordinate, at date: Date) {
         heading.update(position, at: date)
+    }
+
+    func cameraHeading(toward target: Double, at date: Date) -> Double {
+        let elapsed = shownHeadingAt.map { min(max(date.timeIntervalSince($0), 0), 1) } ?? 1
+        shownHeadingAt = date
+        let turn = (target - shownHeading + 540).truncatingRemainder(dividingBy: 360) - 180
+        // About 90 % of the way in half a second at 30 frames a second.
+        shownHeading = (shownHeading + turn * (1 - exp(-elapsed / 0.2)) + 360).truncatingRemainder(dividingBy: 360)
+        return shownHeading
     }
 }

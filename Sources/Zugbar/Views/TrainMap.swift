@@ -51,8 +51,11 @@ struct TrainMap: View {
                 .disabled(position == nil)
                 MapButton(icon: headingUp ? "location.north.line.fill" : "location.north.line", help: strings.headingUp) {
                     headingUp.toggle()
-                    monitor.map.followsTrain = monitor.map.followsTrain || headingUp
-                    if monitor.map.followsTrain, let position { center(on: position) }
+                    // While following, the frames turn the map; only jump to the train when it wasn't followed.
+                    if headingUp, !monitor.map.followsTrain, let position {
+                        monitor.map.followsTrain = true
+                        center(on: position)
+                    }
                 }
                 .disabled(position == nil)
                 MapButton(icon: "plus", help: strings.zoomIn) { zoom(by: 0.5, train: position) }
@@ -126,7 +129,7 @@ struct TrainMap: View {
     /// Following the train: north up, or turned with the train when that's switched on.
     private func camera(at position: Coordinate) -> MapCamera {
         MapCamera(centerCoordinate: CLLocationCoordinate2D(position), distance: monitor.map.followDistance,
-                  heading: headingUp ? monitor.map.heading.degrees ?? 0 : 0)
+                  heading: monitor.map.cameraHeading(toward: headingUp ? monitor.map.heading.degrees ?? 0 : 0, at: Date()))
     }
 
     /// Zooms around the train when following, else around the map's center. Works from the remembered zoom,
