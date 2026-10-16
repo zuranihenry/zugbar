@@ -17,10 +17,18 @@ public enum Handover {
               let destination = status.stops.first(where: { $0.id == plan.destinationStopID }),
               !destination.cancelled, isCurrent(plan.connection, now: now)
         else { return false }
+        // Online, "passed" only means the timetable says so, and the live times can lag the real train by minutes.
+        if status.isOnline {
+            guard let arrival = destination.arrival ?? destination.departure else { return false }
+            return arrival.addingTimeInterval(onlineGrace) <= now.addingTimeInterval(leeway)
+        }
         if destination.passed { return true }
         guard let arrival = destination.arrival else { return false }
         return arrival <= now.addingTimeInterval(leeway)
     }
+
+    /// How long after its expected arrival a train followed online counts as arrived.
+    public static let onlineGrace: TimeInterval = 2 * 60
 
     /// After the followed train's trip ended, its part of the journey is over too.
     public static func isDueAfterTripEnded(plan: JourneyPlan?, trainName: String?, now: Date) -> Bool {

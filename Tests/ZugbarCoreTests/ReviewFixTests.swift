@@ -179,3 +179,29 @@ struct CoordinateTests {
         #expect(Coordinate(45, 7) != nil)
     }
 }
+
+struct OnlineHandoverTests {
+    let now = utc("2026-03-02T12:00:00Z")
+
+    func plan() -> JourneyPlan {
+        JourneyPlan(trainName: "ECE 90", destinationStopID: "b", connection: Connection(
+            tripID: "s", name: "S 1", headsign: nil, station: "Brückenfeld",
+            scheduledDeparture: now.addingTimeInterval(15 * 60), expectedDeparture: nil, track: nil))
+    }
+
+    func status(arrivingIn seconds: TimeInterval, provider: String) -> TrainStatus {
+        TrainStatus(provider: provider, trainName: "ECE 90", stops: [
+            Stop(id: "a", name: "Altstadt", scheduledDeparture: now.addingTimeInterval(-3600), passed: true),
+            Stop(id: "b", name: "Brückenfeld", scheduledArrival: now.addingTimeInterval(seconds),
+                 passed: seconds <= 0),
+        ])
+    }
+
+    @Test func onlineWaitsAFewMinutesPastArrival() {
+        // Online, the live times can lag the real train: not due on the dot, nor because they call it passed.
+        #expect(!Handover.isDue(plan: plan(), status: status(arrivingIn: -60, provider: "Transitous"), now: now))
+        #expect(Handover.isDue(plan: plan(), status: status(arrivingIn: -121, provider: "Transitous"), now: now))
+        // A portal knows when the train is in.
+        #expect(Handover.isDue(plan: plan(), status: status(arrivingIn: -60, provider: "DB"), now: now))
+    }
+}

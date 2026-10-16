@@ -754,7 +754,7 @@ final class TrainMonitor {
         }
         failures = 0
         if newStatus.speed == nil { displaySpeed = nil }
-        if Handover.isDue(plan: journey.plan, status: newStatus, now: Date()) { followConnection() }
+        if Handover.isDue(plan: journey.plan, status: newStatus, now: Date()), !stillAboard(newStatus) { followConnection() }
     }
 
     private func loadOnBoardRoute(for trainName: String) {
@@ -771,6 +771,18 @@ final class TrainMonitor {
             }
             onBoardRouteRequests.remove(trainName)
         }
+    }
+
+    /// Signs the user is still on the train followed online, when the timetable says it has arrived: its router's GPS
+    /// isn't at the destination yet, or an SBB train's Wi-Fi is still there. Leaving the Wi-Fi is the moment to change.
+    private func stillAboard(_ status: TrainStatus) -> Bool {
+        guard status.isOnline, let plan = journey.plan,
+              let destination = status.stops.first(where: { $0.id == plan.destinationStopID })
+        else { return false }
+        if let position = status.position, let coordinate = destination.coordinate {
+            return position.distance(to: coordinate) > 1
+        }
+        return OnboardNetwork.dhcpDomains.contains(where: SBB.isTrainWiFi)
     }
 
     // MARK: - SBB trains
