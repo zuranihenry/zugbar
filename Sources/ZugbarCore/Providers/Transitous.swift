@@ -32,21 +32,33 @@ public actor Transitous: TrainProvider {
         case tripEnded
     }
 
+    /// Name searches download a map of the moving trains (megabytes), so what they found is remembered for the
+    /// whole app: every new lookup, Reload or network change would otherwise search again.
+    static let found = FoundTrips()
+
     public func fetch() async throws -> TrainStatus {
         let now = Date()
         if tripID == nil, let query {
-            tripID = try await findTrip(named: query, now: now)
+            switch await Self.found.lookup(query, at: now) {
+            case .found(let id): tripID = id
+            case .notRunning: throw LookupError.notRunning
+            case nil:
+                tripID = try await findTrip(named: query, now: now)
+                if tripID == nil { await Self.found.notRunning(query, at: now) }
+            }
         }
         guard let tripID else { throw LookupError.notRunning }
 
         var url = Self.base.appending(path: "v6/trip")
-        url.append(queryItems: [URLQueryItem(name: "tripId", value: tripID)])
+        url.appendQuery([URLQueryItem(name: "tripId", value: tripID)])
         var status = try Self.parse(trip: await loader(url), now: now)
         status.stops = await withCityNames(status.stops)
 
         if let end = status.stops.last?.arrival, now > end.addingTimeInterval(15 * 60) {
+            if let query { await Self.found.ended(query, at: now) }
             throw LookupError.tripEnded
         }
+        if let query { await Self.found.store(query, tripID: tripID, until: (status.stops.last?.arrival ?? now).addingTimeInterval(15 * 60)) }
         return status
     }
 
@@ -58,7 +70,7 @@ public actor Transitous: TrainProvider {
             let key = "\(coordinate.latitude),\(coordinate.longitude)"
             if betterNames[key] == nil {
                 var url = Self.base.appending(path: "v1/reverse-geocode")
-                url.append(queryItems: [URLQueryItem(name: "place", value: key), URLQueryItem(name: "type", value: "STOP")])
+                url.appendQuery([URLQueryItem(name: "place", value: key), URLQueryItem(name: "type", value: "STOP")])
                 let names = (try? JSONDecoder().decode([NamedPlace].self, from: await loader(url)))?.map(\.name) ?? []
                 betterNames[key] = names.map(StationName.tidy).first { !StationName.lacksCity($0) } ?? result[index].name
             }
@@ -103,7 +115,7 @@ public actor Transitous: TrainProvider {
 
     static func mapTripsURL(from start: Date, to end: Date, area: Area = europe) -> URL {
         var url = base.appending(path: "v6/map/trips")
-        url.append(queryItems: [
+        url.appendQuery([
             URLQueryItem(name: "zoom", value: "6"),
             URLQueryItem(name: "min", value: area.min),
             URLQueryItem(name: "max", value: area.max),
@@ -128,18 +140,22 @@ public actor Transitous: TrainProvider {
 
         let candidates = segments
             .filter { $0.mode != "AIRPLANE" && $0.mode != "BUS" && $0.mode != "COACH" }
-            .flatMap(\.trips)
-            .filter { trip in
-                let name = normalize(trip.displayName ?? "")
+            .flatMap { segment in segment.trips.map { (trip: $0, realTime: segment.realTime ?? false) } }
+            .filter { candidate in
+                let name = normalize(candidate.trip.displayName ?? "")
                 return numberOnly ? name.drop(while: \.isLetter) == wanted : name == wanted
             }
+        // Two feeds can list the same train; the copy with live data is the one worth following.
+        let isLongDistance = { (trip: TripRef) in longDistance.contains { normalize(trip.displayName ?? "").hasPrefix($0) } }
+        let ranked = candidates.enumerated().sorted { a, b in
+            let rank = { (c: (trip: TripRef, realTime: Bool)) in (isLongDistance(c.trip) ? 0 : 2) + (c.realTime ? 0 : 1) }
+            return (rank(a.element), a.offset) < (rank(b.element), b.offset)
+        }.map(\.element)
 
-        if let best = candidates.first(where: { trip in
-            longDistance.contains { normalize(trip.displayName ?? "").hasPrefix($0) }
-        }) {
-            return TripMatch(tripID: best.tripId, ambiguous: false)
+        if let best = ranked.first(where: { isLongDistance($0.trip) }) {
+            return TripMatch(tripID: best.trip.tripId, ambiguous: false)
         }
-        return candidates.first.map { TripMatch(tripID: $0.tripId, ambiguous: numberOnly) }
+        return ranked.first.map { TripMatch(tripID: $0.trip.tripId, ambiguous: numberOnly) }
     }
 
     public static func normalize(_ text: String) -> String {
@@ -194,6 +210,7 @@ public actor Transitous: TrainProvider {
     struct MapSegment: Decodable {
         let mode: String?
         let trips: [TripRef]
+        let realTime: Bool?
     }
 
     struct TripRef: Decodable {

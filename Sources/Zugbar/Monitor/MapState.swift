@@ -18,8 +18,9 @@ final class MapState {
     /// Counts camera moves the app itself started, so those changes don't count as user input.
     @ObservationIgnored var programmaticMoves = 0
     var movingProgrammatically: Bool { programmaticMoves > 0 }
-    /// Where the map is currently centered, as reported by the map itself.
+    /// Where the map is currently centered, and how far out, as reported by the map itself.
     @ObservationIgnored var center: Coordinate?
+    @ObservationIgnored var cameraDistance: Double?
     /// Where following last put the camera; the user panning shows up as a difference to this.
     @ObservationIgnored var expectedCenter: Coordinate?
     /// Whether the current gesture changed the zoom; zooming never ends following.

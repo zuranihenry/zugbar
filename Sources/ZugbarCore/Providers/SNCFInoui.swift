@@ -24,7 +24,7 @@ public struct SNCFInoui: TrainProvider {
         let details = try decoder.decode(Details.self, from: detailsData)
         let gps = gpsData.flatMap { try? decoder.decode(GPS.self, from: $0) }
 
-        let stops = details.stops.filter { !($0.isRemoved ?? false) }.map { stop in
+        let stops = details.stops.map { stop in
             // The portal only has arrival times plus the dwell time in minutes.
             let dwell = TimeInterval((stop.duration ?? 0) * 60)
             return Stop(
@@ -36,7 +36,8 @@ public struct SNCFInoui: TrainProvider {
                 expectedDeparture: stop.realDate?.addingTimeInterval(dwell),
                 track: stop.platform?.nilIfEmpty,
                 passed: (stop.progress?.progressPercentage ?? 0) >= 100,
-                coordinate: Coordinate(stop.coordinates?.latitude, stop.coordinates?.longitude)
+                coordinate: Coordinate(stop.coordinates?.latitude, stop.coordinates?.longitude),
+                cancelled: stop.isRemoved ?? false
             )
         }
 
@@ -46,10 +47,10 @@ public struct SNCFInoui: TrainProvider {
         return TrainStatus(
             provider: "SNCF",
             trainName: ["TGV INOUI", details.number].compactMap { $0 }.joined(separator: " "),
-            destination: stops.last?.name,
+            destination: stops.last { !$0.cancelled }?.name,
             speed: gps.flatMap(\.speed).map { Int(($0 * 3.6).rounded()) },
             stops: stops,
-            nextStopID: stops.first { !$0.passed }?.id,
+            nextStopID: stops.first { !$0.passed && !$0.cancelled }?.id,
             progress: traveled + remaining > 0 ? traveled / (traveled + remaining) : nil,
             portal: .portal("SNCF Wi-Fi", "https://wifi.sncf"),
             position: Coordinate(gps?.latitude, gps?.longitude)

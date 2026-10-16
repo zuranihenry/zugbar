@@ -68,7 +68,7 @@ struct BoardingCard: View {
             parts.append(strings.cancelled)
         } else {
             if let departure = stop.departure {
-                parts.append(MenuTitle.countdown(to: departure, from: now, nowLabel: strings.now))
+                parts.append(strings.spokenCountdown(to: departure, from: now, roundingUp: false))
                 parts.append(departure.formatted(date: .omitted, time: .shortened))
             }
             if let track = stop.track { parts.append(strings.track(track)) }

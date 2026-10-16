@@ -24,7 +24,13 @@ final class TripStore {
         add(trip)
     }
 
-    /// Ends the trip on board, e.g. when the train Wi-Fi is gone or the app quits.
+    /// Ends a trip that hasn't been heard from for a while; cheap enough to call every second.
+    func finishIfIdle() {
+        guard let trip = recorder.finishIfIdle(at: Date()) else { return }
+        add(trip)
+    }
+
+    /// Ends the trip on board, e.g. when tracking stops, the train changes or the app quits.
     func finish() {
         guard let trip = recorder.finish() else { return }
         add(trip)

@@ -20,13 +20,14 @@ public enum Providers {
 }
 
 extension URLSession {
-    /// Short timeouts so probing a portal we aren't connected to fails fast.
+    /// Short timeouts so probing a portal we aren't connected to fails fast. Redirects to another host are a
+    /// portal saying "not on this train", e.g. ÖBB's to a 150 KB web page; they fail instead of being followed.
     public static let portal: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 4
         config.timeoutIntervalForResource = 8
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: config)
+        return URLSession(configuration: config, delegate: SameHostRedirects(), delegateQueue: nil)
     }()
 
     /// Transitous rejects requests without a User-Agent.
@@ -45,6 +46,32 @@ extension URLSession {
             }
             return data
         }
+    }
+}
+
+final class SameHostRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        request.url?.host == task.originalRequest?.url?.host ? request : nil
+    }
+}
+
+extension Error {
+    /// No network, or a busy or broken server: says nothing about the train, so worth waiting out.
+    public var isTransientNetwork: Bool {
+        if self is URLError { return true }
+        if case .badStatus(let code) = self as? ProviderError { return code == 429 || code >= 500 }
+        return false
+    }
+}
+
+extension URL {
+    /// Like `append(queryItems:)`, but also encodes "+", which servers read as a space; IDs can contain it.
+    mutating func appendQuery(_ items: [URLQueryItem]) {
+        guard var components = URLComponents(url: self, resolvingAgainstBaseURL: false) else { return append(queryItems: items) }
+        components.queryItems = (components.queryItems ?? []) + items
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        if let url = components.url { self = url }
     }
 }
 

@@ -68,7 +68,9 @@ public struct ICEPortal: TrainProvider {
                 track: stop.track?.actual ?? stop.track?.scheduled,
                 passed: stop.info?.passed ?? false,
                 delayReasons: (stop.delayReasons ?? []).compactMap(\.text),
-                coordinate: Coordinate(stop.station.geocoordinates?.latitude, stop.station.geocoordinates?.longitude)
+                coordinate: Coordinate(stop.station.geocoordinates?.latitude, stop.station.geocoordinates?.longitude),
+                // Status 1 at distance 0: dropped from the run, as KDE Itinerary reads it.
+                cancelled: stop.info?.status == 1 && (stop.info?.distanceFromStart ?? 0) == 0
             )
         }
 
@@ -196,6 +198,8 @@ public struct ICEPortal: TrainProvider {
 
         struct Info: Decodable {
             let passed: Bool?
+            let status: Int?
+            let distanceFromStart: Double?
         }
     }
 }

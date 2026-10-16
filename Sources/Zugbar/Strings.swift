@@ -59,7 +59,11 @@ struct Strings {
         t("On board, Zugbar notes how fast the train really is on each stretch and uses that for estimates. Stays on this Mac.",
           "Im Zug-WLAN merkt sich Zugbar, wie schnell der Zug auf jedem Streckenstück wirklich fährt, und nutzt das für Schätzungen. Bleibt auf diesem Mac.")
     }
-    func learnedSpeeds(_ count: Int) -> String { t("Learned speeds (\(count) stretches)", "Gelernte Geschwindigkeiten (\(count) Streckenstücke)") }
+    func learnedSpeeds(_ count: Int) -> String {
+        count == 1
+            ? t("Learned speeds (1 stretch)", "Gelernte Geschwindigkeiten (1 Streckenstück)")
+            : t("Learned speeds (\(count) stretches)", "Gelernte Geschwindigkeiten (\(count) Streckenstücke)")
+    }
     var estimatedFromProfile: String { t("estimated · track profile", "geschätzt · Streckenprofil") }
     var trackProfiles: String { t("Track profile from OpenStreetMap (experimental)", "Streckenprofil aus OpenStreetMap (experimentell)") }
     var trackProfilesHint: String {
@@ -115,8 +119,8 @@ struct Strings {
     // Picker
     var notConnected: String { t("Not connected to a train", "Nicht mit einem Zug verbunden") }
     var joinHint: String {
-        t("Connect to the train's Wi-Fi (ICE, ÖBB Railjet, TGV INOUI) and it's picked up automatically. Or follow a train online:",
-          "Verbinde dich mit dem Zug-WLAN (ICE, ÖBB Railjet, TGV INOUI), dann wird der Zug automatisch erkannt. Oder verfolge einen Zug online:")
+        t("Connect to the train's Wi-Fi (ICE, ÖBB Railjet, TGV INOUI, many regional trains) and it's picked up automatically. Or follow a train online:",
+          "Verbinde dich mit dem Zug-WLAN (ICE, ÖBB Railjet, TGV INOUI, viele Regionalzüge), dann wird der Zug automatisch erkannt. Oder verfolge einen Zug online:")
     }
     var trainPlaceholder: String { t("Long-distance train, e.g. ICE 123", "Fernzug, z. B. ICE 123") }
     var followButton: String { t("Track", "Verfolgen") }
@@ -291,12 +295,25 @@ struct Strings {
         return parts.joined(separator: ", ")
     }
     var settings: String { t("Settings…", "Einstellungen…") }
+    // Main menu: never shown for a menu bar app, but its shortcuts work in text fields and windows.
+    var menuEdit: String { t("Edit", "Bearbeiten") }
+    var menuUndo: String { t("Undo", "Widerrufen") }
+    var menuRedo: String { t("Redo", "Wiederholen") }
+    var menuCut: String { t("Cut", "Ausschneiden") }
+    var menuPaste: String { t("Paste", "Einsetzen") }
+    var menuSelectAll: String { t("Select All", "Alles auswählen") }
+    var menuWindow: String { t("Window", "Fenster") }
+    var menuClose: String { t("Close", "Schließen") }
+    /// "in 5 min" for VoiceOver, which reads "5:00" as a time of day.
+    func spokenCountdown(to date: Date, from start: Date, roundingUp: Bool = true) -> String {
+        let minutes = Int((date.timeIntervalSince(start) / 60).rounded(roundingUp ? .up : .down))
+        return minutes <= 0 ? now : t("in \(minutes) min", "in \(minutes) Min.")
+    }
     var settingsTitle: String { t("Zugbar Settings", "Zugbar-Einstellungen") }
     var fromICEPortal: String { t("From the ICE Portal", "Laut ICE Portal") }
 
     func shareText(_ status: TrainStatus, destination: Stop?, connection: Connection?) -> String {
-        let train = status.trainName ?? "Zug"
-        var text = t("I'm on \(train)", "Ich sitze im \(train)")
+        var text = t("I'm on \(status.trainName ?? "the train")", "Ich sitze im \(status.trainName ?? "Zug")")
         if let destination, let arrival = destination.arrival {
             let time = arrival.formatted(.dateTime.hour().minute())
             text += t(", arriving at \(destination.name) at \(time)", " und komme um \(time) in \(destination.name) an")
@@ -315,7 +332,7 @@ struct Strings {
 
     // Notification permission
     var notificationsOff: String { t("Notifications are off for Zugbar", "Benachrichtigungen sind für Zugbar aus") }
-    var notificationsNotAsked: String { t("Allow notifications to get alerts for this trip", "Erlaube Benachrichtigungen, um zu dieser Fahrt informiert zu werden") }
+    var notificationsNotAsked: String { t("Allow notifications to get alerts for this trip", "Erlaube Benachrichtigungen, um über diese Fahrt informiert zu werden") }
     var allow: String { t("Allow", "Erlauben") }
     var openSystemSettings: String { t("Open System Settings", "Systemeinstellungen öffnen") }
     var notificationsUnavailable: String { t("Notifications only work in the installed app.", "Benachrichtigungen gehen nur in der installierten App.") }

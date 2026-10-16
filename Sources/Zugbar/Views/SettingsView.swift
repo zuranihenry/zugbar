@@ -390,9 +390,11 @@ struct PermissionNotice: View {
     let monitor: TrainMonitor
     let compact: Bool
     @Environment(\.strings) private var strings
+    @AppStorage("notifications") private var notificationsOn = true
 
     var body: some View {
-        switch monitor.notificationPermission {
+        // Zugbar's own switch is off: the system's permission doesn't matter.
+        switch notificationsOn ? monitor.notificationPermission : .allowed {
         case .notAsked, .denied:
             let denied = monitor.notificationPermission == .denied
             HStack(spacing: 8) {

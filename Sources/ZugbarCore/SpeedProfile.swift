@@ -35,6 +35,8 @@ public struct SpeedProfile: Sendable, Equatable {
     /// `limits` are km/h per sample along the section (`length / step + 1` values).
     public init?(length: Double, limits: [Int], duration: TimeInterval, kind: TrainKind = .highSpeed) {
         guard length > 0, duration > 0, limits.count >= 2 else { return nil }
+        // Two samples leave no room to speed up and slow down: a middle one gives the section a top speed.
+        let limits = limits.count == 2 ? [limits[0], max(limits[0], limits[1]), limits[1]] : limits
         let step = length / Double(limits.count - 1)
         let caps = limits.map { Double(min(max($0, 30), kind.maxSpeed)) / 3.6 }
 
@@ -210,13 +212,23 @@ public struct OverpassClient: Sendable {
     /// Tagged railway tracks within 25 m of the given points (thinned to about every 1.5 km).
     /// Long sections are asked for in pieces of about 30 km: one big query can take longer than the timeout.
     public func tracks(along points: [Coordinate]) async throws -> [TrackLimit] {
-        let route = Route(points: points)
-        let count = max(2, min(80, Int(route.length / 1500) + 2))
-        let samples = (0..<count).compactMap { route.coordinate(at: route.length * Double($0) / Double(count - 1)) }
-        // Neighboring pieces share a point so no track falls between them.
-        let pieces = stride(from: 0, to: max(1, samples.count - 1), by: Self.pointsPerQuery - 1).map {
-            Array(samples[$0..<min(samples.count, $0 + Self.pointsPerQuery)])
+        // The track's own shape, simplified, so curves stay within the query's reach; even samples would cut them.
+        var line = TrackLimit(maxspeed: 0, nodes: points).simplified(tolerance: 15).nodes
+        if line.count > 600 { line = TrackLimit(maxspeed: 0, nodes: points).simplified(tolerance: 30).nodes }
+        // Pieces of about 30 km; neighboring pieces share a point so no track falls between them.
+        var pieces: [[Coordinate]] = []
+        var piece: [Coordinate] = []
+        var length = 0.0
+        for point in line {
+            if let last = piece.last { length += last.distance(to: point) }
+            piece.append(point)
+            if length >= 30, piece.count >= 2 {
+                pieces.append(piece)
+                piece = [point]
+                length = 0
+            }
         }
+        if piece.count >= 2 { pieces.append(piece) }
         // Two at a time: faster, without taking more than our share of a public server.
         return try await withThrowingTaskGroup(of: [TrackLimit].self) { group in
             var tracks: [TrackLimit] = []

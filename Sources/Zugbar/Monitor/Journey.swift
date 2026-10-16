@@ -16,7 +16,19 @@ final class Journey {
     let connections: ConnectionSearch
 
     /// The status notifications compare the next one with.
-    @ObservationIgnored var lastSnapshot: (status: TrainStatus, time: Date, connection: Connection?)?
+    @ObservationIgnored var lastSnapshot: (status: TrainStatus, time: Date, connection: Connection?)? {
+        didSet {
+            // Another train or plan: start over with what was notified.
+            if lastSnapshot == nil {
+                notifiedDelays = [:]
+                sentReminders = []
+            }
+        }
+    }
+    /// The delay last notified per stop and connection; see JourneyWatcher.
+    @ObservationIgnored private var notifiedDelays: [String: Int] = [:]
+    /// Reminders already sent, so a delay or a source switch crossing the same mark again doesn't repeat them.
+    @ObservationIgnored private var sentReminders: Set<String> = []
     @ObservationIgnored private var connectionRefreshed: Date?
     private let client: TransitousClient
     private let status: () -> TrainStatus?
@@ -110,8 +122,14 @@ final class Journey {
         let events = plan.withoutRepeatedWarnings(JourneyWatcher.events(
             old: last.status, oldTime: last.time, oldConnection: last.connection,
             new: newStatus, newTime: Date(), newConnection: plan.connection, plan: plan,
-            settings: notificationSettings
-        ))
+            settings: notificationSettings, delays: &notifiedDelays
+        )).filter { event in
+            switch event {
+            case .arrivingSoon(let stop, let minutes, _): sentReminders.insert("arrival:\(stop):\(minutes)").inserted
+            case .departingSoon(let stop, let minutes, _): sentReminders.insert("departure:\(stop):\(minutes)").inserted
+            default: true
+            }
+        }
         if plan != self.plan { self.plan = plan }
         for event in events {
             var (title, body) = strings.notification(event)

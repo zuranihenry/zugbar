@@ -36,6 +36,17 @@ public enum Handover {
         return departure > now.addingTimeInterval(-60 * 60)
     }
 
+    /// The plan's connection, when `trainName` is that train: the user changed trains without Zugbar seeing the
+    /// first one arrive, e.g. the laptop was closed and woken on the connection, whose portal answered first.
+    /// Up to six hours after its departure, as a laptop can stay closed a while.
+    public static func boardedConnection(plan: JourneyPlan?, trainName: String?, now: Date) -> Connection? {
+        guard let plan, let trainName, let connection = plan.connection, !connection.cancelled,
+              !TrainName.same(plan.trainName, trainName), TrainName.same(connection.name, trainName)
+        else { return nil }
+        if let departure = connection.departure, departure < now.addingTimeInterval(-6 * 60 * 60) { return nil }
+        return connection
+    }
+
     public static func target(for connection: Connection) -> Target {
         if connection.portalStationID != nil || connection.tripID.hasPrefix("iceportal:") {
             return .name(connection.name)

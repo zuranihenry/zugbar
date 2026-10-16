@@ -12,11 +12,19 @@ public struct TransitousClient: Sendable {
         public let id: String
         public var name: String
         let modes: [String]?
+        /// The town or city the stop is in, first, for names like "Hauptbahnhof Süd".
+        let areas: [Area]?
 
         public init(id: String, name: String) {
             self.id = id
             self.name = name
             self.modes = nil
+            self.areas = nil
+        }
+
+        struct Area: Decodable, Equatable, Sendable {
+            let name: String
+            let `default`: Bool?
         }
     }
 
@@ -71,13 +79,13 @@ public struct TransitousClient: Sendable {
 
     public func stations(matching text: String) async throws -> [Station] {
         var url = Transitous.base.appending(path: "v1/geocode")
-        url.append(queryItems: [URLQueryItem(name: "text", value: text), URLQueryItem(name: "type", value: "STOP")])
+        url.appendQuery([URLQueryItem(name: "text", value: text), URLQueryItem(name: "type", value: "STOP")])
         return try Self.parseStations(await loader(url))
     }
 
     public func departures(from station: Station, at time: Date = Date(), count: Int = 80) async throws -> [Departure] {
         var url = Transitous.base.appending(path: "v6/stoptimes")
-        url.append(queryItems: [
+        url.appendQuery([
             URLQueryItem(name: "stopId", value: station.id),
             URLQueryItem(name: "time", value: time.formatted(.iso8601)),
             URLQueryItem(name: "n", value: String(count)),
@@ -89,7 +97,7 @@ public struct TransitousClient: Sendable {
     /// the radius takes in the whole station.
     public func longDistanceDepartures(near stopID: String, before time: Date, count: Int = 30) async throws -> [Departure] {
         var url = Transitous.base.appending(path: "v6/stoptimes")
-        url.append(queryItems: [
+        url.appendQuery([
             URLQueryItem(name: "stopId", value: stopID),
             URLQueryItem(name: "radius", value: "300"),
             URLQueryItem(name: "time", value: time.formatted(.iso8601)),
@@ -115,6 +123,11 @@ public struct TransitousClient: Sendable {
             .map { station in
                 var station = station
                 station.name = StationName.tidy(station.name)
+                // Two "Hauptbahnhof Süd" in different towns can't be told apart otherwise.
+                if StationName.lacksCity(station.name), let city = station.areas?.first(where: { $0.default == true })?.name,
+                   !station.name.contains(city) {
+                    station.name = "\(city) \(station.name)"
+                }
                 return station
             }
     }

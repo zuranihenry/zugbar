@@ -31,7 +31,7 @@ public struct NearbyTrain: Sendable, Equatable {
 extension TransitousClient {
     public func liveTrains(at now: Date = Date()) async throws -> [LiveTrain] {
         var url = Transitous.base.appending(path: "v6/map/trips")
-        url.append(queryItems: [
+        url.appendQuery([
             URLQueryItem(name: "zoom", value: "6"),
             URLQueryItem(name: "min", value: "41,-5"),
             URLQueryItem(name: "max", value: "56,20"),
@@ -77,7 +77,7 @@ extension TransitousClient {
         let (latitude, longitude) = (fix.coordinate.latitude, fix.coordinate.longitude)
         var url = Transitous.base.appending(path: "v6/map/trips")
         // Trips crossing a ~1.7 km box; in a city a larger one means megabytes of buses.
-        url.append(queryItems: [
+        url.appendQuery([
             URLQueryItem(name: "zoom", value: "14"),
             URLQueryItem(name: "min", value: "\(latitude - 0.015),\(longitude - 0.025)"),
             URLQueryItem(name: "max", value: "\(latitude + 0.015),\(longitude + 0.025)"),

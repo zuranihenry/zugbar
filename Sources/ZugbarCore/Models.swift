@@ -187,9 +187,11 @@ public struct Coordinate: Sendable, Equatable, Codable {
         return (θ * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
     }
 
-    /// `nil` for the 0,0 placeholders some portals send.
+    /// `nil` for the 0,0 placeholders some portals send, and for "nan" or out-of-range values.
     init?(_ latitude: Double?, _ longitude: Double?) {
-        guard let latitude, let longitude, latitude != 0 || longitude != 0 else { return nil }
+        guard let latitude, let longitude, latitude != 0 || longitude != 0,
+              (-90...90).contains(latitude), (-180...180).contains(longitude)
+        else { return nil }
         self.init(latitude: latitude, longitude: longitude)
     }
 }

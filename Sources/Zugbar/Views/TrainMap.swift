@@ -78,10 +78,13 @@ struct TrainMap: View {
             }
             monitor.map.expectedCenter = newPosition
         }
+        .onAppear { monitor.mapsShown += 1 }
+        .onDisappear { monitor.mapsShown -= 1 }
         .onMapCameraChange(frequency: .continuous) { context in
             let camera = context.camera
             let center = Coordinate(latitude: camera.centerCoordinate.latitude, longitude: camera.centerCoordinate.longitude)
             monitor.map.center = center
+            monitor.map.cameraDistance = camera.distance
             guard !monitor.map.movingProgrammatically else { return }
             if abs(camera.distance - monitor.map.followDistance) > monitor.map.followDistance * 0.03 {
                 // Zoom changed: only the user does that (pinch, scroll).
@@ -154,7 +157,10 @@ struct TrainMap: View {
     /// so quick repeated clicks add up instead of fighting the running animation.
     private func zoom(by factor: Double, train: Coordinate?) {
         guard let center = (monitor.map.followsTrain ? train : nil) ?? monitor.map.center else { return }
-        monitor.map.followDistance = min(max(monitor.map.followDistance * factor, 400), 4_000_000)
+        // From where the map is, e.g. after fitting the route, unless following or mid-zoom from quick clicks.
+        let base = monitor.map.followsTrain || monitor.map.movingProgrammatically
+            ? monitor.map.followDistance : monitor.map.cameraDistance ?? monitor.map.followDistance
+        monitor.map.followDistance = min(max(base * factor, 400), 4_000_000)
         moveCamera(to: .camera(monitor.map.followsTrain ? camera(at: center)
             : MapCamera(centerCoordinate: CLLocationCoordinate2D(center), distance: monitor.map.followDistance)), duration: 0.25)
     }

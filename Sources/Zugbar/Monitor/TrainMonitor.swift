@@ -46,7 +46,8 @@ final class TrainMonitor {
     private(set) var notificationPermission: Notifier.Permission?
     let updates = UpdateChecker()
     /// Set by "stop tracking" on board; cleared when the network changes.
-    private var onBoardDismissed = false
+    /// The on-board train the user stopped tracking: its portal is ignored for a while, other trains' aren't.
+    @ObservationIgnored private var dismissedTrain: (name: String, at: Date)?
 
     private(set) var displaySpeed: Int?
     private(set) var topSpeed = 0
@@ -54,8 +55,21 @@ final class TrainMonitor {
     private(set) var lookupMessage: LookupMessage?
 
     var demoMode = false {
-        didSet { if demoMode != oldValue { restart() } }
+        didSet {
+            guard demoMode != oldValue else { return }
+            // The demo train would replace the real plan; it comes back, and the demo state goes, when demo mode ends.
+            if demoMode {
+                stashedPlan = journey.plan
+            } else {
+                lost()
+                journey.plan = stashedPlan
+                journey.lastSnapshot = nil
+                stashedPlan = nil
+            }
+            restart()
+        }
     }
+    @ObservationIgnored private var stashedPlan: JourneyPlan?
 
     /// Followed online when no on-board portal answers. On-board data always takes precedence.
     var manualTarget: ManualTarget? = TrainMonitor.loadTarget() {
@@ -136,7 +150,6 @@ final class TrainMonitor {
         pathMonitor.pathUpdateHandler = { [weak self] _ in
             Task { @MainActor in
                 guard let self, !self.demoMode else { return }
-                self.onBoardDismissed = false
                 let domains = OnboardNetwork.dhcpDomains
                 if domains != self.networkDomains {
                     self.networkDomains = domains
@@ -180,9 +193,10 @@ final class TrainMonitor {
         case .demo: demoMode = false
         case .online: stopTracking()
         case .onBoard:
+            dismissedTrain = status?.trainName.map { ($0, Date()) }
             trips.finish()
-            onBoardDismissed = true
             onBoardTrain = nil
+            lost()
             restart()
         case nil: break
         }
@@ -196,9 +210,14 @@ final class TrainMonitor {
     /// Screenshot monitors show a finished state instead of asking the system.
     @ObservationIgnored private var isSnapshot = false
 
-    /// A plan was set: notifications are what it's for.
+    /// A plan was set: notifications are what it's for. Asks the system once; opening System Settings after a
+    /// "no" is left to the buttons that say so.
     private func askForNotifications() {
-        if notificationPermission != .allowed { requestNotificationPermission() }
+        guard Notifier.isEnabled, notificationPermission == nil || notificationPermission == .notAsked else { return }
+        Task {
+            _ = await Notifier.requestPermission()
+            notificationPermission = await Notifier.permission()
+        }
     }
 
     func requestNotificationPermission() {
@@ -217,7 +236,11 @@ final class TrainMonitor {
         return topSpeed > 0 && displaySpeed >= topSpeed
     }
 
-    func refresh() { restart() }
+    /// Reload: also brings back an on-board train the user stopped tracking.
+    func refresh() {
+        dismissedTrain = nil
+        restart()
+    }
 
     // MARK: - Manual tracking
 
@@ -279,13 +302,18 @@ final class TrainMonitor {
     @ObservationIgnored private var gpsFixes: [(coordinate: Coordinate, time: Date)] = []
     private var frameTask: Task<Void, Never>?
 
-    /// Recomputes the marker about 30 times a second from the clock, so it moves at a constant pace.
+    /// Maps on screen; the marker only needs smooth frames while one is.
+    @ObservationIgnored var mapsShown = 0
+
+    /// Recomputes the marker about 30 times a second from the clock, so it moves at a constant pace, while a map
+    /// shows it; once a second otherwise, so the heading stays fresh for when one opens.
     private func startFrames() {
         frameTask?.cancel()
         frameTask = Task { [weak self] in
             while !Task.isCancelled {
                 self?.moveTrain()
-                try? await Task.sleep(for: .milliseconds(33))
+                let smooth = (self?.mapsShown ?? 0) > 0 && self?.status != nil
+                try? await Task.sleep(for: smooth ? .milliseconds(33) : .seconds(1))
             }
         }
     }
@@ -312,7 +340,7 @@ final class TrainMonitor {
         guard status.position != nil else { return estimates.position(of: status, at: date) }
         guard gpsFixes.count == 2 else { return status.position }
         let (from, to) = (gpsFixes[0], gpsFixes[1])
-        guard from.coordinate.distance(to: to.coordinate) < 5 else { return to.coordinate }
+        guard from.coordinate.distance(to: to.coordinate) < 5, to.time.timeIntervalSince(from.time) <= 30 else { return to.coordinate }
         let t = min(max(date.timeIntervalSince(to.time) / max(to.time.timeIntervalSince(from.time), 1), 0), 1)
         return Coordinate(
             latitude: from.coordinate.latitude + (to.coordinate.latitude - from.coordinate.latitude) * t,
@@ -327,8 +355,8 @@ final class TrainMonitor {
         guard gpsFixes.count == 2 else { return latest }
         let (from, to) = (gpsFixes[0], gpsFixes[1])
         let interval = max(to.time.timeIntervalSince(from.time), 1)
-        // Big jumps (first fix, another train) aren't animated.
-        guard from.coordinate.distance(to: to.coordinate) < 5 else { return latest }
+        // Big jumps (first fix, another train) and long gaps (sleep, an outage) aren't animated.
+        guard from.coordinate.distance(to: to.coordinate) < 5, interval <= 30 else { return latest }
         let t = min(max(date.timeIntervalSince(to.time) / interval, 0), 1)
         return Coordinate(
             latitude: from.coordinate.latitude + (to.coordinate.latitude - from.coordinate.latitude) * t,
@@ -419,7 +447,9 @@ final class TrainMonitor {
                     continue
                 } else if await takeOverFromPortal() {
                     // On-board data takes precedence.
-                } else if !onBoardDismissed, status?.isOnline == false,
+                } else if Task.isCancelled {
+                    return
+                } else if status?.isOnline == false,
                           Handover.isDue(plan: journey.plan, status: status, now: Date(), leeway: Self.arrivalLeeway) {
                     // The train's Wi-Fi went away as it arrived at the destination: the user is changing trains.
                     followConnection()
@@ -453,6 +483,8 @@ final class TrainMonitor {
                 }
             }
 
+            // A restart cancelled this loop while it waited; the new loop takes it from here.
+            if Task.isCancelled { return }
             if provider == nil, status != nil, !(1..<Self.outageLimit).contains(lookupOutages) { lost() }
             try? await Task.sleep(for: pollInterval)
         }
@@ -460,8 +492,7 @@ final class TrainMonitor {
 
     /// Switches to an on-board portal if one answers, other than the train the user changed from.
     private func takeOverFromPortal() async -> Bool {
-        guard !onBoardDismissed,
-              let (found, first) = await Self.firstResponding(Providers.onBoard(loader: PortalRecorder.wrap(URLSession.portal.loader))),
+        guard let (found, first) = await Self.firstResponding(Providers.onBoard(loader: PortalRecorder.wrap(URLSession.portal.loader))),
               !Task.isCancelled, !isLeftBehind(first)
         else { return false }
         provider = found
@@ -476,7 +507,7 @@ final class TrainMonitor {
 
     /// The on-board train to follow online while its portal doesn't answer, e.g. after the Wi-Fi dropped.
     private var fallbackTrain: String? {
-        guard !onBoardDismissed, let onBoardTrain, Date() < onBoardTrain.until else { return nil }
+        guard let onBoardTrain, Date() < onBoardTrain.until else { return nil }
         return onBoardTrain.name
     }
 
@@ -504,7 +535,7 @@ final class TrainMonitor {
             return nil
         } catch {
             guard !Task.isCancelled else { return error }
-            if error is URLError, let name = status?.trainName, TrainName.same(target.label, name) {
+            if error.isTransientNetwork, let name = status?.trainName, TrainName.same(target.label, name) {
                 lookupOutages += 1
                 lastError = String(describing: error)
             }
@@ -523,8 +554,16 @@ final class TrainMonitor {
                     followConnection()
                     return error
                 }
+                // A picked trip won't run again, so don't keep asking for it after a relaunch.
+                if case .trip = target { quietlySetTarget(nil) }
                 lookupMessage = .tripEnded
-            case nil: lookupMessage = .unreachable
+            case nil:
+                if case .trip = target, case ProviderError.badStatus(404) = error {
+                    quietlySetTarget(nil)
+                    lookupMessage = .tripEnded
+                } else {
+                    lookupMessage = .unreachable
+                }
             }
             return error
         }
@@ -538,8 +577,8 @@ final class TrainMonitor {
             lost()
             lookupMessage = .tripEnded
             // A picked trip won't run again; a train name might tomorrow.
-            if case .trip = manualTarget { manualTarget = nil }
-        } else if failures >= (isOnline && error is URLError ? Self.outageLimit : 4) {
+            if case .trip = manualTarget { quietlySetTarget(nil) }
+        } else if failures >= (isOnline && error.isTransientNetwork ? Self.outageLimit : 4) {
             if status?.isOnline == false, Handover.isDue(plan: journey.plan, status: status, now: Date(), leeway: Self.arrivalLeeway) {
                 return followConnection()
             }
@@ -555,41 +594,57 @@ final class TrainMonitor {
         guard !demoMode, !findingReplacement, let plan = journey.plan, let connection = plan.connection else { return }
         let arrival = status?.stops.first { $0.id == plan.destinationStopID }?.arrival
         if Handover.isMissed(connection, arrival: arrival) {
-            // The connection left before the train got in: take the next train to the same place instead.
+            // The connection left before the train got in: take the next train to the same place instead. Searched
+            // once per connection, again only after a network error.
+            if let search = replacementSearch, search.tripID == connection.tripID,
+               !(search.networkError && Date().timeIntervalSince(search.at) > 120) {
+                return
+            }
             findingReplacement = true
             Task {
-                defer { findingReplacement = false }
-                let next = await replacement(for: connection, after: arrival ?? Date())
+                let (next, networkError) = await replacement(for: connection, after: arrival ?? Date())
+                replacementSearch = (connection.tripID, Date(), networkError)
+                findingReplacement = false
                 if let next {
-                    Notifier.post(title: strings.connectionMissed, body: strings.nextTrain(next), force: true)
+                    Notifier.post(title: strings.connectionMissed, body: strings.nextTrain(next))
                     journey.plan?.connection = next
+                    followConnection()
+                } else if !networkError {
+                    Notifier.post(title: strings.connectionMissed, body: strings.noNextTrain)
                 }
-                followConnection()
             }
             return
         }
         leftTrain = (plan.trainName, Date())
         onBoardTrain = nil
+        replacementSearch = nil
         journey.plan = Handover.plan(after: connection)
         journey.lastSnapshot = nil
         let target = Handover.target(for: connection)
         quietlySetTarget(ManualTarget(target))
+        lost()
         restart()
         if case .name = target { findTrip(of: connection) }
     }
 
     @ObservationIgnored private var findingReplacement = false
+    @ObservationIgnored private var replacementSearch: (tripID: String, at: Date, networkError: Bool)?
 
     /// The earliest direct train after `connection` from the same station to the same final stop.
-    private func replacement(for connection: Connection, after earliest: Date) async -> Connection? {
-        guard let final = connection.finalStop,
-              let from = try? await client.stations(matching: connection.station).first,
-              let to = try? await client.stations(matching: final).first,
-              let options = try? await client.connections(from: from, to: to, after: earliest, regional: true)
-        else { return nil }
-        guard var next = Handover.replacement(for: connection, in: options, after: earliest) else { return nil }
-        next.station = connection.station
-        return next
+    /// The next direct train between the connection's stops, and whether the search failed for lack of network.
+    private func replacement(for connection: Connection, after earliest: Date) async -> (next: Connection?, networkError: Bool) {
+        guard let final = connection.finalStop else { return (nil, false) }
+        do {
+            guard let from = try await client.stations(matching: connection.station).first,
+                  let to = try await client.stations(matching: final).first
+            else { return (nil, false) }
+            let options = try await client.connections(from: from, to: to, after: earliest, regional: true)
+            guard var next = Handover.replacement(for: connection, in: options, after: earliest) else { return (nil, false) }
+            next.station = connection.station
+            return (next, false)
+        } catch {
+            return (nil, error.isTransientNetwork)
+        }
     }
 
     /// Missed the train, or would rather take a later one: before changing, swaps the planned connection
@@ -609,7 +664,7 @@ final class TrainMonitor {
         }
         let following = plan.connection == nil
         Task {
-            guard let next = await replacement(for: leg, after: (leg.departure ?? Date()).addingTimeInterval(60)) else {
+            guard let next = await replacement(for: leg, after: (leg.departure ?? Date()).addingTimeInterval(60)).next else {
                 Notifier.post(title: strings.takeNextTrain, body: strings.noNextTrain, force: true)
                 return
             }
@@ -643,9 +698,13 @@ final class TrainMonitor {
         }
     }
 
+    /// The train the user changed from, or stopped tracking, within the last three hours.
     private func isLeftBehind(_ status: TrainStatus) -> Bool {
-        guard let leftTrain, let name = status.trainName, Date().timeIntervalSince(leftTrain.at) < 3 * 60 * 60 else { return false }
-        return TrainName.same(leftTrain.name, name)
+        guard let name = status.trainName else { return false }
+        return [leftTrain, dismissedTrain].contains { train in
+            guard let train, Date().timeIntervalSince(train.at) < 3 * 60 * 60 else { return false }
+            return TrainName.same(train.name, name)
+        }
     }
 
     /// Changes the target from within the poll loop, without restarting it.
@@ -657,6 +716,9 @@ final class TrainMonitor {
 
     private func apply(_ newStatus: TrainStatus) {
         guard !Task.isCancelled else { return }
+        lookupOutages = 0
+        // The new train's section right away, not up to a second later.
+        estimates.refreshSection(for: newStatus, at: Date())
         var newStatus = withRouterGPS(newStatus)
         if manualTarget == nil, let pick = ride.pick, newStatus.isOnline, TrainName.same(pick.label, newStatus.trainName ?? "") {
             ride.followed(until: Handover.fallbackDeadline(for: newStatus, now: Date()))
@@ -664,11 +726,24 @@ final class TrainMonitor {
         if newStatus.route == nil, !isOnline, !demoMode, let name = newStatus.trainName {
             if let route = onBoardRoutes[name] { newStatus.route = route } else { loadOnBoardRoute(for: name) }
         }
+        if let plan = journey.plan, let connection = Handover.boardedConnection(plan: plan, trainName: newStatus.trainName, now: Date()) {
+            // On the connection already, e.g. woken on it: hand over instead of dropping the plan as another train's.
+            leftTrain = (plan.trainName, Date())
+            onBoardTrain = nil
+            journey.plan = Handover.plan(after: connection)
+            journey.lastSnapshot = nil
+        }
         journey.follow(newStatus, previous: status)
         if !newStatus.isOnline, !demoMode, let name = newStatus.trainName {
             onBoardTrain = (name, Handover.fallbackDeadline(for: newStatus, now: Date()))
         }
         journey.notifyChanges(to: newStatus, strings: strings)
+        if let old = status?.trainName, let new = newStatus.trainName, !TrainName.same(old, new) {
+            // Another train: its own top speed, and its marker doesn't glide from where the last one was.
+            topSpeed = 0
+            displaySpeed = nil
+            gpsFixes = []
+        }
         journey.refreshConnectionIfNeeded(portal: provider as? ICEPortal)
         status = newStatus
         lastUpdate = Date()
@@ -727,7 +802,7 @@ final class TrainMonitor {
             if let time = departure.time, time > Date() { return .retry }
             guard !Task.isCancelled else { return .retry }
             Notifier.post(title: strings.onOtherTrain(departure.displayName),
-                          body: strings.planMoved(from: plan.trainName, to: StationName.tidy(destination)), force: true)
+                          body: strings.planMoved(from: plan.trainName, to: StationName.tidy(destination)))
             journey.plan = SBB.plan(plan, on: departure.displayName, from: boarding, to: destination)
             journey.lastSnapshot = nil
             let label = [departure.displayName, departure.headsign.map { "→ \($0)" }].compactMap { $0 }.joined(separator: " ")
@@ -824,8 +899,7 @@ final class TrainMonitor {
             // Not a train the user asked for, so no "unreachable" for it. A network outage, a busy or broken server
             // say nothing about the train; only other failures, like its trip having ended, count against it.
             lookupMessage = nil
-            if error is URLError { return }
-            if case ProviderError.badStatus(let code) = error ?? ProviderError.badStatus(0), code == 429 || code >= 500 { return }
+            if error?.isTransientNetwork == true { return }
             ride.lookupFailed()
         } else if ride.pick != pick {
             // Dropped while being looked up, e.g. the router went away meanwhile.
@@ -870,7 +944,6 @@ final class TrainMonitor {
 
     private func lost() {
         lookupOutages = 0
-        trips.finish()
         provider = nil
         status = nil
         trainPosition = nil
@@ -914,6 +987,7 @@ final class TrainMonitor {
         let date = Date()
         if Int(date.timeIntervalSince1970) != Int(now.timeIntervalSince1970) {
             now = date
+            trips.finishIfIdle()
             // Picks up the setting being switched on and the train entering a new section without waiting for the next poll.
             if let status { estimates.prepareProfile(for: status) }
             estimates.refreshSection(for: status, at: now)

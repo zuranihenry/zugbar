@@ -159,6 +159,18 @@ public enum JourneyWatcher {
         new: TrainStatus, newTime: Date, newConnection: Connection?,
         plan: JourneyPlan, settings: NotificationSettings = NotificationSettings()
     ) -> [JourneyEvent] {
+        var delays: [String: Int] = [:]
+        return events(old: old, oldTime: oldTime, oldConnection: oldConnection, new: new, newTime: newTime,
+                      newConnection: newConnection, plan: plan, settings: settings, delays: &delays)
+    }
+
+    /// `delays` holds the delay last notified per stop and connection, so one growing a minute at a time is
+    /// noticed once it has changed by the threshold, not only when it jumps between two updates.
+    public static func events(
+        old: TrainStatus, oldTime: Date, oldConnection: Connection?,
+        new: TrainStatus, newTime: Date, newConnection: Connection?,
+        plan: JourneyPlan, settings: NotificationSettings = NotificationSettings(), delays: inout [String: Int]
+    ) -> [JourneyEvent] {
         var events: [JourneyEvent] = []
 
         func stop(_ id: String?, in status: TrainStatus) -> Stop? {
@@ -167,7 +179,7 @@ public enum JourneyWatcher {
 
         // Before boarding: departure delay and track at the boarding stop.
         if let before = stop(plan.boardingStopID, in: old), let after = stop(plan.boardingStopID, in: new), !after.passed {
-            events += changes(before: before, after: after, departure: true, settings: settings)
+            events += changes(before: before, after: after, departure: true, settings: settings, delays: &delays)
             if !after.cancelled, let oldDeparture = before.departure, let newDeparture = after.departure, newDeparture > newTime,
                let minutes = crossedReminder(settings.departureReminders, old: oldDeparture.timeIntervalSince(oldTime),
                                              new: newDeparture.timeIntervalSince(newTime)) {
@@ -176,7 +188,7 @@ public enum JourneyWatcher {
         }
 
         if let before = stop(plan.destinationStopID, in: old), let after = stop(plan.destinationStopID, in: new), !after.passed {
-            events += changes(before: before, after: after, departure: false, settings: settings)
+            events += changes(before: before, after: after, departure: false, settings: settings, delays: &delays)
 
             if !after.cancelled, let oldArrival = before.arrival, let newArrival = after.arrival, newArrival > newTime,
                let minutes = crossedReminder(settings.arrivalReminders, old: oldArrival.timeIntervalSince(oldTime),
@@ -185,8 +197,14 @@ public enum JourneyWatcher {
             }
 
             if settings.connectionAlerts, let oldConnection, let newConnection, oldConnection.tripID == newConnection.tripID {
-                if let from = oldConnection.delayMinutes, let to = newConnection.delayMinutes, abs(to - from) >= settings.delayThreshold {
-                    events.append(.connectionDelayChanged(name: newConnection.name, from: from, to: to))
+                let key = "connection:" + newConnection.tripID
+                if let to = newConnection.delayMinutes, let from = delays[key] ?? oldConnection.delayMinutes {
+                    if abs(to - from) >= settings.delayThreshold {
+                        events.append(.connectionDelayChanged(name: newConnection.name, from: from, to: to))
+                        delays[key] = to
+                    } else if delays[key] == nil {
+                        delays[key] = from
+                    }
                 }
                 if settings.trackChanges, let from = oldConnection.track, let to = newConnection.track, from != to {
                     events.append(.connectionTrackChanged(name: newConnection.name, from: from, to: to))
@@ -210,7 +228,8 @@ public enum JourneyWatcher {
         }
     }
 
-    private static func changes(before: Stop, after: Stop, departure: Bool, settings: NotificationSettings) -> [JourneyEvent] {
+    private static func changes(before: Stop, after: Stop, departure: Bool, settings: NotificationSettings,
+                                delays: inout [String: Int]) -> [JourneyEvent] {
         if after.cancelled {
             return before.cancelled ? [] : [.stopCancelled(stop: after.name)]
         }
@@ -219,8 +238,14 @@ public enum JourneyWatcher {
             if departure, let s = stop.scheduledDeparture, let e = stop.expectedDeparture { return minutes(from: s, to: e) }
             return stop.delayMinutes
         }
-        if let from = delay(before), let to = delay(after), abs(to - from) >= settings.delayThreshold {
-            events.append(.delayChanged(stop: after.name, from: from, to: to))
+        let key = after.id + (departure ? ":departure" : ":arrival")
+        if let to = delay(after), let from = delays[key] ?? delay(before) {
+            if abs(to - from) >= settings.delayThreshold {
+                events.append(.delayChanged(stop: after.name, from: from, to: to))
+                delays[key] = to
+            } else if delays[key] == nil {
+                delays[key] = from
+            }
         }
         if settings.trackChanges, let from = before.track, let to = after.track, from != to {
             events.append(.trackChanged(stop: after.name, from: from, to: to))
@@ -249,7 +274,7 @@ extension TransitousClient {
         var modes = ["HIGHSPEED_RAIL", "LONG_DISTANCE", "NIGHT_RAIL"]
         if regional { modes += ["REGIONAL_FAST_RAIL", "REGIONAL_RAIL", "SUBURBAN"] }
         var url = Transitous.base.appending(path: "v6/plan")
-        url.append(queryItems: [
+        url.appendQuery([
             URLQueryItem(name: "fromPlace", value: station.id),
             URLQueryItem(name: "toPlace", value: target.id),
             URLQueryItem(name: "time", value: arrival.formatted(.iso8601)),
@@ -296,7 +321,7 @@ extension TransitousClient {
     /// Re-fetches a connecting train and reads its departure at `station`.
     public func refresh(_ connection: Connection) async throws -> Connection {
         var url = Transitous.base.appending(path: "v6/trip")
-        url.append(queryItems: [URLQueryItem(name: "tripId", value: connection.tripID)])
+        url.appendQuery([URLQueryItem(name: "tripId", value: connection.tripID)])
         let status = try Transitous.parse(trip: await loader(url), now: Date())
         let wanted = Transitous.normalize(connection.station)
         guard let stop = status.stops.first(where: { Transitous.normalize($0.name) == wanted }) else { return connection }

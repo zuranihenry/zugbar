@@ -12,8 +12,13 @@ final class SpeedEstimator {
     /// `serverDown`: no OpenStreetMap server answered; retried every two minutes. `unavailable`: no data for the section.
     enum ProfileState: Equatable { case off, loading, ready, unavailable, serverDown }
 
-    /// Speed profiles per section from OpenStreetMap speed limits.
-    private(set) var profiles: [String: SpeedProfile] = [:]
+    /// OpenStreetMap speed limits per section; turned into a profile for the section's current times on use,
+    /// since delays change them.
+    private(set) var sectionLimits: [String: [Int]] = [:]
+    /// Profiles for a section at given times, with learned speeds applied; built once, not every second.
+    @ObservationIgnored private var timedProfiles: [String: SpeedProfile?] = [:]
+    /// Where a train standing at a stop is; worked out once a second instead of every frame.
+    @ObservationIgnored private var standing: Coordinate?
     private(set) var profileState: ProfileState = .off
     private(set) var learnedCellCount = 0
 
@@ -49,7 +54,7 @@ final class SpeedEstimator {
     /// Speed and position from the section's speed profile, once loaded.
     func profileEstimate(_ status: TrainStatus, at date: Date) -> (speed: Int, position: Coordinate?)? {
         guard profilesEnabled, status.isOnline, let route = status.route, let estimate = status.routeEstimate(at: date),
-              let profile = profiles[estimate.key]
+              let profile = trackProfile(for: estimate, route: route)
         else { return nil }
         let state = profile.state(after: date.timeIntervalSince(estimate.departure))
         return (state.speed, route.coordinate(at: estimate.startDistance + state.distance))
@@ -57,7 +62,7 @@ final class SpeedEstimator {
 
     /// Where a train without GPS is at `date`, along its route when the current section is known.
     func position(of status: TrainStatus, at date: Date) -> Coordinate? {
-        guard let section, let route = status.route else { return status.position(at: date) }
+        guard let section, let route = status.route else { return standing ?? status.position(at: date) }
         let elapsed = date.timeIntervalSince(section.estimate.departure)
         let distance = section.profile?.state(after: elapsed).distance
             ?? section.estimate.sectionLength * min(max(elapsed / section.estimate.duration, 0), 1)
@@ -68,10 +73,12 @@ final class SpeedEstimator {
     func refreshSection(for status: TrainStatus?, at now: Date) {
         guard let status, status.position == nil, let estimate = status.routeEstimate(at: now) else {
             section = nil
+            standing = status.flatMap { $0.position == nil ? $0.position(at: now) : nil }
             return
         }
+        standing = nil
         let next: (SpeedProfile?, Source)
-        if profilesEnabled, let profile = profiles[estimate.key] {
+        if profilesEnabled, let route = status.route, let profile = trackProfile(for: estimate, route: route) {
             next = (profile, .trackProfile)
         } else if learningEnabled, let route = status.route, let profile = learnedProfile(for: estimate, route: route) {
             next = (profile, .learned)
@@ -88,7 +95,7 @@ final class SpeedEstimator {
             return
         }
         guard let route = status.route, let estimate = status.routeEstimate(at: Date()) else { return }
-        if profiles[estimate.key] != nil {
+        if sectionLimits[estimate.key] != nil {
             if profileState != .ready { profileState = .ready }
         } else {
             loadProfile(for: estimate, route: route)
@@ -99,6 +106,14 @@ final class SpeedEstimator {
     func learn(from status: TrainStatus) {
         guard learningEnabled, !status.isOnline, let position = status.position, let speed = status.speed else { return }
         let kind = TrainKind.of(status.trainName)
+        // Near a stop this train is braking or speeding up, which says nothing about trains running through.
+        let metersPerSecond = Double(speed) / 3.6
+        let reach = metersPerSecond * metersPerSecond / (2 * min(kind.acceleration, kind.braking)) + 300
+        if status.stops.contains(where: { stop in
+            !stop.cancelled && (stop.coordinate.map { $0.distance(to: position) * 1000 < reach } ?? false)
+        }) {
+            return
+        }
         learned.record(position, speed: speed, kind: kind)
         learnedCellCount = learned.cellCount
         let store = learnedStore
@@ -110,6 +125,7 @@ final class SpeedEstimator {
         Task {
             learned = await store.speeds
             learnedCellCount = learned.cellCount
+            timedProfiles.removeAll()
         }
     }
 
@@ -117,6 +133,7 @@ final class SpeedEstimator {
         learned = LearnedSpeeds()
         learnedCellCount = 0
         learnedProfiles.removeAll()
+        timedProfiles.removeAll()
         let store = learnedStore
         Task { await store.clear() }
     }
@@ -134,6 +151,20 @@ final class SpeedEstimator {
             : nil
         if learnedProfiles.count > 200 { learnedProfiles.removeAll() }
         learnedProfiles[key] = profile
+        return profile
+    }
+
+    /// The track profile for the section at its current times.
+    private func trackProfile(for estimate: RouteEstimate, route: Route) -> SpeedProfile? {
+        guard let limits = sectionLimits[estimate.key] else { return nil }
+        let key = "\(estimate.key)|\(estimate.departure.timeIntervalSince1970)|\(estimate.arrival.timeIntervalSince1970)"
+        if let cached = timedProfiles[key] { return cached }
+        let applied = learningEnabled
+            ? learned.apply(to: limits, along: route.points(from: estimate.startDistance, to: estimate.endDistance), kind: estimate.kind).limits
+            : limits
+        let profile = SpeedProfile(length: estimate.sectionLength, limits: applied, duration: estimate.duration, kind: estimate.kind)
+        if timedProfiles.count > 200 { timedProfiles.removeAll() }
+        timedProfiles[key] = profile
         return profile
     }
 
@@ -159,7 +190,11 @@ final class SpeedEstimator {
                 }
                 do {
                     let tracks = try await overpass.tracks(along: points)
-                    guard !tracks.isEmpty else { return .success(nil) }
+                    // No tagged tracks is an answer too: remembered, so it isn't asked again every two minutes.
+                    guard !tracks.isEmpty else {
+                        await cache.store([], for: cacheKey)
+                        return .success(nil)
+                    }
                     let limits = SpeedProfile.limits(along: points, samples: samples, tracks: tracks)
                     await cache.store(limits, for: cacheKey)
                     return .success(limits)
@@ -168,12 +203,8 @@ final class SpeedEstimator {
                 }
             }.value
             profileRequests.remove(estimate.key)
-            let learnedLimits: [Int]? = if case .success(let limits?) = result {
-                learningEnabled ? learned.apply(to: limits, along: points, kind: estimate.kind).limits : limits
-            } else { nil }
-            if let limits = learnedLimits,
-               let profile = SpeedProfile(length: estimate.sectionLength, limits: limits, duration: estimate.duration, kind: estimate.kind) {
-                profiles[estimate.key] = profile
+            if case .success(let limits?) = result, limits.count >= 2 {
+                sectionLimits[estimate.key] = limits
                 profileState = .ready
             } else {
                 profileFailures[estimate.key] = Date()

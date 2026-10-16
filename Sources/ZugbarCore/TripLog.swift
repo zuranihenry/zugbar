@@ -41,11 +41,13 @@ public struct TripRecorder: Sendable {
 
     /// Takes the next status; returns the previous trip when this one is from another train or followed online.
     public mutating func update(_ status: TrainStatus, at date: Date) -> Trip? {
+        var finished = finishIfIdle(at: date)
         guard !status.isOnline, let train = status.trainName, let position = status.position else {
-            return status.isOnline ? finish() : nil
+            // The same train followed online while its portal is down: the ride goes on.
+            if status.isOnline, let ongoing, let name = status.trainName, TrainName.same(ongoing.train, name) { return finished }
+            return status.isOnline ? finish() ?? finished : finished
         }
-        var finished: Trip?
-        if let current = ongoing, !TrainName.same(current.train, train) { finished = finish() }
+        if let current = ongoing, !TrainName.same(current.train, train) { finished = finish() ?? finished }
         guard var current = ongoing else {
             // Boarded at the last stop left behind, or at the next one when the train hasn't left its first stop.
             let from = status.stops.last { $0.passed }?.name ?? status.nextStop?.name ?? "?"
@@ -63,6 +65,12 @@ public struct TripRecorder: Sendable {
         current.status = status
         ongoing = current
         return finished
+    }
+
+    /// Ends a trip not heard from in 20 minutes: the user got off while the Wi-Fi was gone.
+    public mutating func finishIfIdle(at date: Date) -> Trip? {
+        guard let ongoing, date.timeIntervalSince(ongoing.last) > 20 * 60 else { return nil }
+        return finish()
     }
 
     /// Ends the trip at the stop closest to where the train was last seen.

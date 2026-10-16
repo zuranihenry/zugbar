@@ -165,14 +165,16 @@ private struct SpeedRow: View {
                     .font(.system(size: 40, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText())
-                Text("km/h").foregroundStyle(.secondary)
+                    .fixedSize()
+                Text("km/h").foregroundStyle(.secondary).fixedSize()
             } else if let estimate {
                 Text("≈ \(estimate)")
                     .font(.system(size: 40, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText())
                     .foregroundStyle(.secondary)
-                Text("km/h").foregroundStyle(.secondary)
+                    .fixedSize()
+                Text("km/h").foregroundStyle(.secondary).fixedSize()
                 Text(strings.estimateLabel(source))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -191,6 +193,7 @@ private struct SpeedRow: View {
                 Label(strings.top(top), systemImage: "flame.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
+                    .fixedSize()
                     .help(strings.topHelp)
             }
         }
@@ -302,7 +305,7 @@ private struct NextStopCard: View {
         if isCurrent {
             if let departure = stop.departure { parts.append(strings.departs(departure.formatted(.dateTime.hour().minute()))) }
         } else if let arrival = stop.arrival {
-            parts.append(MenuTitle.countdown(to: arrival, from: now, nowLabel: strings.now))
+            parts.append(strings.spokenCountdown(to: arrival, from: now))
             parts.append(arrival.formatted(.dateTime.hour().minute()))
         }
         if stop.cancelled {

@@ -33,6 +33,9 @@ private actor RecordingStore {
     private var lastSaved: [String: Date] = [:]
 
     func save(_ data: Data, from url: URL) {
+        // Only JSON: not a portal's "you're not on this train" web page.
+        guard let first = data.first(where: { !Character(UnicodeScalar($0)).isWhitespace }), first == UInt8(ascii: "{") || first == UInt8(ascii: "[")
+        else { return }
         let endpoint = (url.host ?? "") + url.path
         let now = Date()
         if let last = lastSaved[endpoint], now.timeIntervalSince(last) < 60 { return }

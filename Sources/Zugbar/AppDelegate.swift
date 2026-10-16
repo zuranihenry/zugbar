@@ -20,8 +20,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        buildMainMenu()
         NSApp.setActivationPolicy(.accessory)
         if Notifier.isAvailable { UNUserNotificationCenter.current().delegate = self }
+        // A change made in System Settings shows when coming back.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.monitor.refreshNotificationPermission() } }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.action = #selector(statusItemClicked)
@@ -59,7 +64,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async { self.updateSettingsTitles() }
     }
 
+    private var menuLanguage: String?
+
+    /// A menu bar app shows no main menu, but the shortcuts behind one (⌘C, ⌘V, ⌘A, ⌘Z in text fields, ⌘W, ⌘Q, ⌘,)
+    /// only work with one.
+    private func buildMainMenu() {
+        let language = UserDefaults.standard.string(forKey: "language") ?? ""
+        guard language != menuLanguage else { return }
+        menuLanguage = language
+        let strings = Strings(AppLanguage(rawValue: language) ?? .system)
+        let main = NSMenu()
+        func item(_ title: String, _ action: Selector, _ key: String, target: AnyObject? = nil) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.target = target
+            return item
+        }
+        func add(_ title: String, _ items: [NSMenuItem]) {
+            let menu = NSMenu(title: title)
+            items.forEach(menu.addItem)
+            let holder = NSMenuItem()
+            holder.submenu = menu
+            main.addItem(holder)
+        }
+        add("Zugbar", [item(strings.settings, #selector(openSettingsFromMenu), ",", target: self), .separator(),
+                       item(strings.quit, #selector(NSApplication.terminate(_:)), "q")])
+        add(strings.menuEdit, [item(strings.menuUndo, Selector(("undo:")), "z"), item(strings.menuRedo, Selector(("redo:")), "Z"),
+                               .separator(), item(strings.menuCut, #selector(NSText.cut(_:)), "x"),
+                               item(strings.copy, #selector(NSText.copy(_:)), "c"), item(strings.menuPaste, #selector(NSText.paste(_:)), "v"),
+                               item(strings.menuSelectAll, #selector(NSText.selectAll(_:)), "a")])
+        add(strings.menuWindow, [item(strings.menuClose, #selector(NSWindow.performClose(_:)), "w")])
+        NSApp.mainMenu = main
+    }
+
     private func updateSettingsTitles() {
+        buildMainMenu()
         let language = UserDefaults.standard.string(forKey: "language") ?? ""
         guard language != settingsLanguage, let tabs = settingsWindow?.contentViewController as? NSTabViewController else { return }
         settingsLanguage = language
@@ -77,6 +115,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             togglePopover()
         }
+    }
+
+    /// Opens the popover, or the window when the menu bar item is hidden behind a full menu bar.
+    private func showTrip() {
+        guard statusItem.button?.window?.isVisible == true else { return showPanelWindow() }
+        if !popover.isShown { togglePopover() }
     }
 
     private func togglePopover() {
@@ -145,23 +189,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             minutesOnly: defaults.bool(forKey: "minutesOnly")
         )
         let strings = Strings(AppLanguage(rawValue: defaults.string(forKey: "language") ?? "") ?? .system)
-        let title = monitor.status.map {
-            MenuTitle.make(status: $0, displaySpeed: monitor.displaySpeed, isTopSpeed: monitor.isTopSpeed,
-                           now: monitor.now, options: options, nowLabel: strings.now,
-                           estimatedSpeed: options.showEstimate ? monitor.estimates.speed($0, at: monitor.now)?.speed : nil,
-                           waitingAt: $0.waitingStop(monitor.journey.plan?.boardingStopID, at: monitor.now),
-                           trackLabel: strings.track, cancelledLabel: strings.cancelled)
-        } ?? ""
+        let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        func makeTitle(_ options: MenuTitleOptions) -> String {
+            monitor.status.map {
+                MenuTitle.make(status: $0, displaySpeed: monitor.displaySpeed, isTopSpeed: monitor.isTopSpeed,
+                               now: monitor.now, options: options, nowLabel: strings.now,
+                               estimatedSpeed: options.showEstimate ? monitor.estimates.speed($0, at: monitor.now)?.speed : nil,
+                               waitingAt: $0.waitingStop(monitor.journey.plan?.boardingStopID, at: monitor.now),
+                               trackLabel: strings.track, cancelledLabel: strings.cancelled)
+            } ?? ""
+        }
+        var title = makeTitle(options)
+        // A long station name can push the item off a full menu bar: shorten it, unless "Full" was chosen.
+        if defaults.string(forKey: "stationStyle") == nil {
+            for style in [MenuTitleOptions.StationStyle.compact, .short]
+            where NSAttributedString(string: title, attributes: [.font: font]).size().width > 260 {
+                var shorter = options
+                shorter.stationStyle = style
+                title = makeTitle(shorter)
+            }
+        }
 
         if title.isEmpty {
             button.attributedTitle = NSAttributedString()
             button.image = NSImage(systemSymbolName: monitor.status == nil ? "tram" : "tram.fill", accessibilityDescription: "Zugbar")
         } else {
             button.image = nil
-            button.attributedTitle = NSAttributedString(
-                string: title,
-                attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)]
-            )
+            button.attributedTitle = NSAttributedString(string: title, attributes: [.font: font])
         }
     }
 
@@ -186,6 +240,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showSettings() {
         popover.performClose(nil)
+        // Built again when reopened, so each tab is measured with what it shows now (e.g. trips logged since).
+        if settingsWindow?.isVisible == false { settingsWindow = nil }
         if settingsWindow == nil {
             // Toolbar tabs with icons, like the system's own settings windows.
             let tabs = NSTabViewController()
@@ -262,7 +318,11 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 
     /// Opens the link a notification carries, e.g. the release page for an update.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard let text = response.notification.request.content.userInfo["url"] as? String, let url = URL(string: text) else { return }
+        guard let text = response.notification.request.content.userInfo["url"] as? String, let url = URL(string: text) else {
+            // A journey notification: show the trip.
+            await MainActor.run { self.showTrip() }
+            return
+        }
         await MainActor.run { _ = NSWorkspace.shared.open(url) }
     }
 }
