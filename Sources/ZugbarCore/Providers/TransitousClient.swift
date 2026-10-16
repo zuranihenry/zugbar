@@ -34,10 +34,13 @@ public struct TransitousClient: Sendable {
         public let realTime: Bool
         /// S-Bahn and regional trains, as opposed to long-distance and night trains.
         public let isRegional: Bool
+        /// The trip starts or ends in Switzerland.
+        public let servesSwitzerland: Bool
 
         public init(
             tripID: String, displayName: String, line: String, headsign: String?,
-            scheduled: Date?, expected: Date?, track: String?, cancelled: Bool, realTime: Bool, isRegional: Bool = true
+            scheduled: Date?, expected: Date?, track: String?, cancelled: Bool, realTime: Bool, isRegional: Bool = true,
+            servesSwitzerland: Bool = false
         ) {
             self.tripID = tripID
             self.displayName = displayName
@@ -49,6 +52,7 @@ public struct TransitousClient: Sendable {
             self.cancelled = cancelled
             self.realTime = realTime
             self.isRegional = isRegional
+            self.servesSwitzerland = servesSwitzerland
         }
 
         public var time: Date? { expected ?? scheduled }
@@ -77,6 +81,21 @@ public struct TransitousClient: Sendable {
             URLQueryItem(name: "stopId", value: station.id),
             URLQueryItem(name: "time", value: time.formatted(.iso8601)),
             URLQueryItem(name: "n", value: String(count)),
+        ])
+        return try Self.parseDepartures(await loader(url))
+    }
+
+    /// Long-distance trains that left the station around `stopID` before `time`. A platform's stop ID is enough:
+    /// the radius takes in the whole station.
+    public func longDistanceDepartures(near stopID: String, before time: Date, count: Int = 30) async throws -> [Departure] {
+        var url = Transitous.base.appending(path: "v6/stoptimes")
+        url.append(queryItems: [
+            URLQueryItem(name: "stopId", value: stopID),
+            URLQueryItem(name: "radius", value: "300"),
+            URLQueryItem(name: "time", value: time.formatted(.iso8601)),
+            URLQueryItem(name: "direction", value: "EARLIER"),
+            URLQueryItem(name: "n", value: String(count)),
+            URLQueryItem(name: "mode", value: "HIGHSPEED_RAIL,LONG_DISTANCE"),
         ])
         return try Self.parseDepartures(await loader(url))
     }
@@ -117,7 +136,8 @@ public struct TransitousClient: Sendable {
                     track: stopTime.place.track ?? stopTime.place.scheduledTrack,
                     cancelled: stopTime.cancelled ?? false,
                     realTime: stopTime.realTime ?? false,
-                    isRegional: regionalModes.contains(stopTime.mode)
+                    isRegional: regionalModes.contains(stopTime.mode),
+                    servesSwitzerland: [stopTime.tripFrom, stopTime.tripTo].contains { $0?.tz == "Europe/Zurich" }
                 )
             }
         return deduplicated(departures)
@@ -168,5 +188,11 @@ public struct TransitousClient: Sendable {
         let cancelled: Bool?
         let realTime: Bool?
         let place: Transitous.Place
+        let tripFrom: TripEnd?
+        let tripTo: TripEnd?
+    }
+
+    struct TripEnd: Decodable {
+        let tz: String?
     }
 }

@@ -157,3 +157,44 @@ struct DetectionTests {
         #expect(answering == ["Deutsche Bahn"])
     }
 }
+
+struct IcomeraTests {
+    @Test func position() throws {
+        let data = Data("""
+        ({
+            "version":"1.11",
+            "time":"1700000000",
+            "age":"1",
+            "latitude":"45.5",
+            "longitude":"7.25",
+            "altitude":"120.0",
+            "speed":"25.0",
+            "cmg":"42.5",
+            "satellites":"12",
+            "mode":"3"
+        });
+        """.utf8)
+        let fix = try Icomera.parse(data)
+        #expect(fix.coordinate == Coordinate(latitude: 45.5, longitude: 7.25))
+        #expect(fix.speed == 90)
+        #expect(fix.age == 1)
+    }
+
+    @Test func noFix() {
+        let data = Data(#"({"latitude":"45.5","longitude":"7.25","speed":"0.0","mode":"1"});"#.utf8)
+        #expect(throws: ProviderError.self) { try Icomera.parse(data) }
+        #expect(throws: ProviderError.self) { try Icomera.parse(Data(#"({"latitude":"0","longitude":"0"});"#.utf8)) }
+        #expect(throws: ProviderError.self) { try Icomera.parse(Data("<html></html>".utf8)) }
+        #expect(throws: ProviderError.self) { try Icomera.parse(Data(#"({"latitude":"nan","longitude":"7.25"});"#.utf8)) }
+        #expect(throws: ProviderError.self) { try Icomera.parse(Data(#"({"latitude":"91","longitude":"7.25"});"#.utf8)) }
+    }
+
+    @Test func oddNumbers() throws {
+        for speed in ["nan", "inf", "-inf", "1e300", ""] {
+            let fix = try Icomera.parse(Data(#"({"latitude":"45.5","longitude":"7.25","speed":"\#(speed)","cmg":"nan","age":"-3","mode":"3"});"#.utf8))
+            #expect(fix.speed >= 0 && fix.speed <= 540)
+            #expect(fix.heading == nil)
+            #expect(fix.age == 0)
+        }
+    }
+}

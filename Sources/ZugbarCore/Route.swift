@@ -30,6 +30,50 @@ public struct Route: Sendable, Equatable {
         return distances[best]
     }
 
+    /// Where `coordinate` lies on the track: meters along the route, km off it, and the length in meters of the
+    /// piece of line it's closest to. Projects onto each piece rather than taking the nearest point, so a fix in the
+    /// middle of a long straight stretch counts as on the line.
+    /// With a `heading`, only pieces going that way count, so where a train comes back the same way after
+    /// reversing, the fix lands on the right leg.
+    public func projection(of coordinate: Coordinate, heading: Double? = nil) -> (along: Double, offset: Double, pieceLength: Double) {
+        guard points.count > 1 else { return (0, points.first.map { $0.distance(to: coordinate) } ?? .infinity, 0) }
+        if let heading {
+            let found = projection(of: coordinate) { a, b in
+                a.distance(to: b) < 0.02 || abs((a.bearing(to: b) - heading + 540).truncatingRemainder(dividingBy: 360) - 180) < 90
+            }
+            if found.offset.isFinite { return found }
+        }
+        return projection(of: coordinate) { _, _ in true }
+    }
+
+    private func projection(of coordinate: Coordinate, counts: (Coordinate, Coordinate) -> Bool) -> (along: Double, offset: Double, pieceLength: Double) {
+        var best = (along: 0.0, offset: Double.infinity, pieceLength: 0.0)
+        for index in points.indices.dropLast() {
+            let (a, b) = (points[index], points[index + 1])
+            guard counts(a, b) else { continue }
+            // Flat frame around the piece's start, in km.
+            let scale = cos(a.latitude * .pi / 180)
+            let (dx, dy) = ((b.longitude - a.longitude) * 111.32 * scale, (b.latitude - a.latitude) * 110.57)
+            let (px, py) = ((coordinate.longitude - a.longitude) * 111.32 * scale, (coordinate.latitude - a.latitude) * 110.57)
+            let lengthSquared = dx * dx + dy * dy
+            let t = lengthSquared > 0 ? min(max((px * dx + py * dy) / lengthSquared, 0), 1) : 0
+            let (ox, oy) = (px - dx * t, py - dy * t)
+            let offset = (ox * ox + oy * oy).squareRoot()
+            if offset < best.offset {
+                let pieceLength = distances[index + 1] - distances[index]
+                best = (distances[index] + pieceLength * t, offset, pieceLength)
+            }
+        }
+        return best
+    }
+
+    /// Compass bearing of the track at `distance`, over the next 200 m; nil where the route has no length.
+    public func bearing(at distance: Double) -> Double? {
+        let start = min(max(distance, 0), max(length - 200, 0))
+        guard let a = coordinate(at: start), let b = coordinate(at: start + 200), a.distance(to: b) > 0.02 else { return nil }
+        return a.bearing(to: b)
+    }
+
     public func coordinate(at distance: Double) -> Coordinate? {
         guard let last = points.last else { return nil }
         guard distance > 0 else { return points.first }

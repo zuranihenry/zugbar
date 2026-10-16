@@ -215,3 +215,59 @@ struct RepeatedWarningTests {
         #expect(plan.destinationStopID == "h")
     }
 }
+
+struct WaitingTests {
+    let now = utc("2026-03-02T09:00:00Z")
+
+    func status(provider: String = "Transitous") -> TrainStatus {
+        TrainStatus(provider: provider, trainName: "ICE 900", stops: [
+            Stop(id: "a", name: "Altstadt", scheduledDeparture: utc("2026-03-02T08:30:00Z"), passed: true),
+            Stop(id: "b", name: "Brückenfeld", scheduledArrival: utc("2026-03-02T08:55:00Z"),
+                 scheduledDeparture: utc("2026-03-02T08:57:00Z"), passed: true),
+            Stop(id: "c", name: "Coswig Süd", scheduledArrival: utc("2026-03-02T09:10:00Z"),
+                 scheduledDeparture: utc("2026-03-02T09:11:00Z"), cancelled: true),
+            Stop(id: "d", name: "Dornstadt", scheduledArrival: utc("2026-03-02T09:20:00Z"),
+                 scheduledDeparture: utc("2026-03-02T09:22:00Z"), expectedDeparture: utc("2026-03-02T09:27:00Z"), track: "4"),
+            Stop(id: "e", name: "Endhausen", scheduledArrival: utc("2026-03-02T10:00:00Z")),
+        ])
+    }
+
+    @Test func waitingStop() {
+        #expect(status().waitingStop("d", at: now)?.name == "Dornstadt")
+        #expect(status().waitingStop(nil, at: now) == nil)
+        #expect(status().waitingStop("b", at: now) == nil)
+        // A few minutes' grace after the expected departure: the live times can lag.
+        #expect(status().waitingStop("d", at: utc("2026-03-02T09:29:00Z"))?.name == "Dornstadt")
+        #expect(status().waitingStop("d", at: utc("2026-03-02T09:31:00Z")) == nil)
+        // On board, the train is no longer waited for.
+        #expect(status(provider: "DB").waitingStop("d", at: now) == nil)
+    }
+
+    @Test func approach() throws {
+        let stop = try #require(status().waitingStop("d", at: now))
+        // The cancelled stop in between doesn't count.
+        #expect(status().stopsBefore(stop, at: now) == 0)
+        #expect(status().lastStop(before: stop, at: now)?.name == "Brückenfeld")
+        let later = try #require(status().stops.last)
+        #expect(status().stopsBefore(later, at: now) == 1)
+    }
+
+    @Test func menuTitle() throws {
+        let stop = try #require(status().waitingStop("d", at: now))
+        let title = MenuTitle.make(status: status(), displaySpeed: 120, isTopSpeed: false, now: now,
+                                   options: MenuTitleOptions(), waitingAt: stop, trackLabel: { "Track \($0)" })
+        #expect(title == "🚶 Dornstadt 27:00 · +5 · Track 4")
+        let short = MenuTitle.make(status: status(), displaySpeed: nil, isTopSpeed: false, now: now,
+                                   options: MenuTitleOptions(showStation: false, minutesOnly: true), waitingAt: stop)
+        #expect(short == "🚶 27′ · +5 · Pl. 4")
+        var cancelled = stop
+        cancelled.cancelled = true
+        let gone = MenuTitle.make(status: status(), displaySpeed: nil, isTopSpeed: false, now: now,
+                                  options: MenuTitleOptions(), waitingAt: cancelled, cancelledLabel: "Cancelled")
+        #expect(gone == "🚶 Dornstadt · Cancelled")
+        // Never more minutes than are left: 26:30 shows as 26′.
+        let close = MenuTitle.make(status: status(), displaySpeed: nil, isTopSpeed: false, now: now.addingTimeInterval(30),
+                                   options: MenuTitleOptions(minutesOnly: true), waitingAt: stop)
+        #expect(close == "🚶 Dornstadt 26′ · +5 · Pl. 4")
+    }
+}

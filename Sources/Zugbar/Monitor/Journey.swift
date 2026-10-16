@@ -81,6 +81,7 @@ final class Journey {
         guard let trainName = status?.trainName else { return }
         var updated = plan ?? JourneyPlan(trainName: trainName)
         change(&updated)
+        updated.updated = now()
         let isEmpty = updated.boardingStopID == nil && updated.destinationStopID == nil && updated.connection == nil
             && updated.pendingBoarding == nil && updated.pendingDestination == nil
         plan = isEmpty ? nil : updated

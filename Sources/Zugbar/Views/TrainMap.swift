@@ -13,7 +13,7 @@ struct TrainMap: View {
         let route = status.route.map { Self.thinned($0.points).map(CLLocationCoordinate2D.init) }
             ?? status.stops.compactMap { $0.coordinate.map(CLLocationCoordinate2D.init) }
         let position = monitor.trainPosition
-        let destinationID = monitor.journey.plan?.destinationStopID
+        let highlighted = [monitor.journey.plan?.destinationStopID, monitor.journey.plan?.boardingStopID].compactMap { $0 }
         @Bindable var map = monitor.map
 
         Map(position: $map.camera) {
@@ -24,11 +24,11 @@ struct TrainMap: View {
                 if let coordinate = stop.coordinate {
                     Annotation(stop.name, coordinate: CLLocationCoordinate2D(coordinate), anchor: .center) {
                         Circle()
-                            .fill(stop.id == destinationID ? Color.accentColor : (stop.passed ? Color.gray : Color.white))
+                            .fill(highlighted.contains(stop.id) ? Color.accentColor : (stop.passed ? Color.gray : Color.white))
                             .stroke(Color.black.opacity(0.4), lineWidth: 1)
-                            .frame(width: stop.id == destinationID ? 10 : 7)
+                            .frame(width: highlighted.contains(stop.id) ? 10 : 7)
                     }
-                    .annotationTitles(stop.id == destinationID ? .visible : .hidden)
+                    .annotationTitles(highlighted.contains(stop.id) ? .visible : .hidden)
                 }
             }
             if let position {

@@ -39,8 +39,29 @@ public enum MenuTitle {
         now: Date,
         options: MenuTitleOptions,
         nowLabel: String = "now",
-        estimatedSpeed: Int? = nil
+        estimatedSpeed: Int? = nil,
+        waitingAt boarding: Stop? = nil,
+        trackLabel: (String) -> String = { "Pl. \($0)" },
+        cancelledLabel: String = "cancelled"
     ) -> String {
+        // Waiting for the train: when it leaves, not how fast it goes somewhere else.
+        if let boarding {
+            var parts: [String] = []
+            var head = "🚶"
+            if options.showStation { head += " " + shorten(boarding.name, style: options.stationStyle) }
+            if boarding.cancelled { return [head, cancelledLabel].joined(separator: " · ") }
+            if let departure = boarding.departure {
+                // Rounded down: overstating the time left to catch a train is worse than understating it.
+                head += " " + (options.minutesOnly
+                    ? minutesLeft(to: departure, from: now, nowLabel: nowLabel, roundingUp: false)
+                    : countdown(to: departure, from: now, nowLabel: nowLabel))
+            }
+            parts.append(head)
+            if let delay = boarding.departureDelayMinutes, delay > 0 { parts.append("+\(delay)") }
+            if let track = boarding.track { parts.append(trackLabel(track)) }
+            return parts.joined(separator: " · ")
+        }
+
         var parts: [String] = []
         let unit = options.showUnit ? " km/h" : ""
 
@@ -68,11 +89,11 @@ public enum MenuTitle {
         return parts.joined(separator: " · ")
     }
 
-    /// "7′" style: whole minutes, rounded up.
-    public static func minutesLeft(to date: Date, from now: Date, nowLabel: String = "now") -> String {
-        let seconds = date.timeIntervalSince(now)
-        if seconds <= 0 { return nowLabel }
-        return "\(Int((seconds / 60).rounded(.up)))′"
+    /// "7′" style: whole minutes, rounded up unless `roundingUp` is false.
+    public static func minutesLeft(to date: Date, from now: Date, nowLabel: String = "now", roundingUp: Bool = true) -> String {
+        let minutes = Int((date.timeIntervalSince(now) / 60).rounded(roundingUp ? .up : .down))
+        if minutes <= 0 { return nowLabel }
+        return "\(minutes)′"
     }
 
     /// Shorter station names for a narrow menu bar.

@@ -64,6 +64,16 @@ struct StatusPanel: View {
     @ViewBuilder
     private func details(_ status: TrainStatus, map: CGFloat?) -> some View {
         TripHeader(status: status, showsPopOut: !isWindow)
+        // Online data that stopped coming, e.g. while the train Wi-Fi is down: the times shown may be stale.
+        if status.isOnline, let last = monitor.lastUpdate, monitor.now.timeIntervalSince(last) > 90 {
+            Label(strings.offlineSince(last.formatted(date: .omitted, time: .shortened)), systemImage: "wifi.slash")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        let waitingAt = status.waitingStop(monitor.journey.plan?.boardingStopID, at: monitor.now)
+        if let waitingAt {
+            BoardingCard(monitor: monitor, status: status, stop: waitingAt)
+        }
         let estimate = estimatedSpeed ? monitor.estimates.speed(status, at: monitor.now) : nil
         SpeedRow(speed: monitor.displaySpeed, top: monitor.topSpeed, online: status.isOnline,
                  estimate: estimate?.speed, source: estimate?.source ?? .basic)
@@ -82,7 +92,7 @@ struct StatusPanel: View {
         if let map {
             TrainMap(monitor: monitor, status: status).frame(height: map)
         }
-        if let next = status.nextStop, next.id != monitor.journey.destination?.id {
+        if waitingAt == nil, let next = status.nextStop, next.id != monitor.journey.destination?.id {
             NextStopCard(stop: next, now: monitor.now)
         }
         if let destination = monitor.journey.destination {

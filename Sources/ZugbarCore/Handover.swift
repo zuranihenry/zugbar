@@ -92,8 +92,9 @@ public enum Handover {
 
     /// The plan for the connecting train: boarding where the user changes, getting off at the connection's
     /// final stop. Stops are matched by name once the train's own stop list is known.
-    public static func plan(after connection: Connection) -> JourneyPlan {
+    public static func plan(after connection: Connection, now: Date = Date()) -> JourneyPlan {
         var plan = JourneyPlan(trainName: connection.name)
+        plan.updated = now
         plan.pendingBoarding = connection.station
         plan.pendingDestination = connection.finalStop
         return plan

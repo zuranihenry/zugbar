@@ -262,6 +262,12 @@ public struct Stop: Sendable, Equatable, Identifiable {
         return nil
     }
 
+    /// Departure delay in minutes, or arrival delay at the last stop: what matters when getting on here.
+    public var departureDelayMinutes: Int? {
+        if let s = scheduledDeparture, let e = expectedDeparture { return minutes(from: s, to: e) }
+        return delayMinutes
+    }
+
     /// Whether the train is standing at this stop right now.
     public func isCurrent(at now: Date) -> Bool {
         guard let arrival, arrival <= now else { return false }

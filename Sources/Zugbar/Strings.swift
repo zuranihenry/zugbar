@@ -166,6 +166,18 @@ struct Strings {
     var destinationHint: String { t("Click a stop to set it as your destination.", "Klicke auf einen Halt, um ihn als Ziel zu setzen.") }
     var yourDestination: String { t("Your destination", "Dein Ziel") }
     var boardingAt: String { t("Boarding at", "Einstieg in") }
+    func onOtherTrain(_ name: String) -> String { t("You're on \(name)", "Du bist im \(name)") }
+    func planMoved(from old: String, to destination: String) -> String {
+        t("SBB Wi-Fi: following it instead of \(old), to \(destination).", "SBB-WLAN: Zugbar folgt ihm statt \(old), bis \(destination).")
+    }
+    func offlineSince(_ time: String) -> String { t("No connection · as of \(time)", "Keine Verbindung · Stand \(time)") }
+    var trainAtPlatform: String { t("Train is at the platform", "Zug steht am Gleis") }
+    func trainArrives(_ countdown: String) -> String { t("Train arrives in \(countdown)", "Zug fährt ein in \(countdown)") }
+    func stopsBefore(_ count: Int) -> String {
+        count == 1 ? t("1 stop before yours", "Noch 1 Halt vor deinem") : t("\(count) stops before yours", "Noch \(count) Halte vor deinem")
+    }
+    func lastStop(_ name: String) -> String { t("last \(name)", "zuletzt \(name)") }
+    func kilometersAway(_ km: Int) -> String { t("\(km) km away", "\(km) km entfernt") }
     var addConnection: String { t("Add connection…", "Anschluss hinzufügen…") }
     var continueTo: String { t("Continue to, e.g. Springfield", "Weiter nach, z. B. Musterstadt") }
     var connection: String { t("Connection", "Anschluss") }

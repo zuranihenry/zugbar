@@ -15,6 +15,13 @@ public struct JourneyPlan: Codable, Sendable, Equatable {
     /// Stops carried over from the previous train's connection, by name, until this train's stop list is known.
     public var pendingBoarding: String?
     public var pendingDestination: String?
+    /// When the user or a handover last set it. Optional so plans saved by older versions still load.
+    public var updated: Date?
+
+    /// Set within the last six hours, so it's about the trip the user is on now.
+    public func isRecent(at now: Date) -> Bool {
+        updated.map { now.timeIntervalSince($0) < 6 * 60 * 60 } ?? false
+    }
 
     public init(trainName: String, boardingStopID: String? = nil, destinationStopID: String? = nil, connection: Connection? = nil) {
         self.trainName = trainName
@@ -299,5 +306,29 @@ extension TransitousClient {
         updated.track = stop.track ?? connection.track
         updated.cancelled = stop.cancelled
         return updated
+    }
+}
+
+extension TrainStatus {
+    /// The stop the user gets on at, while waiting there for this train followed online. Until three minutes after
+    /// its expected departure: the live times can lag the real train.
+    public func waitingStop(_ id: String?, at now: Date) -> Stop? {
+        guard isOnline, let id, let stop = stops.first(where: { $0.id == id }),
+              (stop.departure ?? stop.arrival).map({ $0 > now.addingTimeInterval(-3 * 60) }) ?? !stop.passed
+        else { return nil }
+        return stop
+    }
+
+    /// Stops the train still calls at before getting to `stop`; 0 when it's the train's next stop or it's standing there.
+    public func stopsBefore(_ stop: Stop, at now: Date) -> Int? {
+        guard let target = stops.firstIndex(where: { $0.id == stop.id }), let next = nextStopIndex(at: now), next <= target
+        else { return nil }
+        return stops[next..<target].filter { !$0.cancelled }.count
+    }
+
+    /// The last stop the train left before getting to `stop`, while it's still on its way there.
+    public func lastStop(before stop: Stop, at now: Date) -> Stop? {
+        guard !stop.isCurrent(at: now), let next = nextStopIndex(at: now), next > 0 else { return nil }
+        return stops[..<next].last { !$0.cancelled }
     }
 }

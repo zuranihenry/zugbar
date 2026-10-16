@@ -148,7 +148,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let title = monitor.status.map {
             MenuTitle.make(status: $0, displaySpeed: monitor.displaySpeed, isTopSpeed: monitor.isTopSpeed,
                            now: monitor.now, options: options, nowLabel: strings.now,
-                           estimatedSpeed: options.showEstimate ? monitor.estimates.speed($0, at: monitor.now)?.speed : nil)
+                           estimatedSpeed: options.showEstimate ? monitor.estimates.speed($0, at: monitor.now)?.speed : nil,
+                           waitingAt: $0.waitingStop(monitor.journey.plan?.boardingStopID, at: monitor.now),
+                           trackLabel: strings.track, cancelledLabel: strings.cancelled)
         } ?? ""
 
         if title.isEmpty {
