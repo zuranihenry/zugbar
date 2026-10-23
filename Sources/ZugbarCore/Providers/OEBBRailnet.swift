@@ -102,7 +102,10 @@ public struct OEBBRailnet: TrainProvider {
         func date(_ text: String?) -> Date? {
             guard let text, case let parts = text.split(separator: ":"), parts.count >= 2,
                   let hour = Int(parts[0]), let minute = Int(parts[1].prefix(2)),
-                  let sameDay = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: now)
+                  // The hour repeated when clocks go back has the time twice: the one closer to now.
+                  let sameDay = [Calendar.RepeatedTimePolicy.first, .last]
+                      .compactMap({ calendar.date(bySettingHour: hour, minute: minute, second: 0, of: now, repeatedTimePolicy: $0) })
+                      .min(by: { abs($0.timeIntervalSince(now)) < abs($1.timeIntervalSince(now)) })
             else { return nil }
             let offset = sameDay.timeIntervalSince(now)
             if offset < -12 * 3600 { return calendar.date(byAdding: .day, value: 1, to: sameDay) }
