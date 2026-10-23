@@ -135,7 +135,7 @@ final class TrainMonitor {
         picker = StationSearch(client: client) { box.value?.status == nil }
         journey = Journey(
             snapshot: plan, client: client, status: { box.value?.status }, now: { box.value?.now ?? Date() },
-            planSet: { box.value?.askForNotifications() }
+            planSet: { box.value?.askForNotifications() }, loadsCoaches: { box.value?.demoMode == false }
         )
         box.value = self
     }
@@ -740,6 +740,7 @@ final class TrainMonitor {
         if !demoMode { newStatus = wifi.update(newStatus, strings: strings) }
         status = newStatus
         lastUpdate = Date()
+        journey.refreshCoaches()
         estimates.prepareProfile(for: newStatus)
         if !demoMode {
             estimates.learn(from: newStatus)

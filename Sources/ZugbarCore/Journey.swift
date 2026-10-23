@@ -17,6 +17,8 @@ public struct JourneyPlan: Codable, Sendable, Equatable {
     public var pendingDestination: String?
     /// When the user or a handover last set it. Optional so plans saved by older versions still load.
     public var updated: Date?
+    /// The user's coach on this train, for where it stops on the platform.
+    public var seat: Seat?
 
     /// Set within the last six hours, so it's about the trip the user is on now.
     public func isRecent(at now: Date) -> Bool {
@@ -58,6 +60,8 @@ public struct Connection: Codable, Sendable, Equatable {
     /// Set on connections an older version took from the ICE portal, and on the demo connection:
     /// they aren't refreshed from Transitous and are followed by name after changing.
     public var portalStationID: String?
+    /// The user's coach on this train; it moves to the plan for the train once they've changed.
+    public var seat: Seat?
 
     public init(
         tripID: String, name: String, headsign: String?, station: String,

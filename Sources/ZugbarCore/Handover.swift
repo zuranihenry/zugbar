@@ -135,6 +135,7 @@ public enum Handover {
         plan.updated = now
         plan.pendingBoarding = connection.station
         plan.pendingDestination = connection.finalStop
+        plan.seat = connection.seat
         return plan
     }
 }

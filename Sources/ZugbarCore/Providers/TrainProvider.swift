@@ -38,6 +38,14 @@ extension URLSession {
         return URLSession(configuration: config)
     }()
 
+    /// bahn.de's firewall holds most requests back for several seconds.
+    public static let bahn: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 30
+        config.httpAdditionalHeaders = URLSession.transitous.configuration.httpAdditionalHeaders
+        return URLSession(configuration: config)
+    }()
+
     public var loader: DataLoader {
         { url in
             let (data, response) = try await self.data(from: url)
