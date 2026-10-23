@@ -13,6 +13,22 @@ public struct Trip: Codable, Sendable, Equatable, Identifiable {
     public var topSpeed: Int
     /// Delay at `to` in minutes, when the portal knew it.
     public var arrivalDelay: Int?
+    /// Speed and delay along the way, for the charts; `nil` for trips recorded before there were any.
+    public var samples: [RideSample]?
+
+    public init(id: UUID = UUID(), train: String, from: String, to: String, start: Date, end: Date, distance: Double,
+                topSpeed: Int, arrivalDelay: Int? = nil, samples: [RideSample]? = nil) {
+        self.id = id
+        self.train = train
+        self.from = from
+        self.to = to
+        self.start = start
+        self.end = end
+        self.distance = distance
+        self.topSpeed = topSpeed
+        self.arrivalDelay = arrivalDelay
+        self.samples = samples
+    }
 
     public var duration: TimeInterval { end.timeIntervalSince(start) }
 }
@@ -21,6 +37,7 @@ public struct Trip: Codable, Sendable, Equatable, Identifiable {
 /// which following a train online doesn't.
 public struct TripRecorder: Sendable {
     struct Ongoing: Sendable {
+        var id = UUID()
         var train: String
         var from: String
         var start: Date
@@ -29,6 +46,16 @@ public struct TripRecorder: Sendable {
         var distance = 0.0
         var topSpeed = 0
         var status: TrainStatus
+        var sampler = RideSampler()
+
+        /// The trip as it would be logged now, ending at the stop closest to where the train was last seen.
+        var trip: Trip {
+            let stop = status.stops
+                .filter { $0.coordinate != nil }
+                .min { $0.coordinate!.distance(to: position) < $1.coordinate!.distance(to: position) }
+            return Trip(id: id, train: train, from: from, to: stop?.name ?? "?", start: start, end: last, distance: distance,
+                        topSpeed: topSpeed, arrivalDelay: stop?.delayMinutes, samples: sampler.all)
+        }
     }
 
     private(set) var ongoing: Ongoing?
@@ -51,8 +78,10 @@ public struct TripRecorder: Sendable {
         guard var current = ongoing else {
             // Boarded at the last stop left behind, or at the next one when the train hasn't left its first stop.
             let from = status.stops.last { $0.passed }?.name ?? status.nextStop?.name ?? "?"
-            ongoing = Ongoing(train: train, from: from, start: date, last: date, position: position,
-                              topSpeed: status.speed ?? 0, status: status)
+            var started = Ongoing(train: train, from: from, start: date, last: date, position: position,
+                                  topSpeed: status.speed ?? 0, status: status)
+            started.sampler.record(status, distance: 0, at: 0)
+            ongoing = started
             return finished
         }
         let seconds = date.timeIntervalSince(current.last)
@@ -69,6 +98,7 @@ public struct TripRecorder: Sendable {
         current.last = date
         current.topSpeed = max(current.topSpeed, status.speed ?? 0)
         current.status = status
+        current.sampler.record(status, distance: current.distance, at: date.timeIntervalSince(current.start))
         ongoing = current
         return finished
     }
@@ -79,17 +109,16 @@ public struct TripRecorder: Sendable {
         return finish()
     }
 
+    /// The trip on board so far, for the live chart.
+    public var current: Trip? { ongoing?.trip }
+
     /// Ends the trip at the stop closest to where the train was last seen.
     public mutating func finish() -> Trip? {
         guard let current = ongoing else { return nil }
         ongoing = nil
         guard current.distance >= Self.minimumDistance, current.last.timeIntervalSince(current.start) >= Self.minimumDuration
         else { return nil }
-        let stop = current.status.stops
-            .filter { $0.coordinate != nil }
-            .min { $0.coordinate!.distance(to: current.position) < $1.coordinate!.distance(to: current.position) }
-        return Trip(train: current.train, from: current.from, to: stop?.name ?? "?", start: current.start, end: current.last,
-                    distance: current.distance, topSpeed: current.topSpeed, arrivalDelay: stop?.delayMinutes)
+        return current.trip
     }
 }
 

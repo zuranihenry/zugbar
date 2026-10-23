@@ -8,7 +8,14 @@ import ZugbarCore
 final class TripStore {
     /// Finished trips, newest first.
     private(set) var log = TripStore.load()
-    @ObservationIgnored private var recorder = TripRecorder()
+    /// The trip on board so far, for the live chart.
+    private(set) var live: Trip?
+    @ObservationIgnored private var recorder = TripRecorder() {
+        didSet {
+            let current = recorder.current
+            if current != live { live = current }
+        }
+    }
 
     private static var file: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

@@ -101,6 +101,29 @@ struct StatusPanel: View {
                         showsDelayReasons: waitingAt == nil && status.nextStop?.id == destination.id)
         }
         StopList(monitor: monitor, status: status, fillsHeight: isWindow)
+        if let ride = monitor.trips.live, (ride.samples?.count ?? 0) > 1 {
+            RideSection(trip: ride)
+        }
+    }
+}
+
+/// The ride so far below the stop list; folded away until opened, to keep the popover short.
+private struct RideSection: View {
+    let trip: Trip
+    @AppStorage("showRideCharts") private var showCharts = false
+    @Environment(\.strings) private var strings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { withAnimation { showCharts.toggle() } } label: {
+                Label(strings.rideCharts, systemImage: showCharts ? "chevron.down" : "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if showCharts { RideCharts(trip: trip) }
+        }
     }
 }
 
