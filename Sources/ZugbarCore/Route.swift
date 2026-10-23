@@ -48,23 +48,40 @@ public struct Route: Sendable, Equatable {
 
     private func projection(of coordinate: Coordinate, counts: (Coordinate, Coordinate) -> Bool) -> (along: Double, offset: Double, pieceLength: Double) {
         var best = (along: 0.0, offset: Double.infinity, pieceLength: 0.0)
-        for index in points.indices.dropLast() {
-            let (a, b) = (points[index], points[index + 1])
-            guard counts(a, b) else { continue }
-            // Flat frame around the piece's start, in km.
-            let scale = cos(a.latitude * .pi / 180)
-            let (dx, dy) = ((b.longitude - a.longitude) * 111.32 * scale, (b.latitude - a.latitude) * 110.57)
-            let (px, py) = ((coordinate.longitude - a.longitude) * 111.32 * scale, (coordinate.latitude - a.latitude) * 110.57)
-            let lengthSquared = dx * dx + dy * dy
-            let t = lengthSquared > 0 ? min(max((px * dx + py * dy) / lengthSquared, 0), 1) : 0
-            let (ox, oy) = (px - dx * t, py - dy * t)
-            let offset = (ox * ox + oy * oy).squareRoot()
-            if offset < best.offset {
-                let pieceLength = distances[index + 1] - distances[index]
-                best = (distances[index] + pieceLength * t, offset, pieceLength)
-            }
+        for index in points.indices.dropLast() where counts(points[index], points[index + 1]) {
+            let (along, offset) = project(coordinate, onPiece: index)
+            if offset < best.offset { best = (along, offset, distances[index + 1] - distances[index]) }
         }
         return best
+    }
+
+    /// Where a stop lies on the track, `start` meters on or later: on the first leg that passes it, not the nearest
+    /// one anywhere, so a stop the train comes back to after reversing, or on a circular trip, gets its own visit.
+    public func along(of coordinate: Coordinate, from start: Double) -> Double {
+        guard points.count > 1 else { return start }
+        var candidates: [(along: Double, offset: Double)] = []
+        for index in points.indices.dropLast() where distances[index + 1] >= start {
+            candidates.append(project(coordinate, onPiece: index, from: start))
+        }
+        guard let closest = candidates.map(\.offset).min() else { return start }
+        // The first leg about as close as the closest one: two legs on the same track are only meters apart.
+        return candidates.first { $0.offset <= closest + 0.05 }?.along ?? start
+    }
+
+    /// Meters along the route and km off it of `coordinate` projected onto the piece starting at `index`,
+    /// not before `start`.
+    private func project(_ coordinate: Coordinate, onPiece index: Int, from start: Double = 0) -> (along: Double, offset: Double) {
+        let (a, b) = (points[index], points[index + 1])
+        // Flat frame around the piece's start, in km.
+        let scale = cos(a.latitude * .pi / 180)
+        let (dx, dy) = ((b.longitude - a.longitude) * 111.32 * scale, (b.latitude - a.latitude) * 110.57)
+        let (px, py) = ((coordinate.longitude - a.longitude) * 111.32 * scale, (coordinate.latitude - a.latitude) * 110.57)
+        let lengthSquared = dx * dx + dy * dy
+        let pieceLength = distances[index + 1] - distances[index]
+        let lowest = pieceLength > 0 ? min(max((start - distances[index]) / pieceLength, 0), 1) : 0
+        let t = lengthSquared > 0 ? min(max((px * dx + py * dy) / lengthSquared, lowest), 1) : lowest
+        let (ox, oy) = (px - dx * t, py - dy * t)
+        return (distances[index] + pieceLength * t, (ox * ox + oy * oy).squareRoot())
     }
 
     /// Compass bearing of the track at `distance`, over the next 200 m; nil where the route has no length.
