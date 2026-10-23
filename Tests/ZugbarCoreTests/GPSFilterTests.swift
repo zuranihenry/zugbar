@@ -25,6 +25,18 @@ struct GPSFilterTests {
         #expect(filter.filter(north(14), speed: 240, at: at(140)) == north(14))
     }
 
+    @Test func aLateFixDoesNotTurnTheTrainRound() {
+        var filter = GPSFilter()
+        for step in 0...6 {
+            _ = filter.filter(north(step), speed: 240, at: at(step * 10))
+        }
+        // 60 m behind: GPS jitter, let through, but the train still goes north.
+        let late = Coordinate(latitude: north(6).latitude - 0.00055, longitude: 8)
+        #expect(filter.filter(late, speed: 240, at: at(65)) == late)
+        #expect(filter.filter(north(7), speed: 240, at: at(70)) == north(7))
+        #expect(filter.filter(north(4), speed: 240, at: at(75)) == north(7))
+    }
+
     @Test func takesAReversalAfterStanding() {
         var filter = GPSFilter()
         for step in 0...6 {

@@ -45,9 +45,11 @@ public struct GPSFilter: Sendable {
             anchor = position
             return
         }
-        if anchor.distance(to: position) * 1000 >= Self.stretch {
-            direction = anchor.bearing(to: position)
-            self.anchor = position
-        }
+        guard anchor.distance(to: position) * 1000 >= Self.stretch else { return }
+        let bearing = anchor.bearing(to: position)
+        // A fix let through a little behind the train doesn't turn it round: that only happens after standing.
+        if let direction, Heading.angle(between: bearing, and: direction) > 90 { return }
+        direction = bearing
+        self.anchor = position
     }
 }

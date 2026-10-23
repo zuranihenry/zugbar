@@ -298,8 +298,8 @@ final class TrainMonitor {
 
     // MARK: - Map position
 
-    /// Last two GPS fixes, to move evenly between them (the marker runs one fix behind).
-    @ObservationIgnored private var gpsFixes: [(coordinate: Coordinate, time: Date)] = []
+    /// Moves the marker on from GPS fixes: along the route at the reported speed, else gliding from fix to fix.
+    @ObservationIgnored private var marker = GPSMarker()
     /// Holds the last good fix while a stale one lies behind the train.
     @ObservationIgnored private var gpsFilter = GPSFilter()
     private var frameTask: Task<Void, Never>?
@@ -327,10 +327,11 @@ final class TrainMonitor {
         }
         let date = Date()
         if let gps = status.position {
-            trainPosition = interpolatedGPS(gps, at: date)
+            marker.update(gps, speed: status.speed, route: status.route, nextStop: status.nextStop?.coordinate, at: date)
+            trainPosition = marker.position(at: date)
         } else {
             // Back on GPS later, the marker starts from the new fix instead of gliding from an old one.
-            if !gpsFixes.isEmpty { gpsFixes = [] }
+            marker = GPSMarker()
             trainPosition = estimates.position(of: status, at: date)
         }
         if let trainPosition { map.trainMoved(to: trainPosition, at: date) }
@@ -340,30 +341,7 @@ final class TrainMonitor {
     func predictedPosition(at date: Date) -> Coordinate? {
         guard let status else { return nil }
         guard status.position != nil else { return estimates.position(of: status, at: date) }
-        guard gpsFixes.count == 2 else { return status.position }
-        let (from, to) = (gpsFixes[0], gpsFixes[1])
-        guard from.coordinate.distance(to: to.coordinate) < 5, to.time.timeIntervalSince(from.time) <= 30 else { return to.coordinate }
-        let t = min(max(date.timeIntervalSince(to.time) / max(to.time.timeIntervalSince(from.time), 1), 0), 1)
-        return Coordinate(
-            latitude: from.coordinate.latitude + (to.coordinate.latitude - from.coordinate.latitude) * t,
-            longitude: from.coordinate.longitude + (to.coordinate.longitude - from.coordinate.longitude) * t
-        )
-    }
-
-    private func interpolatedGPS(_ latest: Coordinate, at date: Date) -> Coordinate {
-        if gpsFixes.last?.coordinate != latest {
-            gpsFixes = Array((gpsFixes + [(latest, date)]).suffix(2))
-        }
-        guard gpsFixes.count == 2 else { return latest }
-        let (from, to) = (gpsFixes[0], gpsFixes[1])
-        let interval = max(to.time.timeIntervalSince(from.time), 1)
-        // Big jumps (first fix, another train) and long gaps (sleep, an outage) aren't animated.
-        guard from.coordinate.distance(to: to.coordinate) < 5, interval <= 30 else { return latest }
-        let t = min(max(date.timeIntervalSince(to.time) / interval, 0), 1)
-        return Coordinate(
-            latitude: from.coordinate.latitude + (to.coordinate.latitude - from.coordinate.latitude) * t,
-            longitude: from.coordinate.longitude + (to.coordinate.longitude - from.coordinate.longitude) * t
-        )
+        return marker.position(at: date) ?? status.position
     }
 
     // MARK: - Debug
@@ -754,7 +732,7 @@ final class TrainMonitor {
             // Another train: its own top speed, and its marker doesn't glide from where the last one was.
             topSpeed = 0
             displaySpeed = nil
-            gpsFixes = []
+            marker = GPSMarker()
         }
         journey.refreshConnectionIfNeeded()
         status = newStatus
@@ -981,7 +959,7 @@ final class TrainMonitor {
         displaySpeed = nil
         topSpeed = 0
         // The next train's first fix shouldn't glide from where this one was.
-        gpsFixes = []
+        marker = GPSMarker()
         gpsFilter = GPSFilter()
     }
 
