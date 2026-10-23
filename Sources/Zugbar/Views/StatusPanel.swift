@@ -281,8 +281,9 @@ private struct NextStopCard: View {
                     Text(strings.cancelled).foregroundStyle(.red).fontWeight(.semibold)
                 } else {
                     DelayBadge(minutes: stop.delayMinutes)
-                    if let track = stop.track {
-                        Label(strings.track(track), systemImage: "signpost.right")
+                    if let track = strings.track(of: stop) {
+                        Label(track, systemImage: "signpost.right")
+                            .foregroundStyle(stop.trackChanged ? Color.orange : Color.primary)
                     }
                 }
             }
@@ -314,7 +315,7 @@ private struct NextStopCard: View {
             parts.append(strings.cancelled)
         } else {
             if let delay = stop.delayMinutes, delay != 0 { parts.append(strings.spokenDelay(delay)) }
-            if let track = stop.track { parts.append(strings.track(track)) }
+            if let track = strings.track(of: stop) { parts.append(track) }
         }
         parts += stop.delayReasons
         return parts.joined(separator: ", ")

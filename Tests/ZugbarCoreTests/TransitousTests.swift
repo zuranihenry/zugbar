@@ -41,6 +41,19 @@ struct TransitousTests {
         #expect(status.progress.map { $0 > 0 && $0 < 1 } == true)
     }
 
+    @Test func keepsScheduledTrack() throws {
+        let trip = Data(#"""
+        {"legs":[{"mode":"HIGHSPEED_RAIL","displayName":"ICE 1",
+          "from":{"name":"Ahornstadt Hbf","track":"3","scheduledTrack":"3"},
+          "intermediateStops":[{"name":"Buchenweiler","track":"8","scheduledTrack":"6"}],
+          "to":{"name":"Eibental","track":"1"}}]}
+        """#.utf8)
+        let stops = try Transitous.parse(trip: trip, now: utc("2099-01-01T00:00:00Z")).stops
+        #expect(stops.map(\.track) == ["3", "8", "1"])
+        #expect(stops.map(\.scheduledTrack) == ["3", "6", nil])
+        #expect(stops.map(\.trackChanged) == [false, true, false])
+    }
+
     @Test func parsesDepartureBoard() throws {
         let departures = try TransitousClient.parseDepartures(fixture("transitous_stoptimes"))
         #expect(!departures.isEmpty)

@@ -35,8 +35,9 @@ struct BoardingCard: View {
                     DepartureTime(stop: stop)
                     if stop.cancelled {
                         Text(strings.cancelled).foregroundStyle(.red).fontWeight(.semibold)
-                    } else if let track = stop.track {
-                        Label(strings.track(track), systemImage: "signpost.right")
+                    } else if let track = strings.track(of: stop) {
+                        Label(track, systemImage: "signpost.right")
+                            .foregroundStyle(stop.trackChanged ? Color.orange : Color.primary)
                     }
                 }
                 .font(.callout)
@@ -71,7 +72,7 @@ struct BoardingCard: View {
                 parts.append(strings.spokenCountdown(to: departure, from: now, roundingUp: false))
                 parts.append(departure.formatted(date: .omitted, time: .shortened))
             }
-            if let track = stop.track { parts.append(strings.track(track)) }
+            if let track = strings.track(of: stop) { parts.append(track) }
             if let approach = approach(at: now) { parts.append(approach) }
         }
         parts += stop.delayReasons

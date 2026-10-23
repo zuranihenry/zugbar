@@ -113,6 +113,23 @@ struct ICEPortalTests {
         #expect(try progress(100_000, last: nil, moved: nil) == 0.25)
     }
 
+    /// A track changed before Zugbar connected shows up as actual and scheduled differing; empty strings mean none.
+    @Test func trackChangeAgainstTimetable() throws {
+        let trip = Data(#"""
+        {"trip":{"trainType":"ICE","vzn":"1","stops":[
+          {"station":{"evaNr":"1","name":"Ahornstadt Hbf"},"track":{"scheduled":"5","actual":"7"}},
+          {"station":{"evaNr":"2","name":"Buchenweiler"},"track":{"scheduled":"4","actual":"4"}},
+          {"station":{"evaNr":"3","name":"Eibental"},"track":{"scheduled":"","actual":"3"}},
+          {"station":{"evaNr":"4","name":"Lindenmoor"},"track":{"scheduled":"2","actual":""}},
+          {"station":{"evaNr":"5","name":"Ulmenhof"}}
+        ]}}
+        """#.utf8)
+        let stops = try ICEPortal.parse(status: Data(#"{"gpsStatus":"INVALID"}"#.utf8), trip: trip).stops
+        #expect(stops.map(\.track) == ["7", "4", "3", "2", nil])
+        #expect(stops.map(\.scheduledTrack) == ["5", "4", nil, "2", nil])
+        #expect(stops.map(\.trackChanged) == [true, false, false, false, false])
+    }
+
     @Test func demoTrainDrivesAlongItsTrack() async throws {
         let status = try await DemoProvider().fetch()
         let route = try #require(status.route)

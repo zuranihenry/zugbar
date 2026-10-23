@@ -38,8 +38,8 @@ struct JourneyCard: View {
                     Text(strings.cancelled).fontWeight(.semibold).foregroundStyle(.red)
                 } else {
                     DelayBadge(minutes: destination.delayMinutes)
-                    if let track = destination.track {
-                        Text(strings.track(track)).foregroundStyle(.secondary)
+                    if let track = strings.track(of: destination) {
+                        Text(track).foregroundStyle(destination.trackChanged ? Color.orange : Color.secondary)
                     }
                 }
             }

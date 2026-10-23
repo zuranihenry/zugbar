@@ -221,6 +221,8 @@ public struct Stop: Sendable, Equatable, Identifiable {
     public var scheduledDeparture: Date?
     public var expectedDeparture: Date?
     public var track: String?
+    /// The timetable's track, when the source tells it apart from the current one.
+    public var scheduledTrack: String?
     public var passed: Bool
     /// e.g. "Reparatur am Zug"
     public var delayReasons: [String]
@@ -236,6 +238,7 @@ public struct Stop: Sendable, Equatable, Identifiable {
         scheduledDeparture: Date? = nil,
         expectedDeparture: Date? = nil,
         track: String? = nil,
+        scheduledTrack: String? = nil,
         passed: Bool = false,
         delayReasons: [String] = [],
         coordinate: Coordinate? = nil,
@@ -248,6 +251,7 @@ public struct Stop: Sendable, Equatable, Identifiable {
         self.scheduledDeparture = scheduledDeparture
         self.expectedDeparture = expectedDeparture
         self.track = track
+        self.scheduledTrack = scheduledTrack
         self.passed = passed
         self.delayReasons = delayReasons
         self.coordinate = coordinate
@@ -256,6 +260,12 @@ public struct Stop: Sendable, Equatable, Identifiable {
 
     public var arrival: Date? { expectedArrival ?? scheduledArrival }
     public var departure: Date? { expectedDeparture ?? scheduledDeparture }
+
+    /// The train uses another track than the timetable's, as the ICE portal marks a "Gleiswechsel".
+    public var trackChanged: Bool {
+        guard let track, let scheduledTrack, !track.isEmpty, !scheduledTrack.isEmpty else { return false }
+        return track != scheduledTrack
+    }
 
     /// Arrival delay in minutes, or departure delay at the first stop.
     public var delayMinutes: Int? {

@@ -93,6 +93,12 @@ struct Strings {
     var now: String { t("now", "jetzt") }
     func departs(_ time: String) -> String { t("departs \(time)", "ab \(time)") }
     func track(_ track: String) -> String { t("Track \(track)", "Gleis \(track)") }
+    /// "Track 7", or "Track 7 instead of 5" when it differs from the timetable.
+    func track(of stop: Stop) -> String? {
+        guard let track = stop.track else { return nil }
+        guard stop.trackChanged, let scheduled = stop.scheduledTrack else { return self.track(track) }
+        return t("Track \(track) instead of \(scheduled)", "Gleis \(track) statt \(scheduled)")
+    }
     func wagonClass(_ number: Int) -> String {
         number == 1 ? t("1st class", "1. Klasse") : t("2nd class", "2. Klasse")
     }
