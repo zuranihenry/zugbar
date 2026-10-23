@@ -13,6 +13,11 @@ struct RideCharts: View {
     /// Wide enough for "300" and "+12", so both plots start at the same x and their times line up.
     private static let axisWidth: CGFloat = 26
 
+    /// Spelled out: older compilers make the memberwise one private because of `hover`.
+    init(trip: Trip) {
+        self.trip = trip
+    }
+
     var body: some View {
         let samples = trip.samples ?? []
         let domain = trip.start...max(trip.end, trip.start.addingTimeInterval(60))
