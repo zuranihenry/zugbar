@@ -12,10 +12,7 @@ public enum Handover {
     /// Whether the followed train has reached the plan's destination, so the connection is next.
     /// `leeway` counts an arrival that close as reached, e.g. when the train Wi-Fi drops as it pulls in.
     public static func isDue(plan: JourneyPlan?, status: TrainStatus?, now: Date, leeway: TimeInterval = 0) -> Bool {
-        guard let plan, plan.connection != nil, let status, let name = status.trainName,
-              TrainName.same(plan.trainName, name),
-              let destination = status.stops.first(where: { $0.id == plan.destinationStopID }),
-              !destination.cancelled, isCurrent(plan.connection, now: now)
+        guard let plan, isCurrent(plan.connection, now: now), let status, let destination = destination(of: plan, in: status)
         else { return false }
         // Online, "passed" only means the timetable says so, and the live times can lag the real train by minutes.
         if status.isOnline {
@@ -29,6 +26,23 @@ public enum Handover {
 
     /// How long after its expected arrival a train followed online counts as arrived.
     public static let onlineGrace: TimeInterval = 2 * 60
+
+    /// Whether the followed train is `grace` past the plan's destination, with or without a connection:
+    /// a destination alone also says where the user gets off.
+    public static func hasReached(plan: JourneyPlan?, status: TrainStatus, now: Date, grace: TimeInterval) -> Bool {
+        guard let plan, let destination = destination(of: plan, in: status),
+              let arrival = destination.arrival ?? destination.departure
+        else { return false }
+        return arrival.addingTimeInterval(grace) <= now
+    }
+
+    /// The plan's destination among the stops of `status`, when it's the planned train and stops there.
+    private static func destination(of plan: JourneyPlan, in status: TrainStatus) -> Stop? {
+        guard let name = status.trainName, TrainName.same(plan.trainName, name),
+              let destination = status.stops.first(where: { $0.id == plan.destinationStopID }), !destination.cancelled
+        else { return nil }
+        return destination
+    }
 
     /// After the followed train's trip ended, its part of the journey is over too.
     public static func isDueAfterTripEnded(plan: JourneyPlan?, trainName: String?, now: Date) -> Bool {
@@ -64,9 +78,14 @@ public enum Handover {
     }
 
     /// Until when an on-board train is followed online after its portal went away mid-trip:
-    /// a quarter of an hour after it's due at its last stop, like a trip followed online.
-    public static func fallbackDeadline(for status: TrainStatus, now: Date) -> Date {
-        status.stops.last?.arrival.map { $0.addingTimeInterval(15 * 60) } ?? now.addingTimeInterval(60 * 60)
+    /// a quarter of an hour after it's due at its last stop, like a trip followed online, or at the plan's
+    /// destination if that comes first, as the user gets off there.
+    public static func fallbackDeadline(for status: TrainStatus, plan: JourneyPlan? = nil, now: Date) -> Date {
+        var end = status.stops.last?.arrival
+        if let plan, let destination = destination(of: plan, in: status), let arrival = destination.arrival ?? destination.departure {
+            end = min(arrival, end ?? arrival)
+        }
+        return end.map { $0.addingTimeInterval(15 * 60) } ?? now.addingTimeInterval(60 * 60)
     }
 
     /// Finds a connection listed by the ICE portal on a Transitous departure board, so it can be followed by

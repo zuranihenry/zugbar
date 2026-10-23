@@ -16,8 +16,9 @@ struct TripLogTests {
 
     @Test func recordsATripFromGPS() throws {
         var recorder = TripRecorder()
+        // 1/60° of latitude a minute is 111 km/h.
         for minute in stride(from: 0.0, through: 30, by: 1) {
-            let finished = recorder.update(onBoard(minute, latitude: 50 + minute / 60, speed: minute == 15 ? 250 : 120),
+            let finished = recorder.update(onBoard(minute, latitude: 50 + minute / 60, speed: minute == 15 ? 115 : 111),
                                            at: start.addingTimeInterval(minute * 60))
             #expect(finished == nil)
         }
@@ -27,11 +28,43 @@ struct TripLogTests {
         #expect(trip.from == "A")
         #expect(trip.to == "B")
         #expect(abs(trip.distance - 55.6) < 0.5)
-        #expect(trip.topSpeed == 250)
+        #expect(trip.topSpeed == 115)
         #expect(trip.arrivalDelay == 3)
         #expect(trip.duration == 30 * 60)
         let again = recorder.finish()
         #expect(again == nil)
+    }
+
+    @Test func countsFastTrainsPolledOftenWithLaggingFixes() throws {
+        var recorder = TripRecorder()
+        // Polled every 3 s at 250 km/h, but the fix moves only every 9 s: once back to an older fix, once 10 km off.
+        let fixStep = 250.0 * 9 / 3600 / 111.195
+        for poll in 0...200 {
+            var latitude = 50 + Double(poll / 3) * fixStep
+            if poll == 100 { latitude -= 3 * fixStep }
+            if poll == 150 { latitude += 0.09 }
+            _ = recorder.update(onBoard(Double(poll) / 20, latitude: latitude, speed: 250), at: start.addingTimeInterval(Double(poll) * 3))
+        }
+        let finished = recorder.finish()
+        let trip = try #require(finished)
+        #expect(abs(trip.distance - 41.7) < 1)
+        #expect(trip.topSpeed == 250)
+    }
+
+    @Test func fallsBackToGPSAfterAGap() throws {
+        var recorder = TripRecorder()
+        let km = 1 / 111.195
+        for minute in stride(from: 0.0, through: 5, by: 1) {
+            _ = recorder.update(onBoard(minute, latitude: 50 + 2 * minute * km, speed: 120), at: start.addingTimeInterval(minute * 60))
+        }
+        // No Wi-Fi for 10 min, in which the train went 20 km and stopped: the speeds either side can't tell.
+        _ = recorder.update(onBoard(15, latitude: 50 + 30 * km, speed: 0), at: start.addingTimeInterval(15 * 60))
+        // A bad fix after another gap is still no 3000 km/h.
+        _ = recorder.update(onBoard(17, latitude: 50 + 130 * km, speed: 0), at: start.addingTimeInterval(17 * 60))
+        _ = recorder.update(onBoard(18, latitude: 50 + 30 * km, speed: 0), at: start.addingTimeInterval(18 * 60))
+        let finished = recorder.finish()
+        let trip = try #require(finished)
+        #expect(abs(trip.distance - 30) < 0.5)
     }
 
     @Test func endsWhenAnotherTrainOrOnline() throws {

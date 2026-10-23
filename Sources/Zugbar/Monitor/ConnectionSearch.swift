@@ -6,16 +6,15 @@ import ZugbarCore
 @MainActor
 @Observable
 final class ConnectionSearch {
-    /// What a search needs from the trip: where the user gets off, and the ICE portal when on board.
+    /// What a search needs from the trip: where the user gets off.
     struct Context {
         var destination: Stop?
-        var portal: ICEPortal?
         var now: Date
     }
 
     /// Collapsed until the user asks for it.
     var isAdding = false {
-        didSet { if isAdding { loadPortalConnections() } else if oldValue { reset() } }
+        didSet { if oldValue, !isAdding { reset() } }
     }
     var query = "" {
         didSet { queryChanged() }
@@ -23,8 +22,6 @@ final class ConnectionSearch {
     private(set) var targets: [TransitousClient.Station] = []
     private(set) var options: [Connection] = []
     private(set) var message: PickerMessage?
-    /// Connections the ICE portal lists for the destination; empty when not on an ICE.
-    private(set) var portalConnections: [Connection] = []
 
     @ObservationIgnored private var search: Task<Void, Never>?
     @ObservationIgnored private var target: TransitousClient.Station?
@@ -34,16 +31,6 @@ final class ConnectionSearch {
     init(client: TransitousClient, context: @escaping () -> Context) {
         self.client = client
         self.context = context
-    }
-
-    func loadPortalConnections() {
-        portalConnections = []
-        let context = context()
-        guard let portal = context.portal, let destination = context.destination else { return }
-        Task {
-            let connections = (try? await portal.connections(at: destination)) ?? []
-            portalConnections = connections.filter { ($0.departure ?? .distantFuture) >= (destination.arrival ?? context.now) }
-        }
     }
 
     func choose(_ target: TransitousClient.Station) {
@@ -99,6 +86,8 @@ final class ConnectionSearch {
         target = nil
         search?.cancel()
         options = []
+        // A message from the last search or departures lookup doesn't belong to the new text.
+        message = nil
         let text = query.trimmingCharacters(in: .whitespaces)
         guard text.count >= 2 else {
             targets = []
@@ -107,9 +96,17 @@ final class ConnectionSearch {
         search = Task {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
-            guard let found = try? await client.stations(matching: text), !Task.isCancelled else { return }
-            targets = found
-            message = found.isEmpty ? .noStation : nil
+            do {
+                let found = try await client.stations(matching: text)
+                guard !Task.isCancelled else { return }
+                targets = found
+                message = found.isEmpty ? .noStation : nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                // Otherwise Enter would pick a station from an earlier query.
+                targets = []
+                message = .failed
+            }
         }
     }
 }

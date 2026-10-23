@@ -86,9 +86,10 @@ struct TrainMap: View {
             monitor.map.center = center
             monitor.map.cameraDistance = camera.distance
             guard !monitor.map.movingProgrammatically else { return }
-            if abs(camera.distance - monitor.map.followDistance) > monitor.map.followDistance * 0.03 {
-                // Zoom changed: only the user does that (pinch, scroll).
-                monitor.map.followDistance = camera.distance
+            let expected = monitor.map.followsTrain ? monitor.map.followingDistance : monitor.map.followDistance
+            if abs(camera.distance - expected) > expected * 0.03 {
+                // Zoom changed, beyond following's own easing: only the user does that (pinch, scroll).
+                monitor.map.userZoomed(to: camera.distance)
                 monitor.map.gestureZoomed = true
                 monitor.map.touchedAt = Date()
             } else if let expected = monitor.map.expectedCenter, monitor.map.followsTrain,
@@ -102,7 +103,10 @@ struct TrainMap: View {
         // Dragging the map well away from the train ends following; a gesture that zoomed never does.
         .onMapCameraChange(frequency: .onEnd) { context in
             defer { monitor.map.gestureZoomed = false }
-            if !monitor.map.movingProgrammatically { monitor.map.followDistance = context.camera.distance }
+            // While following, only a zooming gesture changes the zoom; following's own easing doesn't.
+            if !monitor.map.movingProgrammatically, !monitor.map.followsTrain || monitor.map.gestureZoomed {
+                monitor.map.userZoomed(to: context.camera.distance)
+            }
             guard monitor.map.followsTrain, !monitor.map.movingProgrammatically, !monitor.map.gestureZoomed, let position else { return }
             let camera = context.camera
             let offset = Coordinate(latitude: camera.centerCoordinate.latitude, longitude: camera.centerCoordinate.longitude)
@@ -147,10 +151,13 @@ struct TrainMap: View {
         moveCamera(to: .rect(rect))
     }
 
-    /// Following the train: north up, or turned with the train when that's switched on.
+    /// Following the train: north up, or turned with the train when that's switched on. Zooms in on its own while
+    /// the train crawls or nears its next stop.
     private func camera(at position: Coordinate) -> MapCamera {
-        MapCamera(centerCoordinate: CLLocationCoordinate2D(position), distance: monitor.map.followDistance,
-                  heading: monitor.map.cameraHeading(toward: headingUp ? monitor.map.heading.degrees ?? 0 : 0, at: Date()))
+        let toStop = status.nextStop?.coordinate.map { position.distance(to: $0) * 1000 }
+        let distance = monitor.map.cameraDistance(closeIn: MapZoom.closeIn(speed: monitor.displaySpeed, toNextStop: toStop), at: Date())
+        return MapCamera(centerCoordinate: CLLocationCoordinate2D(position), distance: distance,
+                         heading: monitor.map.cameraHeading(toward: headingUp ? monitor.map.heading.degrees ?? 0 : 0, at: Date()))
     }
 
     /// Zooms around the train when following, else around the map's center. Works from the remembered zoom,
@@ -158,9 +165,9 @@ struct TrainMap: View {
     private func zoom(by factor: Double, train: Coordinate?) {
         guard let center = (monitor.map.followsTrain ? train : nil) ?? monitor.map.center else { return }
         // From where the map is, e.g. after fitting the route, unless following or mid-zoom from quick clicks.
-        let base = monitor.map.followsTrain || monitor.map.movingProgrammatically
-            ? monitor.map.followDistance : monitor.map.cameraDistance ?? monitor.map.followDistance
-        monitor.map.followDistance = min(max(base * factor, 400), 4_000_000)
+        let base = monitor.map.followsTrain ? monitor.map.followingDistance
+            : monitor.map.movingProgrammatically ? monitor.map.followDistance : monitor.map.cameraDistance ?? monitor.map.followDistance
+        monitor.map.userZoomed(to: min(max(base * factor, 400), 4_000_000))
         moveCamera(to: .camera(monitor.map.followsTrain ? camera(at: center)
             : MapCamera(centerCoordinate: CLLocationCoordinate2D(center), distance: monitor.map.followDistance)), duration: 0.25)
     }
@@ -181,7 +188,8 @@ struct TrainMap: View {
         let center = monitor.map.followsTrain ? monitor.predictedPosition(at: end) : monitor.map.center
         guard let target = center else { return }
         monitor.map.setCameraHeading(heading, at: end)
-        moveCamera(to: .camera(MapCamera(centerCoordinate: CLLocationCoordinate2D(target), distance: monitor.map.followDistance,
+        let distance = monitor.map.followsTrain ? monitor.map.followingDistance : monitor.map.followDistance
+        moveCamera(to: .camera(MapCamera(centerCoordinate: CLLocationCoordinate2D(target), distance: distance,
                                          heading: heading)), duration: duration, settle: 0)
     }
 

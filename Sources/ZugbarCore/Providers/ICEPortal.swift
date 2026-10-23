@@ -19,39 +19,6 @@ public struct ICEPortal: TrainProvider {
         return try Self.parse(status: await status, trip: await trip)
     }
 
-    /// Connecting trains at a stop, as listed by the portal (works without internet access).
-    public func connections(at stop: Stop) async throws -> [Connection] {
-        let evaNr = stop.id.split(separator: "_").first.map(String.init) ?? stop.id
-        let url = URL(string: "https://iceportal.de/api1/rs/tripInfo/connection/\(stop.id)")!
-        return try Self.parseConnections(await loader(url), station: stop.name, stationID: stop.id, evaNr: evaNr)
-    }
-
-    static func parseConnections(_ data: Data, station: String, stationID: String, evaNr: String) throws -> [Connection] {
-        struct Response: Decodable { let connections: [Item]? }
-        struct Item: Decodable {
-            let trainType: String?
-            let vzn: String?
-            let station: TripDTO.Station?
-            let timetable: TripDTO.Timetable?
-            let track: TripDTO.Track?
-        }
-        return try JSONDecoder().decode(Response.self, from: data).connections?.compactMap { item in
-            let name = [item.trainType, item.vzn].compactMap { $0 }.joined(separator: " ")
-            guard !name.isEmpty else { return nil }
-            return Connection(
-                tripID: "iceportal:\(evaNr):\(name)",
-                name: name,
-                headsign: item.station?.name,
-                station: station,
-                scheduledDeparture: date(item.timetable?.scheduledDepartureTime),
-                expectedDeparture: date(item.timetable?.actualDepartureTime),
-                track: item.track?.actual ?? item.track?.scheduled,
-                finalStop: item.station?.name,
-                portalStationID: stationID
-            )
-        } ?? []
-    }
-
     public static func parse(status statusData: Data, trip tripData: Data, now: Date = Date()) throws -> TrainStatus {
         let decoder = JSONDecoder()
         let status = try decoder.decode(StatusDTO.self, from: statusData)
@@ -74,22 +41,37 @@ public struct ICEPortal: TrainProvider {
             )
         }
 
+        // actualPosition only moves on at each stop, so between stops count on from the stop last left.
         var progress: Double?
-        if let position = trip.actualPosition, let total = trip.totalDistance, total > 0 {
-            progress = min(max(position / total, 0), 1)
+        if let total = trip.totalDistance, total > 0 {
+            var along = trip.actualPosition
+            let evaNr = { (id: String) in id.split(separator: "_").first.map(String.init) ?? id }
+            if let moved = trip.distanceFromLastStop, let last = trip.stopInfo?.actualLast.map(evaNr),
+               let index = trip.stops.firstIndex(where: { $0.station.evaNr.map(evaNr) == last }),
+               let start = trip.stops[index].info?.distanceFromStart {
+                // Never past the next stop (cancelled ones sit at 0), however far the count runs on.
+                let next = trip.stops[(index + 1)...].lazy.compactMap { $0.info?.distanceFromStart }.first { $0 > start }
+                along = max(along ?? 0, min(start + moved, next ?? total))
+            }
+            if let along { progress = min(max(along / total, 0), 1) }
         }
+
+        // In tunnels the position is stale but the speed stays live, as the portal's own page shows it. -1 means none.
+        let hasSpeed = status.gpsStatus == "VALID" || status.gpsStatus == "LAST_KNOWN_POSITION"
 
         return TrainStatus(
             provider: "Deutsche Bahn",
             trainName: [trip.trainType, trip.vzn].compactMap { $0 }.joined(separator: " ").nilIfEmpty,
             destination: trip.stopInfo?.finalStationName ?? stops.last?.name,
-            speed: status.gpsStatus == "VALID" ? status.speed.map { Int($0.rounded()) } : nil,
+            speed: hasSpeed ? status.speed.flatMap { $0 >= 0 ? Int($0.rounded()) : nil } : nil,
             stops: stops,
             nextStopID: trip.stopInfo?.actualNext,
             progress: progress,
             vehicle: ICEVehicle.describe(tzn: status.tzn),
             wagonClass: status.wagonClass.flatMap { ["FIRST": 1, "SECOND": 2][$0] },
-            internet: status.connectivity.flatMap { internet($0, now: now) },
+            // Most trains dropped the connectivity block with its forecast and only send the current level.
+            internet: status.connectivity.flatMap { internet($0, now: now) }
+                ?? quality(status.internet).map { Internet(current: $0) },
             portal: .portal("ICE Portal", "https://iceportal.de"),
             position: status.gpsStatus == "VALID" ? Coordinate(status.latitude, status.longitude) : nil
         )
@@ -108,7 +90,7 @@ public struct ICEPortal: TrainProvider {
         switch state {
         case "HIGH": .good
         case "WEAK", "MIDDLE", "UNSTABLE": .weak
-        case "NO_INTERNET": Internet.Quality.none
+        case "NO_INTERNET", "OFFLINE": Internet.Quality.none
         default: nil
         }
     }
@@ -124,6 +106,7 @@ public struct ICEPortal: TrainProvider {
         let longitude: Double?
         let tzn: String?
         let wagonClass: String?
+        let internet: String?
         let connectivity: Connectivity?
 
         struct Connectivity: Decodable {
@@ -151,6 +134,7 @@ public struct ICEPortal: TrainProvider {
             let trainType: String?
             let vzn: String?
             let actualPosition: Double?
+            let distanceFromLastStop: Double?
             let totalDistance: Double?
             let stopInfo: StopInfo?
             let stops: [Stop]
@@ -158,6 +142,7 @@ public struct ICEPortal: TrainProvider {
 
         struct StopInfo: Decodable {
             let actualNext: String?
+            let actualLast: String?
             let finalStationName: String?
         }
 

@@ -134,7 +134,7 @@ final class TrainMonitor {
         picker = StationSearch(client: client) { box.value?.status == nil }
         journey = Journey(
             snapshot: plan, client: client, status: { box.value?.status }, now: { box.value?.now ?? Date() },
-            portal: { box.value?.provider as? ICEPortal }, planSet: { box.value?.askForNotifications() }
+            planSet: { box.value?.askForNotifications() }
         )
         box.value = self
     }
@@ -582,6 +582,9 @@ final class TrainMonitor {
             if status?.isOnline == false, Handover.isDue(plan: journey.plan, status: status, now: Date(), leeway: Self.arrivalLeeway) {
                 return followConnection()
             }
+            // A portal that stops answering mid-trip is like a dropped Wi-Fi: the train stays up, and is looked for
+            // again right away, on its portal and else online.
+            if !isOnline, !demoMode, fallbackTrain != nil { return restart() }
             lost()
         }
     }
@@ -735,7 +738,7 @@ final class TrainMonitor {
         }
         journey.follow(newStatus, previous: status)
         if !newStatus.isOnline, !demoMode, let name = newStatus.trainName {
-            onBoardTrain = (name, Handover.fallbackDeadline(for: newStatus, now: Date()))
+            onBoardTrain = (name, Handover.fallbackDeadline(for: newStatus, plan: journey.plan, now: Date()))
         }
         journey.notifyChanges(to: newStatus, strings: strings)
         if let old = status?.trainName, let new = newStatus.trainName, !TrainName.same(old, new) {
@@ -744,7 +747,7 @@ final class TrainMonitor {
             displaySpeed = nil
             gpsFixes = []
         }
-        journey.refreshConnectionIfNeeded(portal: provider as? ICEPortal)
+        journey.refreshConnectionIfNeeded()
         status = newStatus
         lastUpdate = Date()
         estimates.prepareProfile(for: newStatus)
@@ -754,7 +757,14 @@ final class TrainMonitor {
         }
         failures = 0
         if newStatus.speed == nil { displaySpeed = nil }
-        if Handover.isDue(plan: journey.plan, status: newStatus, now: Date()), !stillAboard(newStatus) { followConnection() }
+        if Handover.isDue(plan: journey.plan, status: newStatus, now: Date()), !stillAboard(newStatus) {
+            followConnection()
+        } else if newStatus.isOnline, manualTarget == nil, let train = onBoardTrain?.name, TrainName.same(train, newStatus.trainName ?? ""),
+                  Handover.hasReached(plan: journey.plan, status: newStatus, now: Date(), grace: 15 * 60), !stillAboard(newStatus) {
+            // The on-board train followed online got the user to their destination; it isn't followed on to its last stop.
+            onBoardTrain = nil
+            lost()
+        }
     }
 
     private func loadOnBoardRoute(for trainName: String) {
@@ -1003,6 +1013,16 @@ final class TrainMonitor {
             // Picks up the setting being switched on and the train entering a new section without waiting for the next poll.
             if let status { estimates.prepareProfile(for: status) }
             estimates.refreshSection(for: status, at: now)
+        }
+
+        // An on-board train whose portal stopped answering, e.g. after the Wi-Fi went away or a sleep: its last
+        // speed and GPS fix aren't live any more. Online, router GPS updates them between polls.
+        if var kept = status, !kept.isOnline, kept.speed != nil || kept.position != nil,
+           let last = lastUpdate, date.timeIntervalSince(last) > 90 {
+            kept.speed = nil
+            kept.position = nil
+            status = kept
+            displaySpeed = nil
         }
 
         guard let target = status?.speed else { return }

@@ -5,6 +5,8 @@ import ZugbarCore
 struct JourneyCard: View {
     @Bindable var monitor: TrainMonitor
     let destination: Stop
+    /// When the destination is the next stop, which then has no card of its own.
+    var showsDelayReasons = false
     @Environment(\.strings) private var strings
 
     var body: some View {
@@ -46,6 +48,11 @@ struct JourneyCard: View {
                 Label(strings.noStopHere, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.red)
+            } else if showsDelayReasons, !destination.delayReasons.isEmpty {
+                Label(destination.delayReasons.joined(separator: ", "), systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Divider()
@@ -137,13 +144,6 @@ private struct ConnectionPicker: View {
                     .accessibilityLabel(strings.cancel)
             }
             .font(.callout)
-
-            if !monitor.journey.connections.portalConnections.isEmpty, monitor.journey.connections.query.isEmpty {
-                Text(strings.fromICEPortal).font(.caption).foregroundStyle(.secondary)
-                ForEach(monitor.journey.connections.portalConnections, id: \.tripID) { option in
-                    ConnectionOption(option: option) { monitor.journey.chooseConnection(option) }
-                }
-            }
 
             ForEach(monitor.journey.connections.targets.prefix(4)) { station in
                 Button { monitor.journey.connections.choose(station) } label: {
