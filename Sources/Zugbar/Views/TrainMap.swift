@@ -8,8 +8,10 @@ struct TrainMap: View {
     let status: TrainStatus
     @Environment(\.strings) private var strings
     @AppStorage("mapHeadingUp") private var headingUp = false
+    @AppStorage("mapTrackSpeeds") private var showsTrackSpeeds = false
 
     var body: some View {
+        let stretches = monitor.map.trackStretches
         let route = status.route.map { Self.thinned($0.points).map(CLLocationCoordinate2D.init) }
             ?? status.stops.compactMap { $0.coordinate.map(CLLocationCoordinate2D.init) }
         let position = monitor.trainPosition
@@ -17,7 +19,12 @@ struct TrainMap: View {
         @Bindable var map = monitor.map
 
         Map(position: $map.camera) {
-            if route.count > 1 {
+            if showsTrackSpeeds, !stretches.isEmpty {
+                ForEach(stretches.indices, id: \.self) { index in
+                    MapPolyline(coordinates: stretches[index].points.map(CLLocationCoordinate2D.init))
+                        .stroke(Self.color(for: stretches[index].band), lineWidth: 4)
+                }
+            } else if route.count > 1 {
                 MapPolyline(coordinates: route).stroke(.secondary, lineWidth: 3)
             }
             ForEach(status.stops) { stop in
@@ -52,8 +59,25 @@ struct TrainMap: View {
                     monitor.map.followsTrain = false
                     withAnimation { fitRoute(route + [position].compactMap { $0.map(CLLocationCoordinate2D.init) }) }
                 }
+                Divider().frame(width: 18)
+                MapControl(icon: showsTrackSpeeds ? "gauge.with.dots.needle.67percent" : "gauge.with.dots.needle.33percent",
+                           help: strings.trackSpeeds(shown: showsTrackSpeeds)) { showsTrackSpeeds.toggle() }
+                    .disabled(status.route == nil)
             }
             .padding(8)
+        }
+        .overlay(alignment: .topLeading) {
+            if showsTrackSpeeds, !stretches.isEmpty { SpeedLegend().padding(8) }
+        }
+        // Keyed by the route's size, not its points: cheap to compare on every frame.
+        .task(id: showsTrackSpeeds ? status.route.map { "\($0.points.count)|\($0.length)" } : nil) {
+            guard showsTrackSpeeds, let points = status.route.map({ Self.thinned($0.points) }) else {
+                monitor.map.trackStretches = []
+                return
+            }
+            monitor.map.trackStretches = await Task.detached(priority: .utility) {
+                TrackSpeeds.stretches(along: points) { TrackBundle.shared?.limit(at: $0) }
+            }.value
         }
         .overlay(alignment: .bottomTrailing) {
             MapControlGroup {
@@ -193,11 +217,46 @@ struct TrainMap: View {
                                          heading: heading)), duration: duration, settle: 0)
     }
 
+    /// Slow to fast as blue to red; gray where the bundled main lines don't reach.
+    static func color(for band: Int?) -> Color {
+        switch band {
+        case 120: .blue
+        case 160: .green
+        case 200: .yellow
+        case 250: .orange
+        case 300: .red
+        default: .secondary
+        }
+    }
+
     /// At most ~1500 points; full Transitous shapes have up to ten thousand, which slows redraws.
     private static func thinned(_ points: [Coordinate]) -> [Coordinate] {
         guard points.count > 1500 else { return points }
         let step = Double(points.count - 1) / 1499
         return (0..<1500).map { points[Int((Double($0) * step).rounded())] }
+    }
+}
+
+/// What the track colors mean, in km/h.
+private struct SpeedLegend: View {
+    @Environment(\.strings) private var strings
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(TrackSpeeds.bands, id: \.self) { band in
+                HStack(spacing: 2) {
+                    Circle().fill(TrainMap.color(for: band)).frame(width: 6, height: 6)
+                    Text(band == TrackSpeeds.bands.first ? "≤\(band)" : "\(band)")
+                }
+            }
+        }
+        .font(.caption2)
+        .monospacedDigit()
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(.regularMaterial, in: Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(strings.trackSpeedsLegend)
     }
 }
 

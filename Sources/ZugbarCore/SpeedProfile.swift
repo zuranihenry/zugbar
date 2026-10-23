@@ -91,16 +91,7 @@ public struct SpeedProfile: Sendable, Equatable {
         let route = Route(points: points)
         var limits: [Int?] = (0..<samples).map { index in
             guard let point = route.coordinate(at: route.length * Double(index) / Double(samples - 1)) else { return nil }
-            // Several tracks run side by side near stations; the fastest one close by is usually the main line,
-            // the slower ones are sidings. Fall back to the nearest track within 60 m.
-            var fastestClose: Int?
-            var nearest: (Int, Double)?
-            for track in tracks where track.isNear(point) {
-                let d = track.distance(to: point)
-                if d < 0.03 { fastestClose = max(fastestClose ?? 0, track.maxspeed) }
-                if d < 0.06, d < (nearest?.1 ?? .infinity) { nearest = (track.maxspeed, d) }
-            }
-            return fastestClose ?? nearest?.0
+            return TrackLimit.limit(at: point, among: tracks)
         }
         // Fill gaps with the last known limit (or the next one at the start), 120 km/h without any data.
         var last = limits.compactMap { $0 }.first ?? 120
@@ -124,6 +115,19 @@ public struct TrackLimit: Sendable, Equatable {
         north = nodes.map(\.latitude).max() ?? 0
         west = nodes.map(\.longitude).min() ?? 0
         east = nodes.map(\.longitude).max() ?? 0
+    }
+
+    /// The limit at `point`. Several tracks run side by side near stations; the fastest one close by is usually
+    /// the main line, the slower ones are sidings. Falls back to the nearest track within 60 m.
+    static func limit(at point: Coordinate, among tracks: some Sequence<TrackLimit>) -> Int? {
+        var fastestClose: Int?
+        var nearest: (Int, Double)?
+        for track in tracks where track.isNear(point) {
+            let d = track.distance(to: point)
+            if d < 0.03 { fastestClose = max(fastestClose ?? 0, track.maxspeed) }
+            if d < 0.06, d < (nearest?.1 ?? .infinity) { nearest = (track.maxspeed, d) }
+        }
+        return fastestClose ?? nearest?.0
     }
 
     /// Cheap bounding-box check (about 100 m margin) before measuring distances.

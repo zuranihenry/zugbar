@@ -269,6 +269,13 @@ struct Strings {
     var zoomIn: String { t("Zoom in", "Vergrößern") }
     var zoomOut: String { t("Zoom out", "Verkleinern") }
     var wholeRoute: String { t("Whole route", "Ganze Strecke") }
+    func trackSpeeds(shown: Bool) -> String {
+        shown ? t("Hide track speeds", "Streckengeschwindigkeit ausblenden") : t("Show track speeds", "Streckengeschwindigkeit zeigen")
+    }
+    var trackSpeedsLegend: String {
+        t("Track colored by speed limit, from blue up to 120 km/h to red above 250",
+          "Strecke nach Höchstgeschwindigkeit gefärbt, von Blau bis 120 km/h bis Rot über 250")
+    }
     func passedStops(_ count: Int) -> String {
         count == 1 ? t("1 passed stop", "1 vergangener Halt") : t("\(count) passed stops", "\(count) vergangene Halte")
     }
