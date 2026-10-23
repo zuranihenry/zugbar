@@ -300,6 +300,8 @@ final class TrainMonitor {
 
     /// Last two GPS fixes, to move evenly between them (the marker runs one fix behind).
     @ObservationIgnored private var gpsFixes: [(coordinate: Coordinate, time: Date)] = []
+    /// Holds the last good fix while a stale one lies behind the train.
+    @ObservationIgnored private var gpsFilter = GPSFilter()
     private var frameTask: Task<Void, Never>?
 
     /// Maps on screen; the marker only needs smooth frames while one is.
@@ -723,6 +725,13 @@ final class TrainMonitor {
         // The new train's section right away, not up to a second later.
         estimates.refreshSection(for: newStatus, at: Date())
         var newStatus = withRouterGPS(newStatus)
+        let anotherTrain = status?.trainName.flatMap { old in newStatus.trainName.map { !TrainName.same(old, $0) } } ?? false
+        if anotherTrain { gpsFilter = GPSFilter() }
+        if !newStatus.isOnline, let position = newStatus.position {
+            // Before the marker, the trip and learned speeds see it: at speed the ICE portal sometimes sends a fix
+            // from a minute ago again.
+            newStatus.position = gpsFilter.filter(position, speed: newStatus.speed, at: Date())
+        }
         if manualTarget == nil, let pick = ride.pick, newStatus.isOnline, TrainName.same(pick.label, newStatus.trainName ?? "") {
             ride.followed(until: Handover.fallbackDeadline(for: newStatus, now: Date()))
         }
@@ -741,7 +750,7 @@ final class TrainMonitor {
             onBoardTrain = (name, Handover.fallbackDeadline(for: newStatus, plan: journey.plan, now: Date()))
         }
         journey.notifyChanges(to: newStatus, strings: strings)
-        if let old = status?.trainName, let new = newStatus.trainName, !TrainName.same(old, new) {
+        if anotherTrain {
             // Another train: its own top speed, and its marker doesn't glide from where the last one was.
             topSpeed = 0
             displaySpeed = nil
@@ -973,6 +982,7 @@ final class TrainMonitor {
         topSpeed = 0
         // The next train's first fix shouldn't glide from where this one was.
         gpsFixes = []
+        gpsFilter = GPSFilter()
     }
 
     nonisolated private static func firstResponding(_ providers: [any TrainProvider]) async -> (any TrainProvider, TrainStatus)? {
