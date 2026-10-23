@@ -230,6 +230,7 @@ private struct OnboardRow: View {
             if let internet = status.internet {
                 Label(wifiText(internet), systemImage: icon(for: internet.current))
                     .foregroundStyle(internet.current == .good ? Color.secondary : Color.orange)
+                    .help(internet.learned ? strings.wifiForecastHelp : "")
             }
             Spacer()
         }

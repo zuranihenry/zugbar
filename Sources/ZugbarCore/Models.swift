@@ -205,11 +205,14 @@ public struct Internet: Sendable, Equatable {
     public var next: Quality?
     /// When `next` takes over.
     public var nextChange: Date?
+    /// `next` is from earlier rides on this Mac rather than from the portal.
+    public var learned: Bool
 
-    public init(current: Quality, next: Quality? = nil, nextChange: Date? = nil) {
+    public init(current: Quality, next: Quality? = nil, nextChange: Date? = nil, learned: Bool = false) {
         self.current = current
         self.next = next
         self.nextChange = nextChange
+        self.learned = learned
     }
 }
 

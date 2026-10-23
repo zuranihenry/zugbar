@@ -55,6 +55,10 @@ struct Strings {
         }
     }
     var learnSpeeds: String { t("Learn from your trips", "Aus eigenen Fahrten lernen") }
+    var learnHint: String {
+        t("On board, Zugbar notes how fast the train really is and how good its Wi-Fi is on each stretch, for speed estimates and a Wi-Fi forecast. Stays on this Mac.",
+          "Im Zug-WLAN merkt sich Zugbar, wie schnell der Zug auf jedem Streckenstück wirklich fährt und wie gut dort das WLAN ist, für Geschwindigkeitsschätzungen und eine WLAN-Vorhersage. Bleibt auf diesem Mac.")
+    }
     var learnSpeedsHint: String {
         t("On board, Zugbar notes how fast the train really is on each stretch and uses that for estimates. Stays on this Mac.",
           "Im Zug-WLAN merkt sich Zugbar, wie schnell der Zug auf jedem Streckenstück wirklich fährt, und nutzt das für Schätzungen. Bleibt auf diesem Mac.")
@@ -63,6 +67,11 @@ struct Strings {
         count == 1
             ? t("Learned speeds (1 stretch)", "Gelernte Geschwindigkeiten (1 Streckenstück)")
             : t("Learned speeds (\(count) stretches)", "Gelernte Geschwindigkeiten (\(count) Streckenstücke)")
+    }
+    func learnedWiFi(_ count: Int) -> String {
+        count == 1
+            ? t("Learned Wi-Fi (1 stretch)", "Gelerntes WLAN (1 Streckenstück)")
+            : t("Learned Wi-Fi (\(count) stretches)", "Gelerntes WLAN (\(count) Streckenstücke)")
     }
     var estimatedFromProfile: String { t("estimated · track profile", "geschätzt · Streckenprofil") }
     var trackProfiles: String { t("Track profile from OpenStreetMap (experimental)", "Streckenprofil aus OpenStreetMap (experimentell)") }
@@ -112,6 +121,19 @@ struct Strings {
     func wifi(_ quality: Internet.Quality) -> String { t("Wi-Fi \(self.quality(quality))", "WLAN \(self.quality(quality))") }
     func wifiChange(to quality: Internet.Quality, minutes: Int) -> String {
         t("\(self.quality(quality)) in \(minutes) min", "in \(minutes) Min. \(self.quality(quality))")
+    }
+    var wifiForecastHelp: String {
+        t("Forecast from your earlier trips on this line", "Vorhersage aus deinen früheren Fahrten auf dieser Strecke")
+    }
+    func wifiGap(in seconds: TimeInterval, lasting duration: TimeInterval) -> (String, String) {
+        let minutes = max(1, Int((seconds / 60).rounded())), length = max(1, Int((duration / 60).rounded()))
+        return (t("Wi-Fi offline in \(minutes) min", "In \(minutes) Min. kein WLAN"),
+                t("For about \(length) min, going by your earlier trips.", "Für etwa \(length) Min., nach deinen früheren Fahrten."))
+    }
+    var wifiAlerts: String { t("Long Wi-Fi gaps", "Lange WLAN-Lücken") }
+    var wifiAlertsHint: String {
+        t("On board, a warning about 2 min before the Wi-Fi goes away for 3 min or more, where it did on your earlier trips. Needs “Learn from your trips”.",
+          "Im Zug eine Warnung etwa 2 Min. bevor das WLAN für 3 Min. oder länger wegfällt, wo es das auf früheren Fahrten tat. Braucht „Aus eigenen Fahrten lernen“.")
     }
     var openIn: String { t("Open in", "Öffnen in") }
     func title(of link: TrainLink.Kind) -> String {
