@@ -111,6 +111,19 @@ struct OEBBRailnetTests {
         #expect(clock.date("nope") == nil)
     }
 
+    /// When clocks go back, 03:00 summer time becomes 02:00 winter time and the hour in between comes twice.
+    @Test func clockPicksTheCloserOfTheRepeatedHour() throws {
+        let fallBack = try #require(TimeZone(identifier: "Europe/Vienna")!.nextDaylightSavingTimeTransition(after: vienna(0, 0)))
+        let summer = OEBBRailnet.Clock(now: fallBack.addingTimeInterval(-15 * 60)) // 02:45 summer time
+        #expect(summer.date("02:50") == fallBack.addingTimeInterval(-10 * 60))
+        #expect(summer.date("02:40") == fallBack.addingTimeInterval(-20 * 60))
+        let winter = OEBBRailnet.Clock(now: fallBack.addingTimeInterval(45 * 60)) // 02:45 winter time
+        #expect(winter.date("02:50") == fallBack.addingTimeInterval(50 * 60))
+        #expect(winter.date("02:40") == fallBack.addingTimeInterval(40 * 60))
+        #expect(winter.date("03:10") == fallBack.addingTimeInterval(70 * 60))
+        #expect(winter.date("01:50") == fallBack.addingTimeInterval(-70 * 60))
+    }
+
     private func vienna(_ hour: Int, _ minute: Int) -> Date {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Europe/Vienna")!
