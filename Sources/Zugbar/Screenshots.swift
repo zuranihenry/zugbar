@@ -98,7 +98,39 @@ enum Screenshots {
         save(window, .german, dark: true, "window", in: directory, defaults: defaults)
         let split = StatusPanel(monitor: TrainMonitor(snapshot: ice, now: iceNow), layout: .split).frame(width: 820, height: 620)
         save(split, .german, dark: true, "window-split", in: directory, defaults: defaults)
+        let ride = madeUpRide(start: iceNow)
+        save(RideCharts(trip: ride).frame(width: 312).padding(14), .english, dark: false, "ride-charts", in: directory, defaults: defaults)
+        save(RideCharts(trip: ride).frame(width: 440).padding(14), .german, dark: true, "ride-charts-history", in: directory, defaults: defaults)
         exit(0)
+    }
+
+    /// 90 minutes with two stops, a stretch at 280 km/h, a Wi-Fi gap and a delay that grows after a reason comes up.
+    private static func madeUpRide(start: Date) -> Trip {
+        func speed(_ minute: Double) -> Int? {
+            switch minute {
+            case 40..<45: nil
+            case ..<3: Int(minute / 3 * 160)
+            case ..<20: 160
+            case ..<25: 160 + Int((minute - 20) / 5 * 120)
+            case ..<35, 38..<52: 280
+            case ..<38: 200
+            case ..<58: Int((58 - minute) / 6 * 280)
+            case ..<60: 0
+            case ..<66: Int((minute - 60) / 6 * 230)
+            case ..<85: 230
+            default: Int(max(0, 90 - minute) / 5 * 230)
+            }
+        }
+        var distance = 0.0
+        let samples = stride(from: 0.5, through: 90, by: 0.5).compactMap { minute -> RideSample? in
+            guard let kmh = speed(minute) else { return nil }
+            distance += Double(kmh) / 120
+            let delay = minute < 36 ? 2 : minute < 50 ? 5 : minute < 70 ? 7 : 6
+            return RideSample(time: Int(minute * 60), distance: distance, speed: kmh, delay: delay,
+                              reasons: minute == 36 ? ["Signal fault"] : nil)
+        }
+        return Trip(train: "ICE 1", from: "A", to: "B", start: start, end: start.addingTimeInterval(90 * 60),
+                    distance: distance, topSpeed: 283, arrivalDelay: 6, samples: samples)
     }
 
     private static func save<Content: View>(

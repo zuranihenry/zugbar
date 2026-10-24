@@ -129,10 +129,17 @@ struct TripsView: View {
                 }
                 Section {
                     ForEach(log.trips) { trip in
-                        TripRow(trip: trip)
-                            .contextMenu {
-                                Button(strings.deleteTrip, role: .destructive) { monitor.trips.delete(trip.id) }
+                        Group {
+                            // Trips recorded before there were charts have no samples.
+                            if (trip.samples?.count ?? 0) > 1 {
+                                DisclosureGroup { RideCharts(trip: trip).padding(.vertical, 4) } label: { TripRow(trip: trip) }
+                            } else {
+                                TripRow(trip: trip)
                             }
+                        }
+                        .contextMenu {
+                            Button(strings.deleteTrip, role: .destructive) { monitor.trips.delete(trip.id) }
+                        }
                     }
                 }
             }

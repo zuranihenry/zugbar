@@ -301,6 +301,18 @@ struct Strings {
     func passedStops(_ count: Int) -> String {
         count == 1 ? t("1 passed stop", "1 vergangener Halt") : t("\(count) passed stops", "\(count) vergangene Halte")
     }
+    var rideCharts: String { t("Speed and delay", "Tempo und Verspätung") }
+    var rideLegend: String { t("km/h · delay at the next stop", "km/h · Verspätung am nächsten Halt") }
+    var time: String { t("Time", "Zeit") }
+    var delayAtNextStop: String { t("Delay", "Verspätung") }
+    /// "14:32 · 212 km/h · +3 min · 120 km", what the charts show where the pointer is.
+    func rideReadout(_ sample: RideSample, at time: Date) -> String {
+        var parts = [time.formatted(.dateTime.hour().minute())]
+        if let speed = sample.speed { parts.append("\(speed) km/h") }
+        if let delay = sample.delay { parts.append(delay == 0 ? t("on time", "pünktlich") : delay > 0 ? "+\(delay) min" : "\(delay) min") }
+        parts.append("\(Int(sample.distance.rounded()).formatted()) km")
+        return parts.joined(separator: " · ")
+    }
     var share: String { t("Share trip", "Fahrt teilen") }
     var copy: String { t("Copy", "Kopieren") }
     var openWindow: String { t("Open in window", "In eigenem Fenster öffnen") }
