@@ -57,6 +57,62 @@ struct ICEPortalTests {
         #expect(status.internet == Internet(current: .none, next: .good, nextChange: now.addingTimeInterval(60)))
     }
 
+    @Test func keepsSpeedWithLastKnownPosition() throws {
+        let tunnel = Data(#"{"speed":241.3,"gpsStatus":"LAST_KNOWN_POSITION","latitude":1,"longitude":1}"#.utf8)
+        let status = try ICEPortal.parse(status: tunnel, trip: DemoProvider.resource("demo_db_trip"))
+        #expect(status.speed == 241)
+        #expect(status.position == nil)
+    }
+
+    @Test func negativeSpeedIsNoSpeed() throws {
+        let json = Data(#"{"speed":-1,"gpsStatus":"VALID","latitude":1,"longitude":1}"#.utf8)
+        let status = try ICEPortal.parse(status: json, trip: DemoProvider.resource("demo_db_trip"))
+        #expect(status.speed == nil)
+        #expect(status.position == Coordinate(latitude: 1, longitude: 1))
+    }
+
+    @Test func internetFromTopLevelLevel() throws {
+        func internet(_ level: String) throws -> Internet? {
+            let json = Data(#"{"gpsStatus":"VALID","internet":"\#(level)"}"#.utf8)
+            return try ICEPortal.parse(status: json, trip: DemoProvider.resource("demo_db_trip"), now: now).internet
+        }
+        #expect(try internet("HIGH") == Internet(current: .good))
+        #expect(try internet("MIDDLE") == Internet(current: .weak))
+        #expect(try internet("OFFLINE") == Internet(current: .none))
+        #expect(try internet("SOMETHING") == nil)
+    }
+
+    @Test func connectivityBlockWinsOverTopLevelLevel() throws {
+        let json = Data(#"{"gpsStatus":"VALID","internet":"HIGH","connectivity":{"currentState":"NO_INTERNET","nextState":"HIGH","remainingTimeSeconds":60}}"#.utf8)
+        let status = try ICEPortal.parse(status: json, trip: DemoProvider.resource("demo_db_trip"), now: now)
+        #expect(status.internet == Internet(current: .none, next: .good, nextChange: now.addingTimeInterval(60)))
+    }
+
+    /// Progress on a made-up run: A at 0 km, B at 100, C at 200, D at 400.
+    func progress(_ actualPosition: Int, last actualLast: String?, moved: Int?) throws -> Double? {
+        let stops = [("A", 0), ("B", 100_000), ("C", 200_000), ("D", 400_000)]
+            .map { #"{"station":{"evaNr":"\#($0.0)","name":"\#($0.0)"},"info":{"distanceFromStart":\#($0.1)}}"# }
+        let last = actualLast.map { #""\#($0)""# } ?? "null"
+        let trip = #"""
+        {"trip":{"actualPosition":\#(actualPosition),"distanceFromLastStop":\#(moved.map(String.init) ?? "null"),
+        "totalDistance":400000,"stopInfo":{"actualLast":\#(last)},"stops":[\#(stops.joined(separator: ","))]}}
+        """#
+        return try ICEPortal.parse(status: Data(#"{"gpsStatus":"VALID"}"#.utf8), trip: Data(trip.utf8), now: now).progress
+    }
+
+    @Test func progressCountsOnBetweenStops() throws {
+        // Between B and C, while actualPosition still says B.
+        #expect(try progress(100_000, last: "B", moved: 50_000) == 0.375)
+        // Standing at C before the last stop moves on to it: no step back.
+        #expect(try progress(200_000, last: "B", moved: 99_990) == 0.5)
+        // Just left C, written with the suffix some portals add.
+        #expect(try progress(200_000, last: "C_00", moved: 400) == 200_400.0 / 400_000)
+        // Never past the next stop.
+        #expect(try progress(100_000, last: "B", moved: 150_000) == 0.5)
+        // Without the count, the stop last reached.
+        #expect(try progress(100_000, last: nil, moved: nil) == 0.25)
+    }
+
     @Test func demoTrainDrivesAlongItsTrack() async throws {
         let status = try await DemoProvider().fetch()
         let route = try #require(status.route)

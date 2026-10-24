@@ -55,7 +55,8 @@ public struct Connection: Codable, Sendable, Equatable {
     /// Where the user is headed with this train, e.g. "Musterstadt".
     public var finalStop: String?
     public var finalArrival: Date?
-    /// Set when the connection came from the ICE portal; it's refreshed from there while on board.
+    /// Set on connections an older version took from the ICE portal, and on the demo connection:
+    /// they aren't refreshed from Transitous and are followed by name after changing.
     public var portalStationID: String?
 
     public init(
@@ -220,12 +221,15 @@ public enum JourneyWatcher {
     }
 
     /// The reminder whose threshold was crossed between two updates, given the seconds left then and now.
-    /// When several were crossed at once, only the closest one is reported.
+    /// When several were crossed at once, only the closest one is reported. After a gap (sleep, an outage)
+    /// the mark may be long past, so the minutes actually left are reported instead.
     private static func crossedReminder(_ reminders: Set<Int>, old: TimeInterval, new: TimeInterval) -> Int? {
-        reminders.sorted().first { minutes in
+        guard let minutes = reminders.sorted().first(where: { minutes in
             let threshold = TimeInterval(minutes * 60)
             return old > threshold && new <= threshold
-        }
+        }) else { return nil }
+        // Within a poll of the mark it stays the chosen value, which the app also uses to send each reminder once.
+        return new < TimeInterval(minutes * 60 - 60) ? Int((new / 60).rounded(.up)) : minutes
     }
 
     private static func changes(before: Stop, after: Stop, departure: Bool, settings: NotificationSettings,

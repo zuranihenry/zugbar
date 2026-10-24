@@ -126,6 +126,36 @@ struct HandoverTests {
         #expect(Handover.fallbackDeadline(for: unknown, now: now) == minutes(60))
     }
 
+    func run(arrivingAtB arrival: Date, cancelled: Bool = false) -> TrainStatus {
+        TrainStatus(provider: "DB", trainName: "ICE 901", stops: [
+            Stop(id: "a", name: "A", scheduledDeparture: minutes(-30), passed: true),
+            Stop(id: "b", name: "B", scheduledArrival: arrival, cancelled: cancelled),
+            Stop(id: "c", name: "C", scheduledArrival: minutes(60)),
+        ])
+    }
+
+    @Test func fallbackEndsAQuarterHourAfterTheDestination() {
+        // No connection: the destination alone says where the user gets off.
+        let toB = JourneyPlan(trainName: "ICE 901", destinationStopID: "b")
+        #expect(Handover.fallbackDeadline(for: run(arrivingAtB: minutes(5)), plan: toB, now: now) == minutes(20))
+        #expect(Handover.fallbackDeadline(for: run(arrivingAtB: minutes(5)), plan: nil, now: now) == minutes(75))
+        let otherTrain = JourneyPlan(trainName: "ICE 902", destinationStopID: "b")
+        #expect(Handover.fallbackDeadline(for: run(arrivingAtB: minutes(5)), plan: otherTrain, now: now) == minutes(75))
+        let elsewhere = JourneyPlan(trainName: "ICE 901", destinationStopID: "x")
+        #expect(Handover.fallbackDeadline(for: run(arrivingAtB: minutes(5)), plan: elsewhere, now: now) == minutes(75))
+        #expect(Handover.fallbackDeadline(for: run(arrivingAtB: minutes(5), cancelled: true), plan: toB, now: now) == minutes(75))
+    }
+
+    @Test func reachedTheDestinationWithoutAConnection() {
+        let toB = JourneyPlan(trainName: "ICE 901", destinationStopID: "b")
+        #expect(Handover.hasReached(plan: toB, status: run(arrivingAtB: minutes(-20)), now: now, grace: 15 * 60))
+        #expect(!Handover.hasReached(plan: toB, status: run(arrivingAtB: minutes(-5)), now: now, grace: 15 * 60))
+        #expect(!Handover.hasReached(plan: toB, status: run(arrivingAtB: minutes(-20), cancelled: true), now: now, grace: 15 * 60))
+        let otherTrain = JourneyPlan(trainName: "ICE 902", destinationStopID: "b")
+        #expect(!Handover.hasReached(plan: otherTrain, status: run(arrivingAtB: minutes(-20)), now: now, grace: 15 * 60))
+        #expect(!Handover.hasReached(plan: nil, status: run(arrivingAtB: minutes(-20)), now: now, grace: 15 * 60))
+    }
+
     @Test func planFollowsTheTrainFromItsPortalToTransitous() {
         let portal = TrainStatus(provider: "DB", trainName: "ICE 1356", stops: [
             Stop(id: "8001844_00", name: "Erlangen"),

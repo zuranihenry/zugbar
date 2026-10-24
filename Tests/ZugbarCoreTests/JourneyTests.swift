@@ -105,8 +105,8 @@ struct JourneySettingsTests {
         return TrainStatus(provider: "DB", trainName: "ICE 503", stops: [stop])
     }
 
-    func events(_ old: TrainStatus, _ new: TrainStatus, _ settings: NotificationSettings) -> [JourneyEvent] {
-        JourneyWatcher.events(old: old, oldTime: t0, oldConnection: nil, new: new, newTime: t0.addingTimeInterval(60),
+    func events(_ old: TrainStatus, _ new: TrainStatus, _ settings: NotificationSettings, after gap: TimeInterval = 60) -> [JourneyEvent] {
+        JourneyWatcher.events(old: old, oldTime: t0, oldConnection: nil, new: new, newTime: t0.addingTimeInterval(gap),
                               newConnection: nil, plan: JourneyPlan(trainName: "ICE 503", destinationStopID: "nbg"), settings: settings)
     }
 
@@ -118,6 +118,30 @@ struct JourneySettingsTests {
         #expect(events(status(arrivalIn: 5.5, now: t0), status(arrivalIn: 4.5, now: t0.addingTimeInterval(60)), settings)
             == [.arrivingSoon(stop: "Nürnberg Hbf", minutes: 5, track: "8")])
         #expect(events(status(arrivalIn: 10.5, now: t0), status(arrivalIn: 9.5, now: t0.addingTimeInterval(60)), settings).isEmpty)
+    }
+
+    @Test func reminderAfterAGapSaysTheMinutesLeft() {
+        var settings = NotificationSettings()
+        settings.arrivalReminders = [15, 5]
+        let old = status(arrivalIn: 20, now: t0)
+        // Closed 20 minutes before arriving, opened again with 6 or 2 left.
+        let six = t0.addingTimeInterval(14 * 60), two = t0.addingTimeInterval(18 * 60)
+        #expect(events(old, status(arrivalIn: 6, now: six), settings, after: 14 * 60)
+            == [.arrivingSoon(stop: "Nürnberg Hbf", minutes: 6, track: "8")])
+        #expect(events(old, status(arrivalIn: 2, now: two), settings, after: 18 * 60)
+            == [.arrivingSoon(stop: "Nürnberg Hbf", minutes: 2, track: "8")])
+    }
+
+    @Test func departureReminderAfterAGap() {
+        let departing = { (minutes: Double, now: Date) -> TrainStatus in
+            let stop = Stop(id: "a", name: "A", scheduledDeparture: now.addingTimeInterval(minutes * 60), track: "1")
+            return TrainStatus(provider: "Transitous", trainName: "ICE 503", stops: [stop])
+        }
+        let later = t0.addingTimeInterval(14 * 60)
+        let changes = JourneyWatcher.events(old: departing(20, t0), oldTime: t0, oldConnection: nil,
+                                            new: departing(6, later), newTime: later, newConnection: nil,
+                                            plan: JourneyPlan(trainName: "ICE 503", boardingStopID: "a"))
+        #expect(changes == [.departingSoon(stop: "A", minutes: 6, track: "1")])
     }
 
     @Test func thresholdsAndToggles() {
@@ -166,19 +190,6 @@ struct PositionTests {
         let status = try SNCFInoui.parse(details: fixture("sncf_details"), gps: fixture("sncf_gps"))
         #expect(status.stops.allSatisfy { $0.coordinate == nil })
         #expect(status.position == Coordinate(latitude: 44.4, longitude: 4.8))
-    }
-}
-
-struct PortalConnectionTests {
-    @Test func parsesICEPortalConnections() throws {
-        let json = Data(#"{"connections":[{"trainType":"RE","vzn":"1","station":{"name":"Regensburg Hbf"},"timetable":{"scheduledDepartureTime":1781283300000,"actualDepartureTime":1781283420000},"track":{"scheduled":"12","actual":"13"}}]}"#.utf8)
-        let connections = try ICEPortal.parseConnections(json, station: "Nürnberg Hbf", stationID: "8000284_00", evaNr: "8000284")
-        let first = try #require(connections.first)
-        #expect(first.name == "RE 1")
-        #expect(first.finalStop == "Regensburg Hbf")
-        #expect(first.track == "13")
-        #expect(first.delayMinutes == 2)
-        #expect(first.portalStationID == "8000284_00")
     }
 }
 

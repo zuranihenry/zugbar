@@ -310,7 +310,6 @@ struct Strings {
         return minutes <= 0 ? now : t("in \(minutes) min", "in \(minutes) Min.")
     }
     var settingsTitle: String { t("Zugbar Settings", "Zugbar-Einstellungen") }
-    var fromICEPortal: String { t("From the ICE Portal", "Laut ICE Portal") }
 
     func shareText(_ status: TrainStatus, destination: Stop?, connection: Connection?) -> String {
         var text = t("I'm on \(status.trainName ?? "the train")", "Ich sitze im \(status.trainName ?? "Zug")")

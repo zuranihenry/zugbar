@@ -39,7 +39,7 @@ final class Journey {
     /// `snapshot`: a plan for rendering screenshots, instead of the saved one.
     init(
         snapshot: JourneyPlan?? = nil, client: TransitousClient, status: @escaping () -> TrainStatus?, now: @escaping () -> Date,
-        portal: @escaping () -> ICEPortal?, planSet: @escaping () -> Void
+        planSet: @escaping () -> Void
     ) {
         // Before everything else is set, so it doesn't count as a change to save.
         if let snapshot { plan = snapshot }
@@ -48,7 +48,7 @@ final class Journey {
         self.now = now
         self.planSet = planSet
         var destination: () -> Stop? = { nil }
-        connections = ConnectionSearch(client: client) { .init(destination: destination(), portal: portal(), now: now()) }
+        connections = ConnectionSearch(client: client) { .init(destination: destination(), now: now()) }
         destination = { [unowned self] in self.destination }
     }
 
@@ -143,22 +143,14 @@ final class Journey {
     }
 
     /// Connections come from Transitous, so check them about once a minute.
-    func refreshConnectionIfNeeded(portal: ICEPortal?) {
-        guard let connection = plan?.connection,
+    func refreshConnectionIfNeeded() {
+        // Transitous trips only: not the demo connection or one an older version took from the ICE portal.
+        guard let connection = plan?.connection, connection.portalStationID == nil,
               connectionRefreshed.map({ Date().timeIntervalSince($0) > 60 }) ?? true
         else { return }
         connectionRefreshed = Date()
         Task {
-            var updated: Connection?
-            // Prefer the ICE portal while on board: it works without internet access.
-            if let portal, let stationID = connection.portalStationID, let stop = status()?.stops.first(where: { $0.id == stationID }) {
-                updated = try? await portal.connections(at: stop).first { $0.name == connection.name }
-                updated?.finalStop = connection.finalStop
-            }
-            if updated == nil, connection.portalStationID == nil {
-                updated = try? await client.refresh(connection)
-            }
-            guard let updated, plan?.connection?.tripID == updated.tripID else { return }
+            guard let updated = try? await client.refresh(connection), plan?.connection?.tripID == updated.tripID else { return }
             plan?.connection = updated
         }
     }

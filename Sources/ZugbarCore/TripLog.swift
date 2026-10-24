@@ -8,7 +8,7 @@ public struct Trip: Codable, Sendable, Equatable, Identifiable {
     public var to: String
     public var start: Date
     public var end: Date
-    /// Kilometers travelled, from the on-board GPS.
+    /// Kilometers travelled, from the on-board speed, or GPS where there is none.
     public var distance: Double
     public var topSpeed: Int
     /// Delay at `to` in minutes, when the portal knew it.
@@ -55,10 +55,16 @@ public struct TripRecorder: Sendable {
                               topSpeed: status.speed ?? 0, status: status)
             return finished
         }
-        let step = current.position.distance(to: position)
-        let hours = max(date.timeIntervalSince(current.last), 1) / 3600
-        // Skip jumps no train could make, e.g. a bad fix after a tunnel.
-        if step / hours < 350 { current.distance += step }
+        let seconds = date.timeIntervalSince(current.last)
+        if let speed = status.speed, let previous = current.status.speed, (0...60).contains(seconds) {
+            // Portal fixes lag and change only every ~10 s, far less often than we poll; their speed doesn't.
+            current.distance += Double(previous + speed) / 2 * seconds / 3600
+        } else {
+            // No speed, or after a gap (tunnel, sleep): the straight line, unless no train could have made it,
+            // e.g. a bad fix after a tunnel.
+            let step = current.position.distance(to: position)
+            if step / (max(seconds, 1) / 3600) < 350 { current.distance += step }
+        }
         current.position = position
         current.last = date
         current.topSpeed = max(current.topSpeed, status.speed ?? 0)
