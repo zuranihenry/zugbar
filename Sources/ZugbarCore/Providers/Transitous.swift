@@ -181,6 +181,7 @@ public actor Transitous: TrainProvider {
                 scheduledDeparture: place.scheduledDeparture,
                 expectedDeparture: place.departure,
                 track: place.track ?? place.scheduledTrack,
+                scheduledTrack: place.scheduledTrack,
                 passed: (place.departure ?? place.arrival).map { $0 <= now } ?? false,
                 coordinate: Coordinate(place.lat, place.lon),
                 cancelled: tripCancelled || place.cancelled == true
