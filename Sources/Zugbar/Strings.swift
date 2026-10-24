@@ -210,6 +210,25 @@ struct Strings {
     }
     func lastStop(_ name: String) -> String { t("last \(name)", "zuletzt \(name)") }
     func kilometersAway(_ km: Int) -> String { t("\(km) km away", "\(km) km entfernt") }
+    var addCoach: String { t("Add your coach…", "Wagen eintragen…") }
+    var coachField: String { t("Coach", "Wagen") }
+    var seatField: String { t("Seat", "Platz") }
+    var save: String { t("Save", "Sichern") }
+    var changeCoach: String { t("Change coach", "Wagen ändern") }
+    var removeCoach: String { t("Remove coach", "Wagen entfernen") }
+    var coachHint: String {
+        t("Where your coach stops comes from DB's coach sequence, a few hours before departure. Not at a train's last stop.",
+          "Wo dein Wagen hält, kommt aus der Wagenreihung der DB, ab einigen Stunden vor Abfahrt. Nicht am Endbahnhof eines Zuges.")
+    }
+    /// "Coach 8 · seat 42"
+    func seat(_ seat: Seat) -> String {
+        var text = t("Coach \(seat.coach)", "Wagen \(seat.coach)")
+        if let number = seat.number { text += t(" · seat \(number)", " · Platz \(number)") }
+        return text
+    }
+    func sector(_ sector: String) -> String { t("sector \(sector)", "Abschnitt \(sector)") }
+    var coachMissing: String { t("not in today's train", "fährt heute nicht mit") }
+    var coachClosed: String { t("closed today", "heute gesperrt") }
     var addConnection: String { t("Add connection…", "Anschluss hinzufügen…") }
     var continueTo: String { t("Continue to, e.g. Springfield", "Weiter nach, z. B. Musterstadt") }
     var connection: String { t("Connection", "Anschluss") }

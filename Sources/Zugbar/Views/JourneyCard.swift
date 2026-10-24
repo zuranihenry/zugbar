@@ -54,11 +54,21 @@ struct JourneyCard: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if !destination.cancelled, CoachSequence.numbersCoaches(monitor.status?.trainName) {
+                SeatRow(
+                    editor: monitor.journey.seatEditor, field: .destination, seat: monitor.journey.plan?.seat,
+                    sequence: monitor.journey.coachSequence(at: destination)
+                ) { monitor.journey.setSeat($0) }
+            }
 
             Divider()
 
             if let connection = monitor.journey.plan?.connection {
-                ConnectionRow(connection: connection, arrival: destination.arrival) { monitor.journey.removeConnection() }
+                ConnectionRow(
+                    connection: connection, arrival: destination.arrival, editor: monitor.journey.seatEditor,
+                    sequence: monitor.journey.coachSequence(at: destination, connection: connection),
+                    setSeat: { monitor.journey.setSeat($0, connection: true) }
+                ) { monitor.journey.removeConnection() }
             } else if monitor.journey.connections.isAdding {
                 ConnectionPicker(monitor: monitor)
             } else {
@@ -79,6 +89,10 @@ struct JourneyCard: View {
 private struct ConnectionRow: View {
     let connection: Connection
     let arrival: Date?
+    let editor: SeatEditor
+    /// Where the connection's coaches stop where it leaves.
+    let sequence: CoachSequence?
+    let setSeat: (Seat?) -> Void
     let remove: () -> Void
     @Environment(\.strings) private var strings
 
@@ -112,6 +126,10 @@ private struct ConnectionRow: View {
             }
             .font(.callout)
             .padding(.leading, 22)
+            if !connection.cancelled, CoachSequence.numbersCoaches(connection.name) {
+                SeatRow(editor: editor, field: .connection, seat: connection.seat, sequence: sequence, save: setSeat)
+                    .padding(.leading, 22)
+            }
         }
     }
 

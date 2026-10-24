@@ -14,6 +14,8 @@ final class Journey {
         didSet { UserDefaults.standard.set(try? JSONEncoder().encode(notificationSettings), forKey: "notificationSettings") }
     }
     let connections: ConnectionSearch
+    let coaches = CoachSectors()
+    let seatEditor = SeatEditor()
 
     /// The status notifications compare the next one with.
     @ObservationIgnored var lastSnapshot: (status: TrainStatus, time: Date, connection: Connection?)? {
@@ -35,11 +37,13 @@ final class Journey {
     private let now: () -> Date
     /// Called when a plan is set, to ask for notification permission.
     private let planSet: () -> Void
+    /// Not for the demo train, which DB doesn't know.
+    private let loadsCoaches: () -> Bool
 
     /// `snapshot`: a plan for rendering screenshots, instead of the saved one.
     init(
         snapshot: JourneyPlan?? = nil, client: TransitousClient, status: @escaping () -> TrainStatus?, now: @escaping () -> Date,
-        planSet: @escaping () -> Void
+        planSet: @escaping () -> Void, loadsCoaches: @escaping () -> Bool
     ) {
         // Before everything else is set, so it doesn't count as a change to save.
         if let snapshot { plan = snapshot }
@@ -47,6 +51,7 @@ final class Journey {
         self.status = status
         self.now = now
         self.planSet = planSet
+        self.loadsCoaches = loadsCoaches
         var destination: () -> Stop? = { nil }
         connections = ConnectionSearch(client: client) { .init(destination: destination(), now: now()) }
         destination = { [unowned self] in self.destination }
@@ -83,6 +88,36 @@ final class Journey {
 
     func removeConnection() {
         update { $0.connection = nil }
+    }
+
+    /// The user's coach on the followed train, or with `connection` on the train they change to.
+    func setSeat(_ seat: Seat?, connection: Bool = false) {
+        update { plan in
+            if connection { plan.connection?.seat = seat } else { plan.seat = seat }
+        }
+        refreshCoaches()
+    }
+
+    /// Where the user's coach stops: at the boarding stop and destination, and where the connection leaves.
+    func refreshCoaches() {
+        guard loadsCoaches(), let plan, let train = status()?.trainName else { return }
+        let now = now()
+        if plan.seat != nil {
+            for stop in [boarding, destination].compactMap({ $0 }) where !stop.cancelled {
+                coaches.load(train: train, at: stop, departure: stop.scheduledDeparture, now: now)
+            }
+        }
+        // The connection leaves from the station the followed train gets to.
+        if let connection = plan.connection, connection.seat != nil, let destination {
+            coaches.load(train: connection.name, at: destination, departure: connection.scheduledDeparture, now: now)
+        }
+    }
+
+    /// The followed train's coach sequence at `stop`, or the connection's where it leaves.
+    func coachSequence(at stop: Stop, connection: Connection? = nil) -> CoachSequence? {
+        if let connection { return coaches.sequence(train: connection.name, at: stop, departure: connection.scheduledDeparture) }
+        guard let train = status()?.trainName else { return nil }
+        return coaches.sequence(train: train, at: stop, departure: stop.scheduledDeparture)
     }
 
     func clear() { plan = nil }
@@ -150,7 +185,9 @@ final class Journey {
         else { return }
         connectionRefreshed = Date()
         Task {
-            guard let updated = try? await client.refresh(connection), plan?.connection?.tripID == updated.tripID else { return }
+            guard var updated = try? await client.refresh(connection), plan?.connection?.tripID == updated.tripID else { return }
+            // The coach may have been entered while this was loading.
+            updated.seat = plan?.connection?.seat
             plan?.connection = updated
         }
     }

@@ -56,6 +56,13 @@ struct BoardingCard: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(spoken(at: now))
+            // Where to stand on the platform.
+            if !stop.cancelled, CoachSequence.numbersCoaches(status.trainName) {
+                SeatRow(
+                    editor: monitor.journey.seatEditor, field: .boarding, seat: monitor.journey.plan?.seat,
+                    sequence: monitor.journey.coachSequence(at: stop)
+                ) { monitor.journey.setSeat($0) }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
