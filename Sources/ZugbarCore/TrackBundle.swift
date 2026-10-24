@@ -99,6 +99,11 @@ public struct TrackBundle: Sendable {
         return try JSONEncoder().encode(File(version: 1, date: date, tracks: rows))
     }
 
+    /// The posted limit at `point`, or nil off the bundled lines.
+    public func limit(at point: Coordinate) -> Int? {
+        TrackLimit.limit(at: point, among: Set(Cell(point).neighbors.flatMap { grid[$0] ?? [] }).map { tracks[$0] })
+    }
+
     /// The bundled tracks along `points`, or `nil` when the bundle doesn't cover the section: nearly every point
     /// (checked about every 500 m) must have a bundled track within 60 m, else a branch line is missing and
     /// Overpass knows better.

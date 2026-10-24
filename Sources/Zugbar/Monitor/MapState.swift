@@ -9,6 +9,8 @@ import ZugbarCore
 final class MapState {
     /// Map camera; `.automatic` fits the whole route.
     var camera: MapCameraPosition = .automatic
+    /// The route by posted speed, worked out while the map shows track speeds.
+    var trackStretches: [TrackSpeeds.Stretch] = []
     /// Keeps the map centered on the train as it moves.
     var followsTrain = false {
         didSet {
