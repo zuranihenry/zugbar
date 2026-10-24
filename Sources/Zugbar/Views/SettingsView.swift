@@ -85,7 +85,7 @@ struct GeneralSettings: View {
                 .disabled(!estimatedSpeed)
                 Toggle(isOn: $learnSpeeds) {
                     Text(strings.learnSpeeds)
-                    Text(strings.learnSpeedsHint)
+                    Text(strings.learnHint)
                 }
             }
             Section(strings.data) {
@@ -98,6 +98,10 @@ struct GeneralSettings: View {
                 LabeledContent(strings.learnedSpeeds(monitor.estimates.learnedCellCount)) {
                     Button(strings.clear, role: .destructive) { monitor.estimates.clearLearnedSpeeds() }
                         .disabled(monitor.estimates.learnedCellCount == 0)
+                }
+                LabeledContent(strings.learnedWiFi(monitor.wifi.learnedCellCount)) {
+                    Button(strings.clear, role: .destructive) { monitor.wifi.clear() }
+                        .disabled(monitor.wifi.learnedCellCount == 0)
                 }
             }
         }
@@ -249,6 +253,7 @@ struct NotificationSettingsView: View {
     @Bindable var monitor: TrainMonitor
     @Environment(\.strings) private var strings
     @AppStorage("notifications") private var notifications = true
+    @AppStorage("wifiAlerts") private var wifiAlerts = false
 
     var body: some View {
         @Bindable var journey = monitor.journey
@@ -287,6 +292,13 @@ struct NotificationSettingsView: View {
                 }
                 Toggle(strings.trackChanges, isOn: $journey.notificationSettings.trackChanges)
                 Toggle(strings.connectionAlerts, isOn: $journey.notificationSettings.connectionAlerts)
+            }
+            .disabled(!notifications)
+            Section {
+                Toggle(isOn: $wifiAlerts) {
+                    Text(strings.wifiAlerts)
+                    Text(strings.wifiAlertsHint)
+                }
             }
             .disabled(!notifications)
         }

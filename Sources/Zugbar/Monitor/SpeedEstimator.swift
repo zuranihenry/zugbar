@@ -27,7 +27,7 @@ final class SpeedEstimator {
     @ObservationIgnored private var profileRequests: Set<String> = []
     private let overpass = OverpassClient()
     private let limitCache = LimitCache()
-    private let learnedStore = LearnedSpeedStore()
+    private let learnedStore = LearnedStore(file: "learned-speeds.json", empty: LearnedSpeeds())
     /// A copy of the learned speeds for synchronous use when building profiles; refreshed from the store.
     @ObservationIgnored private var learned = LearnedSpeeds()
     /// The current section and its speed profile, refreshed once a second so frames only interpolate.
@@ -117,13 +117,13 @@ final class SpeedEstimator {
         learned.record(position, speed: speed, kind: kind)
         learnedCellCount = learned.cellCount
         let store = learnedStore
-        Task { await store.record(position, speed: speed, kind: kind) }
+        Task { await store.update { $0.record(position, speed: speed, kind: kind) } }
     }
 
     func loadLearnedSpeeds() {
         let store = learnedStore
         Task {
-            learned = await store.speeds
+            learned = await store.value
             learnedCellCount = learned.cellCount
             timedProfiles.removeAll()
         }

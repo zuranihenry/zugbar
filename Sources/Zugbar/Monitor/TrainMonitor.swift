@@ -39,6 +39,7 @@ final class TrainMonitor {
     let map = MapState()
     let picker: StationSearch
     let estimates = SpeedEstimator()
+    let wifi = WiFiForecaster()
     let journey: Journey
     let trips = TripStore()
     private(set) var lastUpdate: Date?
@@ -142,6 +143,7 @@ final class TrainMonitor {
     convenience init() {
         self.init(snapshot: nil, history: nil, demo: CommandLine.arguments.contains("--demo"))
         estimates.loadLearnedSpeeds()
+        wifi.load()
         startTicking()
         startFrames()
         startRouterGPS()
@@ -735,6 +737,7 @@ final class TrainMonitor {
             marker = GPSMarker()
         }
         journey.refreshConnectionIfNeeded()
+        if !demoMode { newStatus = wifi.update(newStatus, strings: strings) }
         status = newStatus
         lastUpdate = Date()
         estimates.prepareProfile(for: newStatus)
