@@ -221,3 +221,33 @@ public struct StopCheck: Sendable, Equatable {
         return (skipped.count, stopped.count)
     }
 }
+
+extension TrainStatus {
+    /// Passed stops and the next stop from where the train is, `along` meters on `route`, e.g. from the router's
+    /// GPS. Without live data the times say a late train already passed stops it hasn't reached yet, and an early one
+    /// hasn't passed stops it has. A stop counts once the train is `margin` meters beyond it, so a train standing at
+    /// the platform hasn't passed it. Stops without a coordinate go with their neighbors.
+    public func passingStops(at along: Double, on route: Route, margin: Double = 400) -> TrainStatus {
+        var status = self
+        var previous = 0.0
+        var decided: [Int: Bool] = [:]
+        for index in status.stops.indices {
+            guard let coordinate = status.stops[index].coordinate else { continue }
+            // In order: a station the train comes back to is placed on the way back.
+            let stop = route.along(of: coordinate, from: previous)
+            previous = stop
+            decided[index] = along > stop + margin
+        }
+        for index in status.stops.indices {
+            if let passed = decided[index] {
+                status.stops[index].passed = passed
+            } else if decided.contains(where: { $0.key > index && $0.value }) {
+                status.stops[index].passed = true
+            } else if decided.contains(where: { $0.key < index && !$0.value }) {
+                status.stops[index].passed = false
+            }
+        }
+        status.nextStopID = status.stops.first { !$0.passed && !$0.cancelled }?.id
+        return status
+    }
+}

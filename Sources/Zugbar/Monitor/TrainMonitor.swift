@@ -304,6 +304,8 @@ final class TrainMonitor {
     @ObservationIgnored private var marker = GPSMarker()
     /// Holds the last good fix while a stale one lies behind the train.
     @ObservationIgnored private var gpsFilter = GPSFilter()
+    /// Where the router's GPS last put the followed train along its route, for moments without a fix.
+    @ObservationIgnored private var routerAlong: (train: String, along: Double)?
     private var frameTask: Task<Void, Never>?
 
     /// Maps on screen; the marker only needs smooth frames while one is.
@@ -929,9 +931,26 @@ final class TrainMonitor {
         var status = status
         status.position = nil
         status.speed = nil
-        guard let fix = ride.freshFix(at: Date()), isOnTrack(fix, of: status) else { return status }
+        guard let fix = ride.freshFix(at: Date()), isOnTrack(fix, of: status) else {
+            // A moment without a fix, in a tunnel or under a station roof, doesn't put the train back where the times
+            // say: it's still about where the GPS last had it.
+            if !ride.isGone, let last = routerAlong, TrainName.same(last.train, status.trainName ?? ""), let route = status.route {
+                return status.passingStops(at: last.along, on: route)
+            }
+            return status
+        }
         status.position = fix.coordinate
         status.speed = fix.speed
+        // The router knows where the train is; without live data the times only say where it should be. Not while
+        // waiting for this train at the boarding stop: the GPS is then from the train the user is on or just left.
+        let boarding = journey.plan?.resolved(in: status).boardingStopID
+        if let route = status.route, route.points.count > 1, let name = status.trainName,
+           followsPick || status.waitingStop(boarding, at: Date()) == nil {
+            // The smoothed heading even when slow, so a train standing on its way back stays on that leg.
+            let along = route.projection(of: fix.coordinate, heading: ride.heading).along
+            routerAlong = (name, along)
+            status = status.passingStops(at: along, on: route)
+        }
         return status
     }
 
@@ -965,6 +984,7 @@ final class TrainMonitor {
         // The next train's first fix shouldn't glide from where this one was.
         marker = GPSMarker()
         gpsFilter = GPSFilter()
+        routerAlong = nil
     }
 
     nonisolated private static func firstResponding(_ providers: [any TrainProvider]) async -> (any TrainProvider, TrainStatus)? {
