@@ -267,6 +267,18 @@ struct TrainNameTests {
         #expect(!Handover.isMissed(connection, arrival: nil))
     }
 
+    @Test func cancelledConnectionIsReplacedLikeAMissedOne() {
+        let departure = utc("2026-06-12T16:20:00Z")
+        var connection = Connection(tripID: "re-1", name: "RE 1", headsign: "B", station: "A",
+                                    scheduledDeparture: departure, expectedDeparture: departure, track: "1", finalStop: "B")
+        let inTime = departure.addingTimeInterval(-6 * 60)
+        #expect(!Handover.needsReplacement(connection, arrival: inTime))
+        #expect(Handover.needsReplacement(connection, arrival: departure.addingTimeInterval(4 * 60)))
+        connection.cancelled = true
+        #expect(Handover.needsReplacement(connection, arrival: inTime))
+        #expect(Handover.needsReplacement(connection, arrival: nil))
+    }
+
     @Test func replacementIsTheNextTrainThatRuns() {
         let missed = utc("2026-06-12T16:20:00Z")
         func train(_ id: String, minutes: Double, cancelled: Bool = false) -> Connection {

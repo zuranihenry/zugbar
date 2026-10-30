@@ -581,24 +581,25 @@ final class TrainMonitor {
     private func followConnection() {
         guard !demoMode, !findingReplacement, let plan = journey.plan, let connection = plan.connection else { return }
         let arrival = status?.stops.first { $0.id == plan.destinationStopID }?.arrival
-        if Handover.isMissed(connection, arrival: arrival) {
-            // The connection left before the train got in: take the next train to the same place instead. Searched
-            // once per connection, again only after a network error.
+        if Handover.needsReplacement(connection, arrival: arrival) {
+            // The connection is cancelled, or left before the train got in: take the next train to the same place
+            // instead. Searched once per connection, again only after a network error.
             if let search = replacementSearch, search.tripID == connection.tripID,
                !(search.networkError && Date().timeIntervalSince(search.at) > 120) {
                 return
             }
             findingReplacement = true
+            let title = connection.cancelled ? strings.connectionCancelled : strings.connectionMissed
             Task {
                 let (next, networkError) = await replacement(for: connection, after: arrival ?? Date())
                 replacementSearch = (connection.tripID, Date(), networkError)
                 findingReplacement = false
                 if let next {
-                    Notifier.post(title: strings.connectionMissed, body: strings.nextTrain(next))
+                    Notifier.post(title: title, body: strings.nextTrain(next))
                     journey.plan?.connection = next
                     followConnection()
                 } else if !networkError {
-                    Notifier.post(title: strings.connectionMissed, body: strings.noNextTrain)
+                    Notifier.post(title: title, body: strings.noNextTrain)
                 }
             }
             return

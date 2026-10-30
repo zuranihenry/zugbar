@@ -117,6 +117,12 @@ public enum Handover {
         return departure < arrival
     }
 
+    /// Whether to take the next train to the same place instead of the connection: it's cancelled, or it leaves
+    /// before the followed train gets there.
+    public static func needsReplacement(_ connection: Connection, arrival: Date?) -> Bool {
+        connection.cancelled || isMissed(connection, arrival: arrival)
+    }
+
     /// The train to take instead of a missed one: of the direct trains leaving from `earliest` on, the one that
     /// gets there first. An RE leaving a few minutes after an S-Bahn often overtakes it.
     public static func replacement(for connection: Connection, in options: [Connection], after earliest: Date) -> Connection? {
