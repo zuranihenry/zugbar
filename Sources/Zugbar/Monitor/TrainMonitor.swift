@@ -332,6 +332,10 @@ final class TrainMonitor {
         if let gps = status.position {
             marker.update(gps, speed: status.speed, route: status.route, nextStop: status.nextStop?.coordinate, at: date)
             trainPosition = marker.position(at: date)
+        } else if holdsMarker(for: status, at: date), let held = marker.position(at: date) {
+            // In a tunnel the router's GPS goes quiet: the marker goes on from its last fix as between fixes, instead of
+            // jumping to where the times say and back.
+            trainPosition = held
         } else {
             // Back on GPS later, the marker starts from the new fix instead of gliding from an old one.
             marker = GPSMarker()
@@ -343,8 +347,17 @@ final class TrainMonitor {
     /// Where the marker will be at `date`, for camera animations that should end on the moving train.
     func predictedPosition(at date: Date) -> Coordinate? {
         guard let status else { return nil }
-        guard status.position != nil else { return estimates.position(of: status, at: date) }
+        guard status.position != nil else {
+            if holdsMarker(for: status, at: date), let held = marker.position(at: date) { return held }
+            return estimates.position(of: status, at: date)
+        }
         return marker.position(at: date) ?? status.position
+    }
+
+    /// A train followed online whose router GPS last had it on its line, and still answers with a recent fix.
+    private func holdsMarker(for status: TrainStatus, at date: Date) -> Bool {
+        guard status.isOnline, let last = routerAlong, TrainName.same(last.train, status.trainName ?? "") else { return false }
+        return ride.holdsPosition(at: date)
     }
 
     // MARK: - Debug
