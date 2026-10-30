@@ -337,7 +337,8 @@ struct Strings {
 
     // Tracking, map, share, window
     var endTracking: String { t("Stop tracking", "Tracking beenden") }
-    var stop: String { t("Stop", "Beenden") }
+    /// Not "Beenden", which on a Mac means quitting the app.
+    var stop: String { t("Stop", "Stopp") }
     var map: String { t("Map", "Karte") }
     var followTrain: String { t("Follow train", "Zug folgen") }
     var headingUp: String { t("Turn map with the train", "Karte in Fahrtrichtung drehen") }
