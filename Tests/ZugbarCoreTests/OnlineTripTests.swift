@@ -58,3 +58,25 @@ struct DepartureBoardTests {
         #expect(TransitousClient.deduplicated(board).map(\.tripID) == ["20990101_09:20_de-RBN_7"])
     }
 }
+
+struct CutShortTests {
+    func trip(tripCancelled: Bool) -> Data {
+        Data(#"""
+        {"legs":[{"mode":"HIGHSPEED_RAIL","displayName":"ICE 7","headsign":"Eibental Hbf","cancelled":\#(tripCancelled),
+          "from":{"name":"Ahornstadt","departure":"2099-01-01T10:00:00Z"},
+          "intermediateStops":[{"name":"Buchenweiler","arrival":"2099-01-01T10:30:00Z"},
+                               {"name":"Dornstadt","arrival":"2099-01-01T10:50:00Z","cancelled":true}],
+          "to":{"name":"Eibental Hauptbahnhof","arrival":"2099-01-01T11:10:00Z","cancelled":true}}]}
+        """#.utf8)
+    }
+
+    @Test func endsAtTheLastStopServed() throws {
+        let status = try Transitous.parse(trip: trip(tripCancelled: false), now: utc("2099-01-01T10:10:00Z"))
+        #expect(status.destination == "Buchenweiler")
+    }
+
+    @Test func aCancelledTripKeepsItsDestination() throws {
+        let status = try Transitous.parse(trip: trip(tripCancelled: true), now: utc("2099-01-01T10:10:00Z"))
+        #expect(status.destination == "Eibental Hbf")
+    }
+}
