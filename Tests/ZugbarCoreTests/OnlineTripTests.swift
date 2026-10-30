@@ -161,3 +161,37 @@ struct RenumberedTripTests {
         #expect(await searches.value == 2)
     }
 }
+
+struct ConnectionRefreshTests {
+    let trip = Data(#"""
+    {"legs":[{"mode":"REGIONAL_RAIL","displayName":"RE 3",
+      "from":{"name":"Hauptbahnhof (oben)","scheduledDeparture":"2099-01-01T10:00:00Z","departure":"2099-01-01T10:06:00Z","track":"12"},
+      "to":{"name":"Buchenweiler","scheduledArrival":"2099-01-01T11:00:00Z"}}]}
+    """#.utf8)
+
+    func connection(at station: String, departure: String = "2099-01-01T10:00:00Z") -> Connection {
+        Connection(tripID: "re3", name: "RE 3", headsign: "Buchenweiler", station: station,
+                   scheduledDeparture: utc(departure), expectedDeparture: nil, track: "11")
+    }
+
+    /// The followed train calls the station "Ahornstadt Hbf"; the connection's trip has only "Hauptbahnhof (oben)".
+    @Test func findsTheStopByItsDeparture() async throws {
+        let trip = trip
+        let updated = try await TransitousClient(loader: { _ in trip }).refresh(connection(at: "Ahornstadt Hbf"))
+        #expect(updated.delayMinutes == 6)
+        #expect(updated.track == "12")
+    }
+
+    @Test func matchesNamesSpelledDifferently() async throws {
+        let trip = Data(#"{"legs":[{"mode":"REGIONAL_RAIL","from":{"name":"Ahornstadt Hbf","departure":"2099-01-01T10:20:00Z"},"to":{"name":"Buchenweiler"}}]}"#.utf8)
+        let updated = try await TransitousClient(loader: { _ in trip })
+            .refresh(connection(at: "Ahornstadt Hauptbahnhof", departure: "2099-01-01T10:05:00Z"))
+        #expect(updated.expectedDeparture == utc("2099-01-01T10:20:00Z"))
+    }
+
+    @Test func leavesAnUnknownStopAlone() async throws {
+        let trip = trip
+        let original = connection(at: "Dornstadt", departure: "2099-01-01T09:00:00Z")
+        #expect(try await TransitousClient(loader: { _ in trip }).refresh(original) == original)
+    }
+}

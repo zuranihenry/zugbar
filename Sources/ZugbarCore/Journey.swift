@@ -341,8 +341,13 @@ extension TransitousClient {
         var url = Transitous.base.appending(path: "v6/trip")
         url.appendQuery([URLQueryItem(name: "tripId", value: connection.tripID)])
         let status = try Transitous.parse(trip: await loader(url), now: Date())
-        let wanted = Transitous.normalize(connection.station)
-        guard let stop = status.stops.first(where: { Transitous.normalize($0.name) == wanted }) else { return connection }
+        // The station is named as the followed train names it, which can differ ("Hauptbahnhof (oben)"); the
+        // planned departure came from this same trip, so it finds the stop when the name doesn't.
+        let byTime = connection.scheduledDeparture.flatMap { planned in
+            status.stops.first { $0.scheduledDeparture.map { abs($0.timeIntervalSince(planned)) <= 90 } ?? false }
+        }
+        guard let stop = status.stops.first(where: { StationName.same($0.name, connection.station) }) ?? byTime
+        else { return connection }
         var updated = connection
         updated.scheduledDeparture = stop.scheduledDeparture ?? connection.scheduledDeparture
         updated.expectedDeparture = stop.expectedDeparture
