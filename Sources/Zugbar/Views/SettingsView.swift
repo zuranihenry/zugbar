@@ -163,12 +163,17 @@ private struct TripRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(trip.train) · \(trip.from) → \(trip.to)").lineLimit(1)
+                // The origin gives way first: the destination is what tells trips apart.
+                HStack(spacing: 0) {
+                    Text("\(trip.train) · \(trip.from)").lineLimit(1)
+                    Text(" → \(trip.to)").lineLimit(1).layoutPriority(1)
+                }
                 Text(details).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             DelayBadge(minutes: trip.arrivalDelay).font(.caption)
         }
+        .help("\(trip.train) · \(trip.from) → \(trip.to)")
         .accessibilityElement(children: .combine)
     }
 
