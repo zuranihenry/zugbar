@@ -19,6 +19,12 @@ struct TrainMap: View {
         var counted = false
     }
 
+    /// Spelled out: older compilers make the memberwise one private because of `visibility`.
+    init(monitor: TrainMonitor, status: TrainStatus) {
+        self.monitor = monitor
+        self.status = status
+    }
+
     var body: some View {
         let stretches = monitor.map.trackStretches
         let route = status.route.map { Self.thinned($0.points).map(CLLocationCoordinate2D.init) }
@@ -331,7 +337,9 @@ private struct WindowVisibility: NSViewRepresentable {
 
         @objc private func windowChanged() {
             guard let window else { return }
-            let visible = window.occlusionState.contains(.visible) && !window.isMiniaturized
+            // A popover has no title bar and closes rather than hiding, which ends the map anyway.
+            let visible = !window.styleMask.contains(.titled)
+                || window.occlusionState.contains(.visible) && !window.isMiniaturized
             // Not during a SwiftUI update.
             DispatchQueue.main.async { [changed] in changed(visible) }
         }
