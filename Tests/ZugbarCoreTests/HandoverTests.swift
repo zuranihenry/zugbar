@@ -49,6 +49,28 @@ struct HandoverTests {
         #expect(!Handover.isDue(plan: plan, status: ice(arrival: now, cancelled: true), now: now))
     }
 
+    @Test func onBoardTrainStillOnItsWayInIsntLeftYet() {
+        let station = Coordinate(latitude: 49.0, longitude: 11.0)
+        func onBoard(speed: Int?, kmOut: Double?, passed: Bool = false, provider: String = "DB") -> TrainStatus {
+            var status = ice(arrival: minutes(-1), passed: passed)
+            status.provider = provider
+            status.stops[1].coordinate = station
+            status.speed = speed
+            status.position = kmOut.map { Coordinate(latitude: 49.0 + $0 / 111.2, longitude: 11.0) }
+            return status
+        }
+        // Held at a signal, or still running in after the portal's arrival time.
+        #expect(Handover.isStillApproaching(plan: plan, status: onBoard(speed: 0, kmOut: 3)))
+        #expect(Handover.isStillApproaching(plan: plan, status: onBoard(speed: 60, kmOut: nil)))
+        // Standing at the platform, or nothing to tell: the clock decides.
+        #expect(!Handover.isStillApproaching(plan: plan, status: onBoard(speed: 0, kmOut: 0.3)))
+        #expect(!Handover.isStillApproaching(plan: plan, status: onBoard(speed: nil, kmOut: nil)))
+        // Through the station already, or followed online, where the router's GPS says it instead.
+        #expect(!Handover.isStillApproaching(plan: plan, status: onBoard(speed: 60, kmOut: 3, passed: true)))
+        #expect(!Handover.isStillApproaching(plan: plan, status: onBoard(speed: 60, kmOut: 3, provider: "Transitous")))
+        #expect(!Handover.isStillApproaching(plan: nil, status: onBoard(speed: 60, kmOut: 3)))
+    }
+
     @Test func otherSpellingOfTheTrainStillCounts() {
         #expect(Handover.isDue(plan: plan, status: ice(name: "ICE1356", arrival: now), now: now))
     }

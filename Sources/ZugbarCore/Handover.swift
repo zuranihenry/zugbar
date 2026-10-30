@@ -24,6 +24,17 @@ public enum Handover {
         return arrival <= now.addingTimeInterval(leeway)
     }
 
+    /// Whether an on-board train the clock says has reached the destination is still on its way there: its portal
+    /// hasn't passed the stop, and it's going at speed or its GPS is over a kilometer out, e.g. held at a signal
+    /// before the portal's times catch up. Only while the portal answers; once the Wi-Fi goes, the clock decides.
+    public static func isStillApproaching(plan: JourneyPlan?, status: TrainStatus) -> Bool {
+        guard !status.isOnline, let plan, let destination = destination(of: plan, in: status), !destination.passed
+        else { return false }
+        if let speed = status.speed, speed >= 20 { return true }
+        guard let position = status.position, let coordinate = destination.coordinate else { return false }
+        return position.distance(to: coordinate) > 1
+    }
+
     /// How long after its expected arrival a train followed online counts as arrived.
     public static let onlineGrace: TimeInterval = 2 * 60
 

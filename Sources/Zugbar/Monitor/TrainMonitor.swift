@@ -785,7 +785,9 @@ final class TrainMonitor {
 
     /// Signs the user is still on the train followed online, when the timetable says it has arrived: its router's GPS
     /// isn't at the destination yet, or an SBB train's Wi-Fi is still there. Leaving the Wi-Fi is the moment to change.
+    /// On board, the portal still shows the train on its way in.
     private func stillAboard(_ status: TrainStatus) -> Bool {
+        if Handover.isStillApproaching(plan: journey.plan, status: status) { return true }
         guard status.isOnline, let plan = journey.plan,
               let destination = status.stops.first(where: { $0.id == plan.destinationStopID })
         else { return false }
