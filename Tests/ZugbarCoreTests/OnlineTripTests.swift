@@ -182,6 +182,20 @@ struct ConnectionRefreshTests {
         #expect(updated.track == "12")
     }
 
+    /// An S-Bahn's stops can be a minute apart; the one planned for the connection is taken, not the one before.
+    @Test func takesTheClosestDeparture() async throws {
+        let trip = Data(#"""
+        {"legs":[{"mode":"SUBURBAN","displayName":"S 4",
+          "from":{"name":"Bahnhof (Nord)","scheduledDeparture":"2099-01-01T09:59:00Z","track":"1"},
+          "intermediateStops":[{"name":"Hauptbahnhof (tief)","scheduledDeparture":"2099-01-01T10:00:00Z",
+                                "departure":"2099-01-01T10:04:00Z","track":"2"}],
+          "to":{"name":"Buchenweiler","scheduledArrival":"2099-01-01T10:20:00Z"}}]}
+        """#.utf8)
+        let updated = try await TransitousClient(loader: { _ in trip }).refresh(connection(at: "Ahornstadt Hbf"))
+        #expect(updated.track == "2")
+        #expect(updated.delayMinutes == 4)
+    }
+
     @Test func matchesNamesSpelledDifferently() async throws {
         let trip = Data(#"{"legs":[{"mode":"REGIONAL_RAIL","from":{"name":"Ahornstadt Hbf","departure":"2099-01-01T10:20:00Z"},"to":{"name":"Buchenweiler"}}]}"#.utf8)
         let updated = try await TransitousClient(loader: { _ in trip })

@@ -342,9 +342,13 @@ extension TransitousClient {
         url.appendQuery([URLQueryItem(name: "tripId", value: connection.tripID)])
         let status = try Transitous.parse(trip: await loader(url), now: Date())
         // The station is named as the followed train names it, which can differ ("Hauptbahnhof (oben)"); the
-        // planned departure came from this same trip, so it finds the stop when the name doesn't.
+        // planned departure came from this same trip, so it finds the stop when the name doesn't. The closest one,
+        // since S-Bahn stops can be a minute apart.
         let byTime = connection.scheduledDeparture.flatMap { planned in
-            status.stops.first { $0.scheduledDeparture.map { abs($0.timeIntervalSince(planned)) <= 90 } ?? false }
+            status.stops
+                .compactMap { stop in stop.scheduledDeparture.map { (stop, abs($0.timeIntervalSince(planned))) } }
+                .filter { $0.1 <= 90 }
+                .min { $0.1 < $1.1 }?.0
         }
         guard let stop = status.stops.first(where: { StationName.same($0.name, connection.station) }) ?? byTime
         else { return connection }
