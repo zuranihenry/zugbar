@@ -101,6 +101,20 @@ public enum Handover {
         return end.map { $0.addingTimeInterval(15 * 60) } ?? now.addingTimeInterval(60 * 60)
     }
 
+    /// Updates in a row that may fail for lack of network before the shown train is given up: about ten minutes at 30 s.
+    public static let outageLimit = 20
+
+    /// Whether the shown train stays up after `outages` updates in a row failed for lack of network. A train followed
+    /// online also stays through a longer dead zone, e.g. on a rural line, as long as its trip runs by the timetable:
+    /// its stops and times are still there, and router GPS still moves it. Until its fallback deadline, with `plan`
+    /// when only followed to the destination.
+    public static func staysUp(_ status: TrainStatus?, outages: Int, plan: JourneyPlan? = nil, now: Date) -> Bool {
+        guard outages > 0 else { return false }
+        if outages < outageLimit { return true }
+        guard let status, status.isOnline, status.stops.last?.arrival != nil else { return false }
+        return now < fallbackDeadline(for: status, plan: plan, now: now)
+    }
+
     /// Finds a connection listed by the ICE portal on a Transitous departure board, so it can be followed by
     /// trip; Transitous's name search only knows long-distance trains. Matches the departure time, then the
     /// name or line ("RE 6" and "RE6 (89736)"), or else the category and where the train is headed.

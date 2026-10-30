@@ -197,6 +197,27 @@ struct HandoverTests {
         #expect(ride.pickToFollow(at: minutes(21)) == nil)
     }
 
+    @Test func trainFollowedOnlineStaysUpThroughADeadZone() {
+        var online = run(arrivingAtB: minutes(5))
+        online.provider = "Transitous"
+        let limit = Handover.outageLimit
+        // A short outage keeps any train up; a failure that wasn't the network doesn't.
+        #expect(Handover.staysUp(online, outages: 1, now: now))
+        #expect(!Handover.staysUp(online, outages: 0, now: now))
+        // Past the limit, while its trip runs: until a quarter of an hour after its last stop, or the destination.
+        #expect(Handover.staysUp(online, outages: limit + 40, now: minutes(70)))
+        #expect(!Handover.staysUp(online, outages: limit + 40, now: minutes(76)))
+        let toB = JourneyPlan(trainName: "ICE 901", destinationStopID: "b")
+        #expect(Handover.staysUp(online, outages: limit, plan: toB, now: minutes(15)))
+        #expect(!Handover.staysUp(online, outages: limit, plan: toB, now: minutes(21)))
+        // Without times there's no telling how long it runs; an on-board train's portal has its own fallback.
+        let noTimes = TrainStatus(provider: "Transitous", trainName: "ICE 901", stops: [])
+        #expect(!Handover.staysUp(noTimes, outages: limit, now: now))
+        #expect(!Handover.staysUp(run(arrivingAtB: minutes(5)), outages: limit, now: now))
+        #expect(!Handover.staysUp(nil, outages: limit, now: now))
+        #expect(Handover.staysUp(nil, outages: limit - 1, now: now))
+    }
+
     @Test func reachedTheDestinationWithoutAConnection() {
         let toB = JourneyPlan(trainName: "ICE 901", destinationStopID: "b")
         #expect(Handover.hasReached(plan: toB, status: run(arrivingAtB: minutes(-20)), now: now, grace: 15 * 60))

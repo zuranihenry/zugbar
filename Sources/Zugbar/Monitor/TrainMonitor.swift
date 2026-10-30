@@ -109,8 +109,6 @@ final class TrainMonitor {
     /// Lookups of the shown train that failed for lack of network since it last updated. Train Wi-Fi drops in and
     /// out, and every drop restarts the poll loop: the train stays up meanwhile instead of the panel going blank.
     @ObservationIgnored private var lookupOutages = 0
-    /// About ten minutes of failed updates at 30 s, before a train followed online is given up.
-    private static let outageLimit = 20
     private var pollTask: Task<Void, Never>?
     private var tickTask: Task<Void, Never>?
     private var routerGPSTask: Task<Void, Never>?
@@ -470,7 +468,7 @@ final class TrainMonitor {
 
             // A restart cancelled this loop while it waited; the new loop takes it from here.
             if Task.isCancelled { return }
-            if provider == nil, status != nil, !(1..<Self.outageLimit).contains(lookupOutages) { lost() }
+            if provider == nil, status != nil, !staysUp(after: lookupOutages) { lost() }
             try? await Task.sleep(for: pollInterval)
         }
     }
@@ -499,8 +497,18 @@ final class TrainMonitor {
 
     /// Portals are local and cheap; Transitous is a shared community service.
     private var pollInterval: Duration {
-        if provider == nil { return .seconds((manualTarget == nil && fallbackTrain == nil) || lookupOutages > 0 ? 15 : 60) }
+        if provider == nil {
+            // A train followed online is looked up once a minute, and through a dead zone at the pace of its updates.
+            guard manualTarget != nil || fallbackTrain != nil else { return .seconds(15) }
+            return .seconds(lookupOutages > 0 ? 30 : 60)
+        }
         return isOnline ? .seconds(30) : .seconds(3)
+    }
+
+    /// Whether the shown train stays up after `outages` updates failed for lack of network. One the user chose is
+    /// kept to its last stop; the on-board train, or one picked from the router's GPS, only to the destination.
+    private func staysUp(after outages: Int) -> Bool {
+        Handover.staysUp(status, outages: outages, plan: manualTarget == nil ? journey.plan : nil, now: Date())
     }
 
     /// `fallback`: following the on-board train whose portal went away; a failed search ends that quietly.
@@ -564,7 +572,7 @@ final class TrainMonitor {
             lookupMessage = .tripEnded
             // A picked trip won't run again; a train name might tomorrow.
             if case .trip = manualTarget { quietlySetTarget(nil) }
-        } else if failures >= (isOnline && error.isTransientNetwork ? Self.outageLimit : 4) {
+        } else if (isOnline && error.isTransientNetwork) ? !staysUp(after: failures) : failures >= 4 {
             if status?.isOnline == false, Handover.isDue(plan: journey.plan, status: status, now: Date(), leeway: Self.arrivalLeeway) {
                 return followConnection()
             }
