@@ -35,6 +35,7 @@ public actor Transitous: TrainProvider {
     /// Name searches download a map of the moving trains (megabytes), so what they found is remembered for the
     /// whole app: every new lookup, Reload or network change would otherwise search again.
     static let found = FoundTrips()
+    static let routes = TripRoutes()
 
     public func fetch() async throws -> TrainStatus {
         let now = Date()
@@ -49,9 +50,9 @@ public actor Transitous: TrainProvider {
         }
         guard let tripID else { throw LookupError.notRunning }
 
-        var url = Self.base.appending(path: "v6/trip")
-        url.appendQuery([URLQueryItem(name: "tripId", value: tripID)])
-        var status = try Self.parse(trip: await loader(url), now: now)
+        let known = await Self.routes.lookup(tripID)
+        var status = try Self.parse(trip: await loader(Self.tripURL(tripID, shape: known == nil)), now: now)
+        if let known { status.route = known } else { await Self.routes.store(status.route, for: tripID) }
         status.stops = await withCityNames(status.stops)
 
         if let end = status.stops.last?.arrival, now > end.addingTimeInterval(15 * 60) {
@@ -156,6 +157,14 @@ public actor Transitous: TrainProvider {
             return TripMatch(tripID: best.trip.tripId, ambiguous: false)
         }
         return ranked.first.map { TripMatch(tripID: $0.trip.tripId, ambiguous: numberOnly) }
+    }
+
+    /// A trip's stops and times, and with `shape` the line it runs along: almost all of the data.
+    static func tripURL(_ tripID: String, shape: Bool) -> URL {
+        var url = base.appending(path: "v6/trip")
+        url.appendQuery([URLQueryItem(name: "tripId", value: tripID)]
+            + (shape ? [] : [URLQueryItem(name: "detailedLegs", value: "false")]))
+        return url
     }
 
     public static func normalize(_ text: String) -> String {

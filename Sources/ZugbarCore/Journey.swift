@@ -328,9 +328,7 @@ extension TransitousClient {
 
     /// Re-fetches a connecting train and reads its departure at `station`.
     public func refresh(_ connection: Connection) async throws -> Connection {
-        var url = Transitous.base.appending(path: "v6/trip")
-        url.appendQuery([URLQueryItem(name: "tripId", value: connection.tripID)])
-        let status = try Transitous.parse(trip: await loader(url), now: Date())
+        let status = try Transitous.parse(trip: await loader(Transitous.tripURL(connection.tripID, shape: false)), now: Date())
         let wanted = Transitous.normalize(connection.station)
         guard let stop = status.stops.first(where: { Transitous.normalize($0.name) == wanted }) else { return connection }
         var updated = connection

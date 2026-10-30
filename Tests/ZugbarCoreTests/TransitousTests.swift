@@ -181,4 +181,36 @@ struct CityNameTests {
         let status = try await Transitous(tripID: "x", label: "ICE 619", loader: loader).fetch()
         #expect(status.stops.last?.name == "Stuttgart Hbf")
     }
+
+    /// The shape is nearly all of a trip's data: fetched once, then left out of each update.
+    @Test func fetchesTheShapeOnce() async throws {
+        let stops = #""from":{"name":"Aheim","lat":50.0,"lon":9.0,"departure":"2099-10-06T10:00:00Z"},"to":{"name":"Beheim","lat":50.1,"lon":9.1,"arrival":"2099-10-06T11:00:00Z"}"#
+        let full = Data(#"{"legs":[{"mode":"HIGHSPEED_RAIL","displayName":"ICE 9",\#(stops),"legGeometry":{"points":"_ibE_mjB_ibE_mjB","precision":5}}]}"#.utf8)
+        let light = Data(#"{"legs":[{"mode":"HIGHSPEED_RAIL","displayName":"ICE 9",\#(stops),"legGeometry":{"points":"","precision":6}}]}"#.utf8)
+        let asked = Asked()
+        let loader: DataLoader = { url in
+            let shape = url.query?.contains("detailedLegs=false") != true
+            await asked.append(shape)
+            return shape ? full : light
+        }
+        let provider = Transitous(tripID: "shape-once", label: "ICE 9", loader: loader)
+        let first = try await provider.fetch()
+        let second = try await provider.fetch()
+        // A new lookup after a network change doesn't need it again either.
+        let third = try await Transitous(tripID: "shape-once", label: "ICE 9", loader: loader).fetch()
+        #expect(await asked.shapes == [true, false, false])
+        #expect(first.route != nil)
+        #expect(second.route == first.route)
+        #expect(third.route == first.route)
+    }
+
+    @Test func connectionsRefreshWithoutTheShape() {
+        #expect(Transitous.tripURL("t", shape: false).query?.contains("detailedLegs=false") == true)
+        #expect(Transitous.tripURL("t", shape: true).query?.contains("detailedLegs") == false)
+    }
+}
+
+private actor Asked {
+    var shapes: [Bool] = []
+    func append(_ shape: Bool) { shapes.append(shape) }
 }
