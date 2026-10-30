@@ -75,6 +75,20 @@ struct CutShortTests {
         #expect(status.destination == "Buchenweiler")
     }
 
+    /// Its new end can be a platform named without its city, which the stop list then gets.
+    @Test func newEndGetsItsCity() async throws {
+        let trip = Data(#"""
+        {"legs":[{"mode":"HIGHSPEED_RAIL","displayName":"ICE 7","headsign":"Eibental Hbf",
+          "from":{"name":"Fahrstedt","departure":"2099-01-01T10:00:00Z"},
+          "intermediateStops":[{"name":"Hauptbahnhof (oben)","lat":48.2,"lon":9.2,"arrival":"2099-01-01T10:30:00Z"}],
+          "to":{"name":"Eibental Hauptbahnhof","arrival":"2099-01-01T11:10:00Z","cancelled":true}}]}
+        """#.utf8)
+        let loader: DataLoader = { url in
+            url.path.contains("reverse-geocode") ? Data(#"[{"name":"Ahornstadt Hauptbahnhof"}]"#.utf8) : trip
+        }
+        #expect(try await Transitous(tripID: "x", label: "ICE 7", loader: loader).fetch().destination == "Ahornstadt Hbf")
+    }
+
     @Test func aCancelledTripKeepsItsDestination() throws {
         let status = try Transitous.parse(trip: trip(tripCancelled: true), now: utc("2099-01-01T10:10:00Z"))
         #expect(status.destination == "Eibental Hbf")

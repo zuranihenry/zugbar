@@ -61,6 +61,8 @@ public actor Transitous: TrainProvider {
         }
         var status = try Self.parse(trip: data, now: now)
         status.stops = await withCityNames(status.stops)
+        // A train cut short may end at one of those stops.
+        if let end = Self.cutShortEnd(of: status.stops) { status.destination = end }
 
         if let end = status.stops.last?.arrival, now > end.addingTimeInterval(15 * 60) {
             if let query { await Self.found.ended(query, at: now) }
@@ -233,21 +235,24 @@ public actor Transitous: TrainProvider {
             progress = min(max(now.timeIntervalSince(start) / end.timeIntervalSince(start), 0), 1)
         }
 
-        // A train cut short keeps its headsign; it now ends at the last stop it still calls at.
-        let shortened = stops.last?.cancelled == true && !tripCancelled ? stops.last(where: { !$0.cancelled })?.name : nil
-
         let route = leg.legGeometry.map { Route(points: Route.decode($0.points, precision: $0.precision ?? 5)) }
 
         return TrainStatus(
             provider: "Transitous",
             trainName: leg.displayName ?? leg.tripShortName,
             // Some trips (e.g. TGVs) come with an empty headsign.
-            destination: shortened ?? StationName.tidy(leg.headsign.flatMap { $0.isEmpty ? nil : $0 } ?? leg.to.name),
+            destination: cutShortEnd(of: stops) ?? StationName.tidy(leg.headsign.flatMap { $0.isEmpty ? nil : $0 } ?? leg.to.name),
             stops: stops,
             nextStopID: stops.first { !$0.passed && !$0.cancelled }?.id,
             progress: progress,
             route: route.flatMap { $0.points.count > 1 ? $0 : nil }
         )
+    }
+
+    /// A train cut short keeps its headsign; it now ends at the last stop it still calls at. A trip cancelled
+    /// as a whole has no such stop and keeps its destination.
+    static func cutShortEnd(of stops: [Stop]) -> String? {
+        stops.last?.cancelled == true ? stops.last(where: { !$0.cancelled })?.name : nil
     }
 
     struct MapSegment: Decodable {
