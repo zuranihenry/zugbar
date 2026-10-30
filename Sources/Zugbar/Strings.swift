@@ -92,8 +92,11 @@ struct Strings {
         t("OpenStreetMap is down right now, so this is a simpler estimate. Zugbar reconnects automatically.",
           "OpenStreetMap ist gerade nicht erreichbar, daher eine einfachere Schätzung. Zugbar verbindet sich automatisch neu.")
     }
-    var menuBarEstimate: String { t("Estimated speed for trains followed online", "Geschätzte Geschwindigkeit bei online verfolgten Zügen") }
-    var menuBarEstimateHint: String { t("Shown as “≈ 180”.", "Wird als „≈ 180“ angezeigt.") }
+    var menuBarEstimate: String { t("Show estimate (≈) in the menu bar", "Schätzung (≈) in der Menüleiste zeigen") }
+    var menuBarEstimateHint: String {
+        t("For trains followed online, as “≈ 180”. Needs the estimate turned on under General.",
+          "Bei online verfolgten Zügen, als „≈ 180“. Braucht die Schätzung unter Allgemein.")
+    }
     var estimatedSpeedSetting: String { t("Estimated speed for trains followed online", "Geschätzte Geschwindigkeit bei online verfolgten Zügen") }
     var estimatedHelp: String { t("Average speed between the last and next stop, from the timetable", "Durchschnitt zwischen letztem und nächstem Halt, aus dem Fahrplan") }
     var topHelp: String { t("Highest speed this trip", "Höchstgeschwindigkeit dieser Fahrt") }
@@ -298,9 +301,21 @@ struct Strings {
             return (t("\(name): now \(signed(to)) min", "\(name): jetzt \(signed(to)) Min."), t("Was \(signed(from)) min", "Vorher \(signed(from)) Min."))
         case .connectionTrackChanged(let name, let from, let to):
             return (t("\(name) now leaves from track \(to)", "\(name) fährt jetzt von Gleis \(to)"), t("Instead of track \(from)", "Statt Gleis \(from)"))
+        case .transferChanged(let name, .comfortable(let minutes)):
+            return (t("\(name): connection reachable again", "\(name): Anschluss wieder erreichbar"),
+                    self.transfer(.comfortable(minutes: minutes)))
         case .transferChanged(let name, let transfer):
             return ("\(name): \(self.transfer(transfer))", nil)
         }
+    }
+
+    /// "arr. 14:31 · departs 14:33 · Track 5": the user's arrival, then the connection's departure, to judge the change by.
+    func transferDetails(_ connection: Connection, arrival: Date?) -> String {
+        var parts: [String] = []
+        if let arrival { parts.append(arrives(arrival.formatted(.dateTime.hour().minute()))) }
+        if let departure = connection.departure { parts.append(departs(departure.formatted(.dateTime.hour().minute()))) }
+        if let track = connection.track { parts.append(self.track(track)) }
+        return parts.joined(separator: " · ")
     }
 
     /// "then RE 1 at 19:15 from track 12 (10 min to change)"
@@ -322,7 +337,8 @@ struct Strings {
 
     // Tracking, map, share, window
     var endTracking: String { t("Stop tracking", "Tracking beenden") }
-    var stop: String { t("Stop", "Beenden") }
+    /// Not "Beenden", which on a Mac means quitting the app.
+    var stop: String { t("Stop", "Stopp") }
     var map: String { t("Map", "Karte") }
     var followTrain: String { t("Follow train", "Zug folgen") }
     var headingUp: String { t("Turn map with the train", "Karte in Fahrtrichtung drehen") }
@@ -395,10 +411,55 @@ struct Strings {
         let minutes = Int((date.timeIntervalSince(start) / 60).rounded(roundingUp ? .up : .down))
         return minutes <= 0 ? now : t("in \(minutes) min", "in \(minutes) Min.")
     }
+    /// The menu bar title for VoiceOver, e.g. "248 km/h, Next stop Oberwald in 7 min", or while waiting
+    /// "Dornstadt, departs in 4 min, 3 min late, Track 4". Nil when there's nothing to say.
+    func spokenMenuTitle(_ status: TrainStatus, speed: Int?, estimate: Int?, waitingAt boarding: Stop?, now: Date,
+                         options: MenuTitleOptions) -> String? {
+        var parts: [String] = []
+        if let boarding {
+            parts.append(boarding.name)
+            if boarding.cancelled {
+                parts.append(cancelled)
+            } else {
+                if let departure = boarding.departure {
+                    parts.append(t("departs \(spokenCountdown(to: departure, from: now, roundingUp: false))",
+                                   "Abfahrt \(spokenCountdown(to: departure, from: now, roundingUp: false))"))
+                }
+                if let delay = boarding.departureDelayMinutes, delay > 0 { parts.append(spokenDelay(delay)) }
+                if let track = boarding.track { parts.append(self.track(track)) }
+            }
+        } else {
+            if options.showSpeed, let speed {
+                parts.append(spokenSpeed(speed))
+            } else if options.showSpeed, let estimate {
+                parts.append(spokenEstimate(estimate, source: estimated))
+            }
+            if options.showStation, let stop = status.nextStop {
+                if stop.isCurrent(at: now) {
+                    parts.append("\(nowAt) \(stop.name)")
+                } else if options.showCountdown, let arrival = stop.arrival {
+                    parts.append("\(nextStop) \(stop.name) \(spokenCountdown(to: arrival, from: now))")
+                } else {
+                    parts.append("\(nextStop) \(stop.name)")
+                }
+            }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
     var settingsTitle: String { t("Zugbar Settings", "Zugbar-Einstellungen") }
 
-    func shareText(_ status: TrainStatus, destination: Stop?, connection: Connection?) -> String {
+    /// `waitingAt`: the stop the user is still waiting at for the train, whose departure matters more then.
+    func shareText(_ status: TrainStatus, destination: Stop?, connection: Connection?, waitingAt boarding: Stop? = nil) -> String {
         var text = t("I'm on \(status.trainName ?? "the train")", "Ich sitze im \(status.trainName ?? "Zug")")
+        if let boarding, !boarding.cancelled, let departure = boarding.departure {
+            let time = departure.formatted(.dateTime.hour().minute())
+            let train = status.trainName ?? t("the train", "dem Zug")
+            text = t("I'm taking \(train) from \(boarding.name) at \(time)", "Ich fahre um \(time) mit \(train) ab \(boarding.name)")
+            var extras: [String] = []
+            if let delay = boarding.departureDelayMinutes, delay > 0 { extras.append("+\(delay)") }
+            if let track = boarding.track { extras.append(t("track \(track)", "Gleis \(track)")) }
+            if !extras.isEmpty { text += " (" + extras.joined(separator: ", ") + ")" }
+        }
         if let destination, let arrival = destination.arrival {
             let time = arrival.formatted(.dateTime.hour().minute())
             text += t(", arriving at \(destination.name) at \(time)", " und komme um \(time) in \(destination.name) an")
@@ -519,6 +580,7 @@ struct Strings {
     var preview: String { t("Preview", "Vorschau") }
     var showUnit: String { t("Show “km/h”", "„km/h“ anzeigen") }
     var stationNames: String { t("Station names", "Stationsnamen") }
+    var stationAutomatic: String { t("Automatic", "Automatisch") }
     var stationFull: String { t("Full", "Voll") }
     var stationCompact: String { t("Compact", "Kompakt") }
     var stationShort: String { t("Short (12 characters)", "Kurz (12 Zeichen)") }

@@ -538,7 +538,9 @@ private struct Footer: View {
                         .accessibilityLabel(strings.map)
                 }
                 Button {
-                    SharePicker.show(strings.shareText(status, destination: monitor.journey.destination, connection: monitor.journey.plan?.connection),
+                    let waiting = status.waitingStop(monitor.journey.plan?.boardingStopID, at: monitor.now)
+                    SharePicker.show(strings.shareText(status, destination: monitor.journey.destination,
+                                                       connection: monitor.journey.plan?.connection, waitingAt: waiting),
                                      copyTitle: strings.copy)
                 } label: { Image(systemName: "square.and.arrow.up") }
                     .help(strings.share)

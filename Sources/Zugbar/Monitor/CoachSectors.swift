@@ -14,8 +14,15 @@ final class CoachSectors {
         let departure: Date
     }
 
+    /// A spot as asked about. After a platform change the coaches stop in other sectors, so the new platform is
+    /// asked about on its own, without waiting out the old one's half hour.
+    private struct Asked: Hashable {
+        let spot: Spot
+        let platform: String?
+    }
+
     private(set) var sequences: [Spot: CoachSequence] = [:]
-    @ObservationIgnored private var policy = CoachSequencePolicy<Spot>()
+    @ObservationIgnored private var policy = CoachSequencePolicy<Asked>()
     @ObservationIgnored private var loading = false
     /// DB station numbers by stop name and train category, which don't change.
     @ObservationIgnored private var stations: [String: String] = [:]
@@ -25,18 +32,23 @@ final class CoachSectors {
         self.client = client
     }
 
-    /// The coach sequence of `train` leaving `stop` at `departure`, once it's been loaded.
-    func sequence(train: String, at stop: Stop, departure: Date?) -> CoachSequence? {
+    /// The coach sequence of `train` leaving `stop` at `departure` from `track`, once it's been loaded.
+    /// Nil while DB still has it on another platform.
+    func sequence(train: String, at stop: Stop, departure: Date?, track: String?) -> CoachSequence? {
         departure.flatMap { sequences[Spot(train: train, stop: stop.name, departure: $0)] }
+            .flatMap { $0.fits(track: track) ? $0 : nil }
     }
 
-    /// Asks for the coach sequence of `train` leaving `stop` at its planned `departure`, when the policy allows.
-    /// A train's last stop has no departure, and no coach sequence either.
-    func load(train: String, at stop: Stop, departure: Date?, now: Date) {
+    /// Asks for the coach sequence of `train` leaving `stop` at its planned `departure` from `track`, when the policy
+    /// allows. A train's last stop has no departure, and no coach sequence either.
+    func load(train: String, at stop: Stop, departure: Date?, track: String?, now: Date) {
         guard !loading, let departure, let category = TrainStatus(provider: "", trainName: train).trainNumber?.category
         else { return }
         let spot = Spot(train: train, stop: stop.name, departure: departure)
-        guard policy.mayAsk(spot, departure: departure, now: now) else { return }
+        // A sequence loaded for another platform is asked about again; a track that only just became known isn't a change.
+        let moved = sequences[spot].map { !$0.fits(track: track) } ?? false
+        let asked = Asked(spot: spot, platform: moved ? CoachSequence.platform(track) : nil)
+        guard policy.mayAsk(asked, departure: departure, now: now) else { return }
         loading = true
         // Earlier trains are no use any more.
         for old in sequences.keys where old.departure < now.addingTimeInterval(-60 * 60) { sequences[old] = nil }

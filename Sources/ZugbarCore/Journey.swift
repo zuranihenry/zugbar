@@ -34,9 +34,16 @@ public struct JourneyPlan: Codable, Sendable, Equatable {
 
     /// Drops transfer warnings that aren't worse than one already sent. A delay swinging around the
     /// five-minute mark would otherwise send "tight connection" again every time it tips over.
+    /// Comfortable again after "at risk" or "cancelled" is an all-clear, sent once, and later warnings count anew.
     public mutating func withoutRepeatedWarnings(_ events: [JourneyEvent]) -> [JourneyEvent] {
         events.filter { event in
             guard case .transferChanged(_, let transfer) = event else { return true }
+            if transfer.severity == 0 {
+                // Not after just "tight": the change was never in doubt, and that's where a delay swings back and forth.
+                guard (warnedTransferLevel ?? 0) >= 2 else { return false }
+                warnedTransferLevel = 0
+                return true
+            }
             guard transfer.severity > (warnedTransferLevel ?? 0) else { return false }
             warnedTransferLevel = transfer.severity
             return true
@@ -90,6 +97,14 @@ public struct Connection: Codable, Sendable, Equatable {
     }
 
     public var departure: Date? { expectedDeparture ?? scheduledDeparture }
+
+    /// How long to wait between checks of the connection, given when the followed train gets to the change: every
+    /// five minutes while that's more than half an hour away, when a minute's news doesn't matter and train Wi-Fi
+    /// may be capped, then every minute.
+    public static func refreshInterval(arrival: Date?, now: Date) -> TimeInterval {
+        guard let arrival, arrival.timeIntervalSince(now) > 30 * 60 else { return 60 }
+        return 5 * 60
+    }
 
     public var delayMinutes: Int? {
         guard let scheduledDeparture, let expectedDeparture else { return nil }
@@ -157,6 +172,21 @@ public enum JourneyEvent: Equatable, Sendable {
     case transferChanged(name: String, Connection.Transfer)
 }
 
+extension JourneyEvent {
+    /// For news that outdates the last notification of its kind, like a delay that grew again: posted under this ID,
+    /// it replaces that one instead of piling up next to it. Nil for reminders and cancellations, which stand alone.
+    public var replaceableID: String? {
+        switch self {
+        case .delayChanged(let stop, _, _): "delay:" + stop
+        case .trackChanged(let stop, _, _): "track:" + stop
+        case .connectionDelayChanged(let name, _, _): "connectionDelay:" + name
+        case .connectionTrackChanged(let name, _, _): "connectionTrack:" + name
+        case .transferChanged(let name, _): "transfer:" + name
+        case .arrivingSoon, .departingSoon, .stopCancelled: nil
+        }
+    }
+}
+
 /// Compares two snapshots of a followed train and reports what's worth a notification.
 public enum JourneyWatcher {
     public static func events(
@@ -214,9 +244,10 @@ public enum JourneyWatcher {
                 if settings.trackChanges, let from = oldConnection.track, let to = newConnection.track, from != to {
                     events.append(.connectionTrackChanged(name: newConnection.name, from: from, to: to))
                 }
-                let oldTransfer = oldConnection.transfer(after: before.arrival)
-                let newTransfer = newConnection.transfer(after: after.arrival)
-                if let newTransfer, newTransfer.severity > (oldTransfer?.severity ?? 0) {
+                let oldSeverity = oldConnection.transfer(after: before.arrival)?.severity ?? 0
+                // Worse than before, or comfortable again, e.g. because the connection waits.
+                if let newTransfer = newConnection.transfer(after: after.arrival),
+                   newTransfer.severity > oldSeverity || newTransfer.severity == 0 && oldSeverity > 0 {
                     events.append(.transferChanged(name: newConnection.name, newTransfer))
                 }
             }

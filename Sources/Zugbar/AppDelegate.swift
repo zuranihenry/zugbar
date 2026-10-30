@@ -184,38 +184,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showStation: defaults.object(forKey: "showStation") as? Bool ?? true,
             showCountdown: defaults.object(forKey: "showCountdown") as? Bool ?? true,
             showTopSpeedFlame: defaults.object(forKey: "showTopSpeedFlame") as? Bool ?? true,
-            stationStyle: MenuTitleOptions.StationStyle(rawValue: defaults.string(forKey: "stationStyle") ?? "") ?? .full,
+            // Never chosen reads as automatic, as before there was a choice for it.
+            stationStyle: MenuTitleOptions.StationStyle(rawValue: defaults.string(forKey: "stationStyle") ?? "") ?? .automatic,
             showUnit: defaults.object(forKey: "showUnit") as? Bool ?? true,
             minutesOnly: defaults.bool(forKey: "minutesOnly")
         )
         let strings = Strings(AppLanguage(rawValue: defaults.string(forKey: "language") ?? "") ?? .system)
-        let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        let status = monitor.status
+        let estimate = options.showEstimate ? status.flatMap { monitor.estimates.speed($0, at: monitor.now)?.speed } : nil
+        let waiting = status?.waitingStop(monitor.journey.plan?.boardingStopID, at: monitor.now)
         func makeTitle(_ options: MenuTitleOptions) -> String {
-            monitor.status.map {
+            status.map {
                 MenuTitle.make(status: $0, displaySpeed: monitor.displaySpeed, isTopSpeed: monitor.isTopSpeed,
-                               now: monitor.now, options: options, nowLabel: strings.now,
-                               estimatedSpeed: options.showEstimate ? monitor.estimates.speed($0, at: monitor.now)?.speed : nil,
-                               waitingAt: $0.waitingStop(monitor.journey.plan?.boardingStopID, at: monitor.now),
-                               trackLabel: strings.track, cancelledLabel: strings.cancelled)
+                               now: monitor.now, options: options, nowLabel: strings.now, estimatedSpeed: estimate,
+                               waitingAt: waiting, trackLabel: strings.track, cancelledLabel: strings.cancelled)
             } ?? ""
         }
-        var title = makeTitle(options)
-        // A long station name can push the item off a full menu bar: shorten it, unless "Full" was chosen.
-        if defaults.string(forKey: "stationStyle") == nil {
-            for style in [MenuTitleOptions.StationStyle.compact, .short]
-            where NSAttributedString(string: title, attributes: [.font: font]).size().width > 260 {
-                var shorter = options
-                shorter.stationStyle = style
-                title = makeTitle(shorter)
-            }
-        }
+        let title = MenuTitle.fitted(options, width: MenuTitle.width, make: makeTitle)
 
         if title.isEmpty {
             button.attributedTitle = NSAttributedString()
-            button.image = NSImage(systemSymbolName: monitor.status == nil ? "tram" : "tram.fill", accessibilityDescription: "Zugbar")
+            button.image = NSImage(systemSymbolName: status == nil ? "tram" : "tram.fill", accessibilityDescription: "Zugbar")
+            button.setAccessibilityLabel(nil)
         } else {
             button.image = nil
-            button.attributedTitle = NSAttributedString(string: title, attributes: [.font: font])
+            button.attributedTitle = NSAttributedString(string: title, attributes: [.font: MenuTitle.font])
+            // VoiceOver would read the countdown as a time of day and name each symbol.
+            button.setAccessibilityLabel(status.flatMap {
+                strings.spokenMenuTitle($0, speed: monitor.displaySpeed, estimate: estimate, waitingAt: waiting,
+                                        now: monitor.now, options: options)
+            })
         }
     }
 
@@ -273,6 +271,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow?.makeKeyAndOrderFront(nil)
         updateActivationPolicy()
         NSApp.activate()
+    }
+}
+
+extension MenuTitle {
+    /// The menu bar's font, which the settings preview measures with too.
+    @MainActor static var font: NSFont { .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular) }
+
+    @MainActor static func width(_ title: String) -> Double {
+        NSAttributedString(string: title, attributes: [.font: font]).size().width
     }
 }
 

@@ -170,12 +170,17 @@ private struct TripRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(trip.train) · \(trip.from) → \(trip.to)").lineLimit(1)
+                // The origin gives way first: the destination is what tells trips apart.
+                HStack(spacing: 0) {
+                    Text("\(trip.train) · \(trip.from)").lineLimit(1)
+                    Text(" → \(trip.to)").lineLimit(1).layoutPriority(1)
+                }
                 Text(details).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             DelayBadge(minutes: trip.arrivalDelay).font(.caption)
         }
+        .help("\(trip.train) · \(trip.from) → \(trip.to)")
         .accessibilityElement(children: .combine)
     }
 
@@ -209,9 +214,11 @@ struct MenuBarSettings: View {
     @AppStorage("showSpeed") private var showSpeed = true
     @AppStorage("showUnit") private var showUnit = true
     @AppStorage("menuBarEstimate") private var menuBarEstimate = true
+    /// The General setting the estimate in the menu bar needs.
+    @AppStorage("estimatedSpeed") private var estimatedSpeed = true
     @AppStorage("showTopSpeedFlame") private var showTopSpeedFlame = true
     @AppStorage("showStation") private var showStation = true
-    @AppStorage("stationStyle") private var stationStyle = MenuTitleOptions.StationStyle.full
+    @AppStorage("stationStyle") private var stationStyle = MenuTitleOptions.StationStyle.automatic
     @AppStorage("showCountdown") private var showCountdown = true
     @AppStorage("minutesOnly") private var minutesOnly = false
 
@@ -234,11 +241,12 @@ struct MenuBarSettings: View {
                     Text(strings.menuBarEstimate)
                     Text(strings.menuBarEstimateHint)
                 }
-                .disabled(!showSpeed)
+                .disabled(!showSpeed || !estimatedSpeed)
             }
             Section {
                 Toggle(strings.nextStation, isOn: $showStation)
                 Picker(strings.stationNames, selection: $stationStyle) {
+                    Text(strings.stationAutomatic).tag(MenuTitleOptions.StationStyle.automatic)
                     Text(strings.stationFull).tag(MenuTitleOptions.StationStyle.full)
                     Text(strings.stationCompact).tag(MenuTitleOptions.StationStyle.compact)
                     Text(strings.stationShort).tag(MenuTitleOptions.StationStyle.short)
@@ -257,8 +265,11 @@ struct MenuBarSettings: View {
             showSpeed: showSpeed, showStation: showStation, showCountdown: showCountdown,
             showTopSpeedFlame: showTopSpeedFlame, stationStyle: stationStyle, showUnit: showUnit, minutesOnly: minutesOnly
         )
-        let title = MenuTitle.make(status: TrainStatus(provider: "", stops: [stop], nextStopID: "x"),
-                                   displaySpeed: 287, isTopSpeed: true, now: now, options: options, nowLabel: strings.now)
+        // Shortened like the menu bar's, so "Automatic" shows what it does.
+        let title = MenuTitle.fitted(options, width: MenuTitle.width) {
+            MenuTitle.make(status: TrainStatus(provider: "", stops: [stop], nextStopID: "x"),
+                           displaySpeed: 287, isTopSpeed: true, now: now, options: $0, nowLabel: strings.now)
+        }
         return title.isEmpty ? "🚆" : title
     }
 }
@@ -268,6 +279,8 @@ struct NotificationSettingsView: View {
     @Environment(\.strings) private var strings
     @AppStorage("notifications") private var notifications = true
     @AppStorage("wifiAlerts") private var wifiAlerts = false
+    /// The General setting the Wi-Fi forecast comes from.
+    @AppStorage("learnSpeeds") private var learnSpeeds = true
 
     var body: some View {
         @Bindable var journey = monitor.journey
@@ -313,6 +326,7 @@ struct NotificationSettingsView: View {
                     Text(strings.wifiAlerts)
                     Text(strings.wifiAlertsHint)
                 }
+                .disabled(!learnSpeeds)
             }
             .disabled(!notifications)
         }

@@ -113,6 +113,23 @@ struct MenuTitleTests {
         #expect(MenuTitle.shorten("Berlin Hauptbahnhof", style: .compact) == "Berlin Hbf")
     }
 
+    @Test func automaticStationNamesShortenOnlyWhenTooWide() {
+        let stop = Stop(id: "a", name: "Oberwald (Main) Flughafen Fernbahnhof", expectedArrival: now.addingTimeInterval(402))
+        let status = TrainStatus(provider: "DB", stops: [stop], nextStopID: "a")
+        // One point per character stands in for the menu bar's font.
+        func fitted(_ style: MenuTitleOptions.StationStyle, maxWidth: Double) -> String {
+            MenuTitle.fitted(MenuTitleOptions(stationStyle: style), maxWidth: maxWidth, width: { Double($0.count) }) {
+                MenuTitle.make(status: status, displaySpeed: 248, isTopSpeed: false, now: now, options: $0)
+            }
+        }
+        #expect(fitted(.automatic, maxWidth: 100) == "248 km/h · → Oberwald (Main) Flughafen Fernbahnhof 6:42")
+        #expect(fitted(.automatic, maxWidth: 40) == "248 km/h · → Oberwald Flugh. 6:42")
+        #expect(fitted(.automatic, maxWidth: 20) == "248 km/h · → Oberwald Fl… 6:42")
+        // A chosen style stays as chosen.
+        #expect(fitted(.full, maxWidth: 20) == "248 km/h · → Oberwald (Main) Flughafen Fernbahnhof 6:42")
+        #expect(MenuTitle.shorten("Oberwald (Main)", style: .automatic) == "Oberwald (Main)")
+    }
+
     @Test func standingAtStation() {
         let stop = Stop(id: "a", name: "Oberwald", expectedArrival: now.addingTimeInterval(-60), expectedDeparture: now.addingTimeInterval(60))
         let status = TrainStatus(provider: "DB", stops: [stop], nextStopID: "a")
