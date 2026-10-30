@@ -482,8 +482,9 @@ final class TrainMonitor {
         else { return false }
         provider = found
         ride.superseded()
-        // A search from before boarding shouldn't come back once this train's Wi-Fi is gone.
-        if let target = manualTarget, let name = first.trainName, !TrainName.same(target.label, name) {
+        // The portal leads from now on. A search from before boarding, or the train itself followed while waiting for
+        // it, shouldn't come back once this train's Wi-Fi is gone: it's then followed online only to the destination.
+        if manualTarget != nil, first.trainName != nil {
             quietlySetTarget(nil)
         }
         apply(first)
