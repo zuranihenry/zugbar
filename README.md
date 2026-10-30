@@ -4,9 +4,10 @@ Live train info in your Mac's menu bar.
 
 <img src="docs/screenshots/window.png" alt="Following an ICE online, with the route on the map">
 
-- **On board:** speed, next stop, delays and tracks from the train's Wi-Fi (DB ICE, ÖBB Railjet, SNCF TGV INOUI), when
-  that Wi-Fi will drop (learned from your own rides, kept on your Mac), and live GPS on trains with Icomera Wi-Fi such
-  as DB Regio, which also tells which train you're on
+- **On board:** speed, next stop, delays and tracks from the train's Wi-Fi (DB ICE, ÖBB Railjet, SNCF TGV INOUI), how
+  well its internet actually works and when it will drop (learned from your own rides, kept on your Mac), and live GPS
+  on trains with Icomera Wi-Fi such as DB Regio, which also tells which train you're on
+- **Easy on capped Wi-Fi:** shows what's left of the train Wi-Fi's data limit and holds back downloads while there is one
 - **Online:** follow any train in Europe via [Transitous](https://transitous.org), with estimated position and speed
 - **Your journey:** when and where your train leaves while you wait, destination and connection, with alerts for delays,
   track changes and tight or missed transfers; took an SBB train instead (ECE)? Its Wi-Fi gives it away
