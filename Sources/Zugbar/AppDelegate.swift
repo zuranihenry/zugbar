@@ -190,23 +190,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             minutesOnly: defaults.bool(forKey: "minutesOnly")
         )
         let strings = Strings(AppLanguage(rawValue: defaults.string(forKey: "language") ?? "") ?? .system)
+        let status = monitor.status
+        let estimate = options.showEstimate ? status.flatMap { monitor.estimates.speed($0, at: monitor.now)?.speed } : nil
+        let waiting = status?.waitingStop(monitor.journey.plan?.boardingStopID, at: monitor.now)
         func makeTitle(_ options: MenuTitleOptions) -> String {
-            monitor.status.map {
+            status.map {
                 MenuTitle.make(status: $0, displaySpeed: monitor.displaySpeed, isTopSpeed: monitor.isTopSpeed,
-                               now: monitor.now, options: options, nowLabel: strings.now,
-                               estimatedSpeed: options.showEstimate ? monitor.estimates.speed($0, at: monitor.now)?.speed : nil,
-                               waitingAt: $0.waitingStop(monitor.journey.plan?.boardingStopID, at: monitor.now),
-                               trackLabel: strings.track, cancelledLabel: strings.cancelled)
+                               now: monitor.now, options: options, nowLabel: strings.now, estimatedSpeed: estimate,
+                               waitingAt: waiting, trackLabel: strings.track, cancelledLabel: strings.cancelled)
             } ?? ""
         }
         let title = MenuTitle.fitted(options, width: MenuTitle.width, make: makeTitle)
 
         if title.isEmpty {
             button.attributedTitle = NSAttributedString()
-            button.image = NSImage(systemSymbolName: monitor.status == nil ? "tram" : "tram.fill", accessibilityDescription: "Zugbar")
+            button.image = NSImage(systemSymbolName: status == nil ? "tram" : "tram.fill", accessibilityDescription: "Zugbar")
+            button.setAccessibilityLabel(nil)
         } else {
             button.image = nil
             button.attributedTitle = NSAttributedString(string: title, attributes: [.font: MenuTitle.font])
+            // VoiceOver would read the countdown as a time of day and name each symbol.
+            button.setAccessibilityLabel(status.flatMap {
+                strings.spokenMenuTitle($0, speed: monitor.displaySpeed, estimate: estimate, waitingAt: waiting,
+                                        now: monitor.now, options: options)
+            })
         }
     }
 

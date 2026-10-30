@@ -410,6 +410,41 @@ struct Strings {
         let minutes = Int((date.timeIntervalSince(start) / 60).rounded(roundingUp ? .up : .down))
         return minutes <= 0 ? now : t("in \(minutes) min", "in \(minutes) Min.")
     }
+    /// The menu bar title for VoiceOver, e.g. "248 km/h, Next stop Oberwald in 7 min", or while waiting
+    /// "Dornstadt, departs in 4 min, 3 min late, Track 4". Nil when there's nothing to say.
+    func spokenMenuTitle(_ status: TrainStatus, speed: Int?, estimate: Int?, waitingAt boarding: Stop?, now: Date,
+                         options: MenuTitleOptions) -> String? {
+        var parts: [String] = []
+        if let boarding {
+            parts.append(boarding.name)
+            if boarding.cancelled {
+                parts.append(cancelled)
+            } else {
+                if let departure = boarding.departure {
+                    parts.append(t("departs \(spokenCountdown(to: departure, from: now, roundingUp: false))",
+                                   "fährt \(spokenCountdown(to: departure, from: now, roundingUp: false))"))
+                }
+                if let delay = boarding.departureDelayMinutes, delay > 0 { parts.append(spokenDelay(delay)) }
+                if let track = boarding.track { parts.append(self.track(track)) }
+            }
+        } else {
+            if options.showSpeed, let speed {
+                parts.append(spokenSpeed(speed))
+            } else if options.showSpeed, let estimate {
+                parts.append(spokenEstimate(estimate, source: estimated))
+            }
+            if options.showStation, let stop = status.nextStop {
+                if stop.isCurrent(at: now) {
+                    parts.append("\(nowAt) \(stop.name)")
+                } else if options.showCountdown, let arrival = stop.arrival {
+                    parts.append("\(nextStop) \(stop.name) \(spokenCountdown(to: arrival, from: now))")
+                } else {
+                    parts.append("\(nextStop) \(stop.name)")
+                }
+            }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
     var settingsTitle: String { t("Zugbar Settings", "Zugbar-Einstellungen") }
 
     /// `waitingAt`: the stop the user is still waiting at for the train, whose departure matters more then.
