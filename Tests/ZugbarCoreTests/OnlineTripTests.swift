@@ -40,3 +40,21 @@ struct PlatformChangeTests {
                                       new: online, newTime: now.addingTimeInterval(60), newConnection: nil, plan: plan).isEmpty)
     }
 }
+
+struct DepartureBoardTests {
+    func departure(_ tripID: String, realTime: Bool = true) -> TransitousClient.Departure {
+        .init(tripID: tripID, displayName: "RB 12", line: "RB 12", headsign: nil, scheduled: utc("2099-01-01T10:00:00Z"),
+              expected: nil, track: nil, cancelled: false, realTime: realTime)
+    }
+
+    /// Trains of one line crossing at a station leave the same minute in opposite directions; both stay.
+    @Test func keepsBothDirections() {
+        let board = [departure("20990101_09:20_de-DELFI_1"), departure("20990101_09:45_de-DELFI_2")]
+        #expect(TransitousClient.deduplicated(board).map(\.tripID) == ["20990101_09:20_de-DELFI_1", "20990101_09:45_de-DELFI_2"])
+    }
+
+    @Test func dropsTheSameTrainFromAnotherFeed() {
+        let board = [departure("20990101_09:20_de-DELFI_1", realTime: false), departure("20990101_09:20_de-RBN_7")]
+        #expect(TransitousClient.deduplicated(board).map(\.tripID) == ["20990101_09:20_de-RBN_7"])
+    }
+}

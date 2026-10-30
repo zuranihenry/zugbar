@@ -157,11 +157,14 @@ public struct TransitousClient: Sendable {
     }
 
     /// Overlapping feeds (e.g. DELFI and a regional one) list the same train twice; keep one, preferring live data.
+    /// Both copies' trip IDs start with when the trip starts ("20260616_18:35_…"), which tells them apart from a
+    /// train of the same line leaving the same minute the other way.
     static func deduplicated(_ departures: [Departure]) -> [Departure] {
         var kept: [Departure] = []
         var indexByKey: [String: Int] = [:]
         for departure in departures {
-            let key = "\(Transitous.normalize(departure.line))|\(departure.scheduled?.timeIntervalSince1970 ?? 0)"
+            let start = departure.tripID.split(separator: "_").prefix(2).joined(separator: "_")
+            let key = "\(Transitous.normalize(departure.line))|\(departure.scheduled?.timeIntervalSince1970 ?? 0)|\(start)"
             if let index = indexByKey[key] {
                 if departure.realTime && !kept[index].realTime { kept[index] = departure }
             } else {
