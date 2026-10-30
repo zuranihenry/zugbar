@@ -423,7 +423,7 @@ struct Strings {
             } else {
                 if let departure = boarding.departure {
                     parts.append(t("departs \(spokenCountdown(to: departure, from: now, roundingUp: false))",
-                                   "fährt \(spokenCountdown(to: departure, from: now, roundingUp: false))"))
+                                   "Abfahrt \(spokenCountdown(to: departure, from: now, roundingUp: false))"))
                 }
                 if let delay = boarding.departureDelayMinutes, delay > 0 { parts.append(spokenDelay(delay)) }
                 if let track = boarding.track { parts.append(self.track(track)) }
