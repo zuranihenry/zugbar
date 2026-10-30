@@ -718,7 +718,7 @@ final class TrainMonitor {
             newStatus.position = gpsFilter.filter(position, speed: newStatus.speed, at: Date())
         }
         if manualTarget == nil, let pick = ride.pick, newStatus.isOnline, TrainName.same(pick.label, newStatus.trainName ?? "") {
-            ride.followed(until: Handover.fallbackDeadline(for: newStatus, now: Date()))
+            ride.followed(until: Handover.fallbackDeadline(for: newStatus, plan: journey.plan, now: Date()))
         }
         if newStatus.route == nil, !isOnline, !demoMode, let name = newStatus.trainName {
             if let route = onBoardRoutes[name] { newStatus.route = route } else { loadOnBoardRoute(for: name) }
@@ -760,10 +760,13 @@ final class TrainMonitor {
         if newStatus.speed == nil { displaySpeed = nil }
         if Handover.isDue(plan: journey.plan, status: newStatus, now: Date()), !stillAboard(newStatus) {
             followConnection()
-        } else if newStatus.isOnline, manualTarget == nil, let train = onBoardTrain?.name, TrainName.same(train, newStatus.trainName ?? ""),
+        } else if newStatus.isOnline, manualTarget == nil, let train = onBoardTrain?.name ?? (followsPick ? ride.pick?.label : nil),
+                  TrainName.same(train, newStatus.trainName ?? ""),
                   Handover.hasReached(plan: journey.plan, status: newStatus, now: Date(), grace: 15 * 60), !stillAboard(newStatus) {
-            // The on-board train followed online got the user to their destination; it isn't followed on to its last stop.
+            // The on-board train followed online, or the one picked from the router's GPS, got the user to their
+            // destination; it isn't followed on to its last stop.
             onBoardTrain = nil
+            ride.superseded()
             lost()
         }
     }

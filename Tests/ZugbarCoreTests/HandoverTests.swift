@@ -184,6 +184,19 @@ struct HandoverTests {
         #expect(Handover.fallbackDeadline(for: run(arrivingAtB: minutes(5), cancelled: true), plan: toB, now: now) == minutes(75))
     }
 
+    @Test func trainPickedFromRouterGPSEndsAtTheDestination() {
+        // Picked from the router's GPS, with a destination set: once the router is gone, it's followed only that far.
+        var status = run(arrivingAtB: minutes(5))
+        status.provider = "Transitous"
+        let toB = JourneyPlan(trainName: "ICE 901", destinationStopID: "b")
+        var ride = RouterRide()
+        ride.picked(.init(tripID: "t1", label: "ICE 901"))
+        ride.followed(until: Handover.fallbackDeadline(for: status, plan: toB, now: now))
+        for _ in 0..<4 { ride.unreachable() }
+        #expect(ride.pickToFollow(at: minutes(19)) != nil)
+        #expect(ride.pickToFollow(at: minutes(21)) == nil)
+    }
+
     @Test func reachedTheDestinationWithoutAConnection() {
         let toB = JourneyPlan(trainName: "ICE 901", destinationStopID: "b")
         #expect(Handover.hasReached(plan: toB, status: run(arrivingAtB: minutes(-20)), now: now, grace: 15 * 60))
