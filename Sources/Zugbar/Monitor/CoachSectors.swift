@@ -7,24 +7,22 @@ import ZugbarCore
 @MainActor
 @Observable
 final class CoachSectors {
-    /// A train leaving a stop, as the cards know it. The platform is part of it: after a platform change the
-    /// coaches stop in other sectors, so that's asked for again.
+    /// A train leaving a stop, as the cards know it.
     struct Spot: Hashable {
         let train: String
         let stop: String
         let departure: Date
-        let platform: String?
+    }
 
-        init(train: String, stop: String, departure: Date, track: String?) {
-            self.train = train
-            self.stop = stop
-            self.departure = departure
-            platform = CoachSequence.platform(track)
-        }
+    /// A spot as asked about. After a platform change the coaches stop in other sectors, so the new platform is
+    /// asked about on its own, without waiting out the old one's half hour.
+    private struct Asked: Hashable {
+        let spot: Spot
+        let platform: String?
     }
 
     private(set) var sequences: [Spot: CoachSequence] = [:]
-    @ObservationIgnored private var policy = CoachSequencePolicy<Spot>()
+    @ObservationIgnored private var policy = CoachSequencePolicy<Asked>()
     @ObservationIgnored private var loading = false
     /// DB station numbers by stop name and train category, which don't change.
     @ObservationIgnored private var stations: [String: String] = [:]
@@ -37,7 +35,7 @@ final class CoachSectors {
     /// The coach sequence of `train` leaving `stop` at `departure` from `track`, once it's been loaded.
     /// Nil while DB still has it on another platform.
     func sequence(train: String, at stop: Stop, departure: Date?, track: String?) -> CoachSequence? {
-        departure.flatMap { sequences[Spot(train: train, stop: stop.name, departure: $0, track: track)] }
+        departure.flatMap { sequences[Spot(train: train, stop: stop.name, departure: $0)] }
             .flatMap { $0.fits(track: track) ? $0 : nil }
     }
 
@@ -46,8 +44,11 @@ final class CoachSectors {
     func load(train: String, at stop: Stop, departure: Date?, track: String?, now: Date) {
         guard !loading, let departure, let category = TrainStatus(provider: "", trainName: train).trainNumber?.category
         else { return }
-        let spot = Spot(train: train, stop: stop.name, departure: departure, track: track)
-        guard policy.mayAsk(spot, departure: departure, now: now) else { return }
+        let spot = Spot(train: train, stop: stop.name, departure: departure)
+        // A sequence loaded for another platform is asked about again; a track that only just became known isn't a change.
+        let moved = sequences[spot].map { !$0.fits(track: track) } ?? false
+        let asked = Asked(spot: spot, platform: moved ? CoachSequence.platform(track) : nil)
+        guard policy.mayAsk(asked, departure: departure, now: now) else { return }
         loading = true
         // Earlier trains are no use any more.
         for old in sequences.keys where old.departure < now.addingTimeInterval(-60 * 60) { sequences[old] = nil }
