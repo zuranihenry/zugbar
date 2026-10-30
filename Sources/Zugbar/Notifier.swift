@@ -30,13 +30,14 @@ enum Notifier {
     }
 
     /// `force` skips the in-app switch, for test notifications. `url` is opened when the notification is clicked.
-    static func post(title: String, body: String?, url: URL? = nil, force: Bool = false) {
+    /// A notification still shown with the same `id` is replaced, so only the latest news of a kind stays.
+    static func post(title: String, body: String?, id: String? = nil, url: URL? = nil, force: Bool = false) {
         guard isAvailable, isEnabled || force else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         if let body { content.body = body }
         content.sound = .default
         if let url { content.userInfo = ["url": url.absoluteString] }
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id ?? UUID().uuidString, content: content, trigger: nil))
     }
 }

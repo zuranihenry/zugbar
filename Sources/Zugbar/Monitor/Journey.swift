@@ -184,7 +184,7 @@ final class Journey {
                 default: break
                 }
             }
-            Notifier.post(title: title, body: body)
+            Notifier.post(title: title, body: body, id: event.replaceableID)
         }
     }
 

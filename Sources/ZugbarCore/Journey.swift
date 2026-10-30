@@ -172,6 +172,21 @@ public enum JourneyEvent: Equatable, Sendable {
     case transferChanged(name: String, Connection.Transfer)
 }
 
+extension JourneyEvent {
+    /// For news that outdates the last notification of its kind, like a delay that grew again: posted under this ID,
+    /// it replaces that one instead of piling up next to it. Nil for reminders and cancellations, which stand alone.
+    public var replaceableID: String? {
+        switch self {
+        case .delayChanged(let stop, _, _): "delay:" + stop
+        case .trackChanged(let stop, _, _): "track:" + stop
+        case .connectionDelayChanged(let name, _, _): "connectionDelay:" + name
+        case .connectionTrackChanged(let name, _, _): "connectionTrack:" + name
+        case .transferChanged(let name, _): "transfer:" + name
+        case .arrivingSoon, .departingSoon, .stopCancelled: nil
+        }
+    }
+}
+
 /// Compares two snapshots of a followed train and reports what's worth a notification.
 public enum JourneyWatcher {
     public static func events(

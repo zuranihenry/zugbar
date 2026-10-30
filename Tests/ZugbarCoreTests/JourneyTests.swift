@@ -66,6 +66,18 @@ struct JourneyTests {
         #expect(events(old, new, waiting, waiting).isEmpty)
     }
 
+    @Test func updatesReplaceTheirLastNotification() {
+        let grown = JourneyEvent.delayChanged(stop: "Nürnberg Hbf", from: 5, to: 8)
+        #expect(grown.replaceableID == JourneyEvent.delayChanged(stop: "Nürnberg Hbf", from: 0, to: 5).replaceableID)
+        #expect(grown.replaceableID != JourneyEvent.delayChanged(stop: "Weidenhagen", from: 5, to: 8).replaceableID)
+        #expect(grown.replaceableID != JourneyEvent.trackChanged(stop: "Nürnberg Hbf", from: "7", to: "8").replaceableID)
+        #expect(JourneyEvent.transferChanged(name: "RE 5", .tight(minutes: 3)).replaceableID
+            == JourneyEvent.transferChanged(name: "RE 5", .atRisk(minutes: 1)).replaceableID)
+        // Reminders and cancellations each stay.
+        #expect(JourneyEvent.arrivingSoon(stop: "Nürnberg Hbf", minutes: 5, track: nil).replaceableID == nil)
+        #expect(JourneyEvent.stopCancelled(stop: "Nürnberg Hbf").replaceableID == nil)
+    }
+
     @Test func connectionCancelled() {
         let old = status(arrivalDelay: 0, now: t0), new = status(arrivalDelay: 0, arrivalIn: 19, now: t1)
         var connection = Connection(tripID: "re5", name: "RE 5", headsign: nil, station: "Nürnberg Hbf",
