@@ -104,20 +104,23 @@ final class Journey {
         let now = now()
         if plan.seat != nil {
             for stop in [boarding, destination].compactMap({ $0 }) where !stop.cancelled {
-                coaches.load(train: train, at: stop, departure: stop.scheduledDeparture, now: now)
+                coaches.load(train: train, at: stop, departure: stop.scheduledDeparture, track: stop.track, now: now)
             }
         }
-        // The connection leaves from the station the followed train gets to.
+        // The connection leaves from the station the followed train gets to, but from its own track.
         if let connection = plan.connection, connection.seat != nil, let destination {
-            coaches.load(train: connection.name, at: destination, departure: connection.scheduledDeparture, now: now)
+            coaches.load(train: connection.name, at: destination, departure: connection.scheduledDeparture,
+                         track: connection.track, now: now)
         }
     }
 
     /// The followed train's coach sequence at `stop`, or the connection's where it leaves.
     func coachSequence(at stop: Stop, connection: Connection? = nil) -> CoachSequence? {
-        if let connection { return coaches.sequence(train: connection.name, at: stop, departure: connection.scheduledDeparture) }
+        if let connection {
+            return coaches.sequence(train: connection.name, at: stop, departure: connection.scheduledDeparture, track: connection.track)
+        }
         guard let train = status()?.trainName else { return nil }
-        return coaches.sequence(train: train, at: stop, departure: stop.scheduledDeparture)
+        return coaches.sequence(train: train, at: stop, departure: stop.scheduledDeparture, track: stop.track)
     }
 
     func clear() { plan = nil }

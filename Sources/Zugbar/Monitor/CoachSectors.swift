@@ -7,11 +7,20 @@ import ZugbarCore
 @MainActor
 @Observable
 final class CoachSectors {
-    /// A train leaving a stop, as the cards know it.
+    /// A train leaving a stop, as the cards know it. The platform is part of it: after a platform change the
+    /// coaches stop in other sectors, so that's asked for again.
     struct Spot: Hashable {
         let train: String
         let stop: String
         let departure: Date
+        let platform: String?
+
+        init(train: String, stop: String, departure: Date, track: String?) {
+            self.train = train
+            self.stop = stop
+            self.departure = departure
+            platform = CoachSequence.platform(track)
+        }
     }
 
     private(set) var sequences: [Spot: CoachSequence] = [:]
@@ -25,17 +34,19 @@ final class CoachSectors {
         self.client = client
     }
 
-    /// The coach sequence of `train` leaving `stop` at `departure`, once it's been loaded.
-    func sequence(train: String, at stop: Stop, departure: Date?) -> CoachSequence? {
-        departure.flatMap { sequences[Spot(train: train, stop: stop.name, departure: $0)] }
+    /// The coach sequence of `train` leaving `stop` at `departure` from `track`, once it's been loaded.
+    /// Nil while DB still has it on another platform.
+    func sequence(train: String, at stop: Stop, departure: Date?, track: String?) -> CoachSequence? {
+        departure.flatMap { sequences[Spot(train: train, stop: stop.name, departure: $0, track: track)] }
+            .flatMap { $0.fits(track: track) ? $0 : nil }
     }
 
-    /// Asks for the coach sequence of `train` leaving `stop` at its planned `departure`, when the policy allows.
-    /// A train's last stop has no departure, and no coach sequence either.
-    func load(train: String, at stop: Stop, departure: Date?, now: Date) {
+    /// Asks for the coach sequence of `train` leaving `stop` at its planned `departure` from `track`, when the policy
+    /// allows. A train's last stop has no departure, and no coach sequence either.
+    func load(train: String, at stop: Stop, departure: Date?, track: String?, now: Date) {
         guard !loading, let departure, let category = TrainStatus(provider: "", trainName: train).trainNumber?.category
         else { return }
-        let spot = Spot(train: train, stop: stop.name, departure: departure)
+        let spot = Spot(train: train, stop: stop.name, departure: departure, track: track)
         guard policy.mayAsk(spot, departure: departure, now: now) else { return }
         loading = true
         // Earlier trains are no use any more.
