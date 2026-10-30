@@ -63,6 +63,28 @@ struct RouteTests {
         let moved = try #require(status.position(at: after))
         #expect(moved.longitude > 9 && moved.longitude < 9.02)
     }
+
+    /// Out to K at 10 km and back the same way, stopping at P on both legs. The section after the second P is
+    /// the 3 km on the way back, not 13 km back over the way out and the turn at K.
+    @Test func sectionAfterAStationVisitedTwiceStaysOnItsLeg() throws {
+        let start = utc("2026-06-12T16:00:00Z")
+        func point(_ km: Double) -> Coordinate { Coordinate(latitude: 50 + km / 111.2, longitude: 8) }
+        let route = Route(points: (0...10).map { point(Double($0)) } + (1...10).map { point(Double(10 - $0)) })
+        let stops = [("a", 0.0, 0.0), ("p", 5, 300), ("k", 10, 600), ("q", 5, 1200), ("z", 2, 1500)].map { stop in
+            Stop(id: stop.0, name: stop.0.uppercased(), scheduledArrival: start.addingTimeInterval(stop.2),
+                 scheduledDeparture: start.addingTimeInterval(stop.2 + 60), coordinate: point(stop.1))
+        }
+        let status = TrainStatus(provider: "Transitous", stops: stops, route: route)
+        let alongs = status.stopAlongs(on: route).compactMap { $0 }
+        #expect(zip(alongs, [0.0, 5_000, 10_000, 15_000, 18_000]).allSatisfy { abs($0 - $1) < 10 })
+
+        let estimate = try #require(status.routeEstimate(at: start.addingTimeInterval(1400)))
+        #expect(estimate.key == "q→z")
+        #expect(abs(estimate.startDistance - 15_000) < 10 && abs(estimate.endDistance - 18_000) < 10)
+        // Halfway through the section: 3.5 km out, heading back towards A.
+        let position = try #require(status.position(at: start.addingTimeInterval(1380)))
+        #expect(abs((position.latitude - 50) * 111.2 - 3.5) < 0.05)
+    }
 }
 
 struct SpeedProfileTests {
