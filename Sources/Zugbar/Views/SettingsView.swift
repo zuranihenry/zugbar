@@ -58,6 +58,7 @@ struct GeneralSettings: View {
     @AppStorage("trackProfiles") private var trackProfiles = false
     @AppStorage("learnSpeeds") private var learnSpeeds = true
     @AppStorage(UpdateChecker.enabledKey) private var checkForUpdates = true
+    @AppStorage(DataSaver.settingKey) private var dataSaving = DataSaving.automatic
 
     var body: some View {
         SettingsPane {
@@ -86,6 +87,12 @@ struct GeneralSettings: View {
                 Toggle(isOn: $learnSpeeds) {
                     Text(strings.learnSpeeds)
                     Text(strings.learnHint)
+                }
+                Picker(selection: $dataSaving) {
+                    ForEach(DataSaving.allCases) { Text(strings.name(of: $0)).tag($0) }
+                } label: {
+                    Text(strings.dataSaving)
+                    Text(strings.dataSavingHint)
                 }
             }
             Section(strings.data) {

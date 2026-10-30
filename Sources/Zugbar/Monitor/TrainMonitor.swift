@@ -499,7 +499,7 @@ final class TrainMonitor {
     /// Portals are local and cheap; Transitous is a shared community service.
     private var pollInterval: Duration {
         if provider == nil { return .seconds((manualTarget == nil && fallbackTrain == nil) || lookupOutages > 0 ? 15 : 60) }
-        return isOnline ? .seconds(30) : .seconds(3)
+        return isOnline ? .seconds(DataSaver.shared.isOn ? 60 : 30) : .seconds(3)
     }
 
     /// `fallback`: following the on-board train whose portal went away; a failed search ends that quietly.
@@ -860,8 +860,10 @@ final class TrainMonitor {
                 }
                 do {
                     ride.received(try await router.fetch(), at: Date())
+                    DataSaver.shared.routerAnswered(router, strings: strings)
                 } catch ProviderError.missingResource("GPS fix") {
                     ride.answeredWithoutFix()
+                    DataSaver.shared.routerAnswered(router, strings: strings)
                 } catch {
                     ride.unreachable()
                 }
@@ -1060,10 +1062,10 @@ final class TrainMonitor {
 
 extension TrainMonitor {
     /// Measures the Wi-Fi on board, where a portal answers; not while following a train online, where the Mac is
-    /// often on a regional train's Wi-Fi with a data limit, or on a phone's hotspot.
+    /// often on a regional train's Wi-Fi with a data limit, or on a phone's hotspot, nor while saving data.
     fileprivate func updateLink() {
         let onBoard = status.map { !$0.isOnline } == true && !demoMode && !isSnapshot
-        link.run(onBoard)
+        link.run(onBoard && !DataSaver.shared.isOn)
         // With the portal silent, e.g. its own server down, only the measurement still knows.
         guard onBoard, var kept = status, let last = lastUpdate, now.timeIntervalSince(last) > 10,
               let reading = link.current(at: now), kept.internet?.current != reading.quality

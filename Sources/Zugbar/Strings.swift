@@ -478,6 +478,33 @@ struct Strings {
     var showRecordings: String { t("Show recordings in Finder", "Aufzeichnungen im Finder zeigen") }
     var send: String { t("Send", "Senden") }
     var data: String { t("Data", "Daten") }
+    var dataSaving: String { t("Save data", "Daten sparen") }
+    var dataSavingHint: String {
+        t("Asks for updates half as often and leaves out speed limits from OpenStreetMap, the list of moving trains and the update check. Automatic: where the train Wi-Fi has a data limit, or Low Data Mode is on.",
+          "Fragt halb so oft nach und lässt Tempolimits von OpenStreetMap, die Liste fahrender Züge und die Update-Suche weg. Automatisch: wo das Zug-WLAN ein Datenlimit hat oder der Datensparmodus an ist.")
+    }
+    func name(of saving: DataSaving) -> String {
+        switch saving {
+        case .automatic: t("Automatic", "Automatisch")
+        case .always: t("Always", "Immer")
+        case .off: t("Off", "Aus")
+        }
+    }
+    private func megabytes(_ bytes: Int64) -> String {
+        "\(Int((Double(bytes) / 1_000_000).rounded())) MB"
+    }
+    /// e.g. "62 of 105 MB left"
+    func allowanceLeft(_ allowance: DataAllowance) -> String {
+        let limit = Int((Double(allowance.limit) / 1_000_000).rounded())
+        let left = Int((Double(allowance.remaining) / 1_000_000).rounded())
+        return t("\(left) of \(limit) MB left", "\(left) von \(limit) MB übrig")
+    }
+    var savingData: String { t("saving data", "Daten sparen an") }
+    func allowanceWarning(_ allowance: DataAllowance) -> (String, String) {
+        (t("Wi-Fi data almost used up", "WLAN-Datenvolumen fast aufgebraucht"),
+         t("\(megabytes(allowance.remaining)) left on this train's Wi-Fi. Pause downloads and cloud sync to make it last.",
+           "Noch \(megabytes(allowance.remaining)) im WLAN dieses Zugs. Downloads und Cloud-Sync pausieren, damit es reicht."))
+    }
     var clear: String { t("Clear", "Löschen") }
     var suggestionHistory: String { t("Suggestion history", "Verlauf der Vorschläge") }
     var destinationAndConnection: String { t("Destination and connection", "Ziel und Anschluss") }

@@ -86,6 +86,9 @@ struct StatusPanel: View {
         if let internet = status.internet {
             WiFiRow(internet: internet, measured: monitor.link.reading, now: monitor.now)
         }
+        if DataSaver.shared.allowance != nil || DataSaver.shared.isOn {
+            DataRow(saver: DataSaver.shared)
+        }
         if let progress = status.progress {
             ProgressView(value: progress)
         }
@@ -281,6 +284,27 @@ private struct WiFiRow: View {
         case .weak: "wifi.exclamationmark"
         case .none: "wifi.slash"
         }
+    }
+}
+
+/// What's left of the Wi-Fi's data limit, and whether Zugbar holds back because of it.
+private struct DataRow: View {
+    let saver: DataSaver
+    @Environment(\.strings) private var strings
+
+    var body: some View {
+        HStack {
+            if let allowance = saver.allowance {
+                Label(strings.allowanceLeft(allowance) + (saver.isOn ? " · " + strings.savingData : ""), systemImage: "gauge.with.dots.needle.33percent")
+                    .foregroundStyle(allowance.fractionUsed >= AllowanceWarning.threshold ? Color.orange : Color.secondary)
+            } else {
+                Label(strings.savingData, systemImage: "leaf")
+            }
+            Spacer()
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .help(strings.dataSavingHint)
     }
 }
 
