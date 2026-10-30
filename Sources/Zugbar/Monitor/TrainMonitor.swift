@@ -781,11 +781,13 @@ final class TrainMonitor {
         if newStatus.speed == nil { displaySpeed = nil }
         if Handover.isDue(plan: journey.plan, status: newStatus, now: Date()), !stillAboard(newStatus) {
             followConnection()
-        } else if newStatus.isOnline, manualTarget == nil, let train = onBoardTrain?.name ?? (followsPick ? ride.pick?.label : nil),
+        } else if newStatus.isOnline, manualTarget == nil,
+                  let train = onBoardTrain?.name ?? (followsPick && ride.isGone ? ride.pick?.label : nil),
                   TrainName.same(train, newStatus.trainName ?? ""),
                   Handover.hasReached(plan: journey.plan, status: newStatus, now: Date(), grace: 15 * 60), !stillAboard(newStatus) {
             // The on-board train followed online, or the one picked from the router's GPS, got the user to their
-            // destination; it isn't followed on to its last stop.
+            // destination; it isn't followed on to its last stop. A picked train only once its router is gone: while
+            // it answers, the user is still on it, even in a tunnel without a fix.
             onBoardTrain = nil
             ride.superseded()
             lost()
