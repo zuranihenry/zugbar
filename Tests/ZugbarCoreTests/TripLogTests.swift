@@ -82,6 +82,82 @@ struct TripLogTests {
         #expect(rest == nil)
     }
 
+    @Test func lidClosedHalfwayIsOneTrip() throws {
+        var recorder = TripRecorder()
+        var log = TripLog()
+        for minute in stride(from: 0.0, through: 15, by: 1) {
+            _ = recorder.update(onBoard(minute, latitude: 50 + minute / 60, speed: 111), at: start.addingTimeInterval(minute * 60))
+        }
+        // The lid closed for 40 min: the first part is logged meanwhile.
+        let idle = recorder.finishIfIdle(at: start.addingTimeInterval(36 * 60))
+        let firstPart = try #require(idle)
+        log.add(firstPart)
+        // Awake again, further on along the same ride.
+        for minute in stride(from: 55.0, through: 60, by: 1) {
+            let finished = recorder.update(onBoard(minute, latitude: 50 + minute / 60, speed: 111), at: start.addingTimeInterval(minute * 60))
+            #expect(finished == nil)
+        }
+        let finished = recorder.finish()
+        let trip = try #require(finished)
+        log.add(trip)
+        #expect(trip.id == firstPart.id)
+        #expect(trip.from == "A")
+        #expect(abs(trip.distance - 111.2) < 1)
+        #expect(log.trips.count == 1)
+        #expect(log.trips.first?.distance == trip.distance)
+    }
+
+    @Test func goesOnFromTheFirstPollAfterSleep() throws {
+        var recorder = TripRecorder()
+        for minute in stride(from: 0.0, through: 15, by: 1) {
+            _ = recorder.update(onBoard(minute, latitude: 50 + minute / 60, speed: 111), at: start.addingTimeInterval(minute * 60))
+        }
+        // No tick ran while asleep; the first poll finds the ride idle and goes straight on with it.
+        let finished = recorder.update(onBoard(50, latitude: 50 + 50.0 / 60, speed: 111), at: start.addingTimeInterval(50 * 60))
+        #expect(finished == nil)
+        #expect(recorder.current.map { abs($0.distance - 92.7) < 1 } == true)
+    }
+
+    @Test func portalDownWhileFollowedOnlineIsOneTrip() throws {
+        var recorder = TripRecorder()
+        for minute in stride(from: 0.0, through: 10, by: 1) {
+            _ = recorder.update(onBoard(minute, latitude: 50 + minute / 60, speed: 111), at: start.addingTimeInterval(minute * 60))
+        }
+        let online = TrainStatus(provider: "Transitous", trainName: "ICE 1", stops: stops)
+        for minute in stride(from: 11.0, through: 40, by: 1) {
+            _ = recorder.update(online, at: start.addingTimeInterval(minute * 60))
+            _ = recorder.finishIfIdle(at: start.addingTimeInterval(minute * 60 + 30))
+        }
+        _ = recorder.update(onBoard(41, latitude: 50 + 41.0 / 60, speed: 111), at: start.addingTimeInterval(41 * 60))
+        let finished = recorder.finish()
+        let trip = try #require(finished)
+        #expect(trip.from == "A")
+        #expect(trip.duration == 41 * 60)
+    }
+
+    @Test func theNextRunIsANewTrip() throws {
+        var recorder = TripRecorder()
+        for minute in stride(from: 0.0, through: 15, by: 1) {
+            _ = recorder.update(onBoard(minute, latitude: 50 + minute / 60, speed: 111), at: start.addingTimeInterval(minute * 60))
+        }
+        let idle = recorder.finishIfIdle(at: start.addingTimeInterval(36 * 60))
+        let firstPart = try #require(idle)
+        // An hour later, a train of the same name to the same end, but leaving A an hour later.
+        var next = onBoard(75, latitude: 50.1, speed: 111)
+        next.stops[0].scheduledDeparture = stops[0].scheduledDeparture?.addingTimeInterval(3600)
+        _ = recorder.update(next, at: start.addingTimeInterval(75 * 60))
+        #expect(recorder.current?.id != firstPart.id)
+        #expect(recorder.current?.distance == 0)
+        // Long after, even the same run is a new trip.
+        var later = TripRecorder()
+        _ = later.update(onBoard(0, latitude: 50, speed: 111), at: start)
+        _ = later.update(onBoard(10, latitude: 50 + 10.0 / 60, speed: 111), at: start.addingTimeInterval(600))
+        let idleLater = later.finishIfIdle(at: start.addingTimeInterval(31 * 60))
+        let ended = try #require(idleLater)
+        _ = later.update(onBoard(0, latitude: 50.2, speed: 111), at: start.addingTimeInterval(4 * 3600))
+        #expect(later.current?.id != ended.id)
+    }
+
     @Test func ignoresGlimpsesAndJumps() {
         var recorder = TripRecorder()
         _ = recorder.update(onBoard(0, latitude: 50, speed: 0), at: start)
