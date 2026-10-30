@@ -497,6 +497,7 @@ struct Strings {
     var preview: String { t("Preview", "Vorschau") }
     var showUnit: String { t("Show “km/h”", "„km/h“ anzeigen") }
     var stationNames: String { t("Station names", "Stationsnamen") }
+    var stationAutomatic: String { t("Automatic", "Automatisch") }
     var stationFull: String { t("Full", "Voll") }
     var stationCompact: String { t("Compact", "Kompakt") }
     var stationShort: String { t("Short (12 characters)", "Kurz (12 Zeichen)") }

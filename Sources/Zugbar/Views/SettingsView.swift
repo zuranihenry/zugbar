@@ -204,7 +204,7 @@ struct MenuBarSettings: View {
     @AppStorage("menuBarEstimate") private var menuBarEstimate = true
     @AppStorage("showTopSpeedFlame") private var showTopSpeedFlame = true
     @AppStorage("showStation") private var showStation = true
-    @AppStorage("stationStyle") private var stationStyle = MenuTitleOptions.StationStyle.full
+    @AppStorage("stationStyle") private var stationStyle = MenuTitleOptions.StationStyle.automatic
     @AppStorage("showCountdown") private var showCountdown = true
     @AppStorage("minutesOnly") private var minutesOnly = false
 
@@ -232,6 +232,7 @@ struct MenuBarSettings: View {
             Section {
                 Toggle(strings.nextStation, isOn: $showStation)
                 Picker(strings.stationNames, selection: $stationStyle) {
+                    Text(strings.stationAutomatic).tag(MenuTitleOptions.StationStyle.automatic)
                     Text(strings.stationFull).tag(MenuTitleOptions.StationStyle.full)
                     Text(strings.stationCompact).tag(MenuTitleOptions.StationStyle.compact)
                     Text(strings.stationShort).tag(MenuTitleOptions.StationStyle.short)
@@ -250,8 +251,11 @@ struct MenuBarSettings: View {
             showSpeed: showSpeed, showStation: showStation, showCountdown: showCountdown,
             showTopSpeedFlame: showTopSpeedFlame, stationStyle: stationStyle, showUnit: showUnit, minutesOnly: minutesOnly
         )
-        let title = MenuTitle.make(status: TrainStatus(provider: "", stops: [stop], nextStopID: "x"),
-                                   displaySpeed: 287, isTopSpeed: true, now: now, options: options, nowLabel: strings.now)
+        // Shortened like the menu bar's, so "Automatic" shows what it does.
+        let title = MenuTitle.fitted(options, width: MenuTitle.width) {
+            MenuTitle.make(status: TrainStatus(provider: "", stops: [stop], nextStopID: "x"),
+                           displaySpeed: 287, isTopSpeed: true, now: now, options: $0, nowLabel: strings.now)
+        }
         return title.isEmpty ? "🚆" : title
     }
 }
