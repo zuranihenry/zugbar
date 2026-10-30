@@ -182,8 +182,18 @@ public enum JourneyWatcher {
             status.stops.first { $0.id == id }
         }
 
+        /// The plan's stop in the previous update. Online, a stop without a station ID is known by its platform,
+        /// so its ID changes when the train changes track; its place in the trip and its name stay.
+        func previous(_ id: String?) -> Stop? {
+            if let before = stop(id, in: old) { return before }
+            guard old.provider == new.provider, let index = new.stops.firstIndex(where: { $0.id == id }) else { return nil }
+            let name = new.stops[index].name
+            if old.stops.indices.contains(index), StationName.same(old.stops[index].name, name) { return old.stops[index] }
+            return old.stops.first { StationName.same($0.name, name) && stop($0.id, in: new) == nil }
+        }
+
         // Before boarding: departure delay and track at the boarding stop.
-        if let before = stop(plan.boardingStopID, in: old), let after = stop(plan.boardingStopID, in: new), !after.passed {
+        if let before = previous(plan.boardingStopID), let after = stop(plan.boardingStopID, in: new), !after.passed {
             events += changes(before: before, after: after, departure: true, settings: settings, delays: &delays)
             if !after.cancelled, let oldDeparture = before.departure, let newDeparture = after.departure, newDeparture > newTime,
                let minutes = crossedReminder(settings.departureReminders, old: oldDeparture.timeIntervalSince(oldTime),
@@ -192,7 +202,7 @@ public enum JourneyWatcher {
             }
         }
 
-        if let before = stop(plan.destinationStopID, in: old), let after = stop(plan.destinationStopID, in: new), !after.passed {
+        if let before = previous(plan.destinationStopID), let after = stop(plan.destinationStopID, in: new), !after.passed {
             events += changes(before: before, after: after, departure: false, settings: settings, delays: &delays)
 
             if !after.cancelled, let oldArrival = before.arrival, let newArrival = after.arrival, newArrival > newTime,

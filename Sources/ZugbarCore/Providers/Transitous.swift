@@ -174,7 +174,8 @@ public actor Transitous: TrainProvider {
         let tripCancelled = leg.cancelled ?? false
         let stops = places.enumerated().map { index, place in
             Stop(
-                id: "\(index)-\(place.stopId ?? place.name)",
+                // The station rather than its platform: the platform's ID changes when the train changes track.
+                id: "\(index)-\(place.parentId ?? place.stopId ?? place.name)",
                 name: StationName.tidy(place.name),
                 scheduledArrival: place.scheduledArrival,
                 expectedArrival: place.arrival,
@@ -243,6 +244,8 @@ public actor Transitous: TrainProvider {
     struct Place: Decodable {
         let name: String
         let stopId: String?
+        /// The station a platform's `stopId` belongs to; not every feed gives one.
+        let parentId: String?
         let arrival: Date?
         let departure: Date?
         let scheduledArrival: Date?
