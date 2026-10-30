@@ -38,20 +38,28 @@ public actor Transitous: TrainProvider {
 
     public func fetch() async throws -> TrainStatus {
         let now = Date()
+        var searched = false
         if tripID == nil, let query {
             switch await Self.found.lookup(query, at: now) {
             case .found(let id): tripID = id
             case .notRunning: throw LookupError.notRunning
             case nil:
                 tripID = try await findTrip(named: query, now: now)
+                searched = true
                 if tripID == nil { await Self.found.notRunning(query, at: now) }
             }
         }
-        guard let tripID else { throw LookupError.notRunning }
+        guard var tripID else { throw LookupError.notRunning }
 
-        var url = Self.base.appending(path: "v6/trip")
-        url.appendQuery([URLQueryItem(name: "tripId", value: tripID)])
-        var status = try Self.parse(trip: await loader(url), now: now)
+        let data: Data
+        do {
+            data = try await loader(Self.tripURL(tripID))
+        } catch ProviderError.badStatus(404) {
+            // Just searched: another search now would find the same trip.
+            guard let query, !searched else { throw ProviderError.badStatus(404) }
+            (tripID, data) = try await searchAgain(query, after: tripID, now: now)
+        }
+        var status = try Self.parse(trip: data, now: now)
         status.stops = await withCityNames(status.stops)
 
         if let end = status.stops.last?.arrival, now > end.addingTimeInterval(15 * 60) {
@@ -60,6 +68,29 @@ public actor Transitous: TrainProvider {
         }
         if let query { await Self.found.store(query, tripID: tripID, until: (status.stops.last?.arrival ?? now).addingTimeInterval(15 * 60)) }
         return status
+    }
+
+    /// Transitous renumbers trips when it reloads a feed, so a trip found by name can vanish under its old ID.
+    /// Searches the name once more; when that finds nothing new, waits as for a train that isn't running,
+    /// so a dead ID doesn't cost a map download on every update.
+    private func searchAgain(_ query: String, after dead: String, now: Date) async throws -> (String, Data) {
+        await Self.found.ended(query, at: now)
+        tripID = nil
+        do {
+            guard let found = try await findTrip(named: query, now: now), found != dead else { throw LookupError.notRunning }
+            let data = try await loader(Self.tripURL(found))
+            tripID = found
+            return (found, data)
+        } catch LookupError.notRunning, ProviderError.badStatus(404) {
+            await Self.found.notRunning(query, at: now)
+            throw LookupError.notRunning
+        }
+    }
+
+    static func tripURL(_ tripID: String) -> URL {
+        var url = base.appending(path: "v6/trip")
+        url.appendQuery([URLQueryItem(name: "tripId", value: tripID)])
+        return url
     }
 
     /// Replaces names like "Hauptbahnhof (oben)" with the nearest proper station name ("Stuttgart Hbf").

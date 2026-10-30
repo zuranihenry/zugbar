@@ -116,3 +116,48 @@ struct CityNameRetryTests {
         #expect(await lookups.value == 1)
     }
 }
+
+struct RenumberedTripTests {
+    func map(_ tripID: String, _ name: String) -> Data {
+        Data(#"[{"mode":"HIGHSPEED_RAIL","trips":[{"tripId":"\#(tripID)","displayName":"\#(name)"}]}]"#.utf8)
+    }
+
+    let trip = Data(#"""
+    {"legs":[{"mode":"HIGHSPEED_RAIL","displayName":"ICE 9701",
+      "from":{"name":"Ahornstadt","departure":"2099-01-01T10:00:00Z"},"to":{"name":"Buchenweiler","arrival":"2099-01-01T11:00:00Z"}}]}
+    """#.utf8)
+
+    /// Transitous reloaded a feed and the trip got a new ID: one more search finds it.
+    @Test func searchesAgainAfterA404() async throws {
+        let reloaded = Counter()
+        let (old, new, trip) = (map("old", "ICE 9701"), map("new", "ICE 9701"), trip)
+        let loader: DataLoader = { url in
+            let isReloaded = await reloaded.value > 0
+            if url.path.hasSuffix("map/trips") { return isReloaded ? new : old }
+            if url.query?.contains("tripId=old") == true, isReloaded { throw ProviderError.badStatus(404) }
+            return trip
+        }
+        let transitous = Transitous(query: "ICE 9701", loader: loader)
+        #expect(try await transitous.fetch().trainName == "ICE 9701")
+        await reloaded.increment()
+        #expect(try await transitous.fetch().trainName == "ICE 9701")
+    }
+
+    /// A trip that keeps answering 404 waits like a train that isn't running, without a map download per update.
+    @Test func aDeadTripIsNotSearchedOnEveryUpdate() async throws {
+        let searches = Counter()
+        let map = map("dead", "ICE 9702")
+        let loader: DataLoader = { url in
+            if url.path.hasSuffix("map/trips") {
+                await searches.increment()
+                return map
+            }
+            throw ProviderError.badStatus(404)
+        }
+        let transitous = Transitous(query: "ICE 9702", loader: loader)
+        await #expect(throws: ProviderError.badStatus(404)) { try await transitous.fetch() }
+        await #expect(throws: Transitous.LookupError.notRunning) { try await transitous.fetch() }
+        await #expect(throws: Transitous.LookupError.notRunning) { try await transitous.fetch() }
+        #expect(await searches.value == 2)
+    }
+}
