@@ -91,6 +91,14 @@ public struct Connection: Codable, Sendable, Equatable {
 
     public var departure: Date? { expectedDeparture ?? scheduledDeparture }
 
+    /// How long to wait between checks of the connection, given when the followed train gets to the change: every
+    /// five minutes while that's more than half an hour away, when a minute's news doesn't matter and train Wi-Fi
+    /// may be capped, then every minute.
+    public static func refreshInterval(arrival: Date?, now: Date) -> TimeInterval {
+        guard let arrival, arrival.timeIntervalSince(now) > 30 * 60 else { return 60 }
+        return 5 * 60
+    }
+
     public var delayMinutes: Int? {
         guard let scheduledDeparture, let expectedDeparture else { return nil }
         return minutes(from: scheduledDeparture, to: expectedDeparture)

@@ -59,6 +59,13 @@ struct JourneyTests {
         #expect(events(old, new, before, connection).contains(.transferChanged(name: "RE 5", .cancelled)))
     }
 
+    @Test func connectionIsCheckedMoreOftenCloseToTheChange() {
+        #expect(Connection.refreshInterval(arrival: t0.addingTimeInterval(2 * 3600), now: t0) == 300)
+        #expect(Connection.refreshInterval(arrival: t0.addingTimeInterval(20 * 60), now: t0) == 60)
+        #expect(Connection.refreshInterval(arrival: t0.addingTimeInterval(-60), now: t0) == 60)
+        #expect(Connection.refreshInterval(arrival: nil, now: t0) == 60)
+    }
+
     @Test func boardingStopDepartureDelay() {
         let start = { (delay: Int) -> TrainStatus in
             let scheduled = utc("2026-06-12T16:30:00Z")

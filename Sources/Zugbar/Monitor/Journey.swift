@@ -177,13 +177,15 @@ final class Journey {
         }
     }
 
-    /// Connections come from Transitous, so check them about once a minute.
+    /// Connections come from Transitous, so check them every few minutes, and about once a minute close to the change.
     func refreshConnectionIfNeeded() {
+        let now = now()
+        let interval = Connection.refreshInterval(arrival: destination?.arrival, now: now)
         // Transitous trips only: not the demo connection or one an older version took from the ICE portal.
         guard let connection = plan?.connection, connection.portalStationID == nil,
-              connectionRefreshed.map({ Date().timeIntervalSince($0) > 60 }) ?? true
+              connectionRefreshed.map({ now.timeIntervalSince($0) > interval }) ?? true
         else { return }
-        connectionRefreshed = Date()
+        connectionRefreshed = now
         Task {
             guard var updated = try? await client.refresh(connection), plan?.connection?.tripID == updated.tripID else { return }
             // The coach may have been entered while this was loading.
