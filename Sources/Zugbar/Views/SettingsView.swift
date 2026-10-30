@@ -202,6 +202,8 @@ struct MenuBarSettings: View {
     @AppStorage("showSpeed") private var showSpeed = true
     @AppStorage("showUnit") private var showUnit = true
     @AppStorage("menuBarEstimate") private var menuBarEstimate = true
+    /// The General setting the estimate in the menu bar needs.
+    @AppStorage("estimatedSpeed") private var estimatedSpeed = true
     @AppStorage("showTopSpeedFlame") private var showTopSpeedFlame = true
     @AppStorage("showStation") private var showStation = true
     @AppStorage("stationStyle") private var stationStyle = MenuTitleOptions.StationStyle.automatic
@@ -227,7 +229,7 @@ struct MenuBarSettings: View {
                     Text(strings.menuBarEstimate)
                     Text(strings.menuBarEstimateHint)
                 }
-                .disabled(!showSpeed)
+                .disabled(!showSpeed || !estimatedSpeed)
             }
             Section {
                 Toggle(strings.nextStation, isOn: $showStation)
@@ -265,6 +267,8 @@ struct NotificationSettingsView: View {
     @Environment(\.strings) private var strings
     @AppStorage("notifications") private var notifications = true
     @AppStorage("wifiAlerts") private var wifiAlerts = false
+    /// The General setting the Wi-Fi forecast comes from.
+    @AppStorage("learnSpeeds") private var learnSpeeds = true
 
     var body: some View {
         @Bindable var journey = monitor.journey
@@ -310,6 +314,7 @@ struct NotificationSettingsView: View {
                     Text(strings.wifiAlerts)
                     Text(strings.wifiAlertsHint)
                 }
+                .disabled(!learnSpeeds)
             }
             .disabled(!notifications)
         }

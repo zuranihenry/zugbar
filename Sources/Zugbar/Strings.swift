@@ -92,8 +92,11 @@ struct Strings {
         t("OpenStreetMap is down right now, so this is a simpler estimate. Zugbar reconnects automatically.",
           "OpenStreetMap ist gerade nicht erreichbar, daher eine einfachere Schätzung. Zugbar verbindet sich automatisch neu.")
     }
-    var menuBarEstimate: String { t("Estimated speed for trains followed online", "Geschätzte Geschwindigkeit bei online verfolgten Zügen") }
-    var menuBarEstimateHint: String { t("Shown as “≈ 180”.", "Wird als „≈ 180“ angezeigt.") }
+    var menuBarEstimate: String { t("Show estimate (≈) in the menu bar", "Schätzung (≈) in der Menüleiste zeigen") }
+    var menuBarEstimateHint: String {
+        t("For trains followed online, as “≈ 180”. Needs the estimate turned on under General.",
+          "Bei online verfolgten Zügen, als „≈ 180“. Braucht die Schätzung unter Allgemein.")
+    }
     var estimatedSpeedSetting: String { t("Estimated speed for trains followed online", "Geschätzte Geschwindigkeit bei online verfolgten Zügen") }
     var estimatedHelp: String { t("Average speed between the last and next stop, from the timetable", "Durchschnitt zwischen letztem und nächstem Halt, aus dem Fahrplan") }
     var topHelp: String { t("Highest speed this trip", "Höchstgeschwindigkeit dieser Fahrt") }
