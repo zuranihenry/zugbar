@@ -108,9 +108,6 @@ struct Strings {
         guard stop.trackChanged, let scheduled = stop.scheduledTrack else { return self.track(track) }
         return t("Track \(track) instead of \(scheduled)", "Gleis \(track) statt \(scheduled)")
     }
-    func wagonClass(_ number: Int) -> String {
-        number == 1 ? t("1st class", "1. Klasse") : t("2nd class", "2. Klasse")
-    }
     func quality(_ quality: Internet.Quality) -> String {
         switch quality {
         case .good: t("good", "gut")
@@ -118,7 +115,30 @@ struct Strings {
         case .none: t("offline", "kein Netz")
         }
     }
-    func wifi(_ quality: Internet.Quality) -> String { t("Wi-Fi \(self.quality(quality))", "WLAN \(self.quality(quality))") }
+    /// "Wi-Fi slow" or "Wi-Fi patchy" rather than just "weak" when Zugbar measured it.
+    func wifi(_ quality: Internet.Quality, measured: LinkProbe.Reading? = nil) -> String {
+        switch quality {
+        case .good: t("Wi-Fi good", "WLAN gut")
+        case .weak where measured?.isSlow == true: t("Wi-Fi slow", "WLAN langsam")
+        case .weak where measured != nil: t("Wi-Fi patchy", "WLAN wackelig")
+        case .weak: t("Wi-Fi weak", "WLAN schwach")
+        case .none: t("No internet", "Kein Internet")
+        }
+    }
+    /// e.g. "Measured: answers in 1.2 s, 2 of 8 requests unanswered in the last 2 min"
+    func wifiMeasured(_ reading: LinkProbe.Reading) -> String {
+        let window = Int(LinkProbe.window / 60)
+        var parts: [String] = []
+        if let latency = reading.latency {
+            let time = latency < 1 ? "\(Int((latency * 1000).rounded())) ms"
+                : (latency.formatted(.number.precision(.fractionLength(1)).locale(Locale(identifier: de ? "de_DE" : "en_US")))) + " s"
+            parts.append(t("answers in \(time)", "Antwort nach \(time)"))
+        }
+        if reading.lost > 0 {
+            parts.append(t("\(reading.lost) of \(reading.sent) requests unanswered", "\(reading.lost) von \(reading.sent) Anfragen ohne Antwort"))
+        }
+        return t("Measured: ", "Gemessen: ") + parts.joined(separator: ", ") + t(" in the last \(window) min", " in den letzten \(window) Min.")
+    }
     func wifiChange(to quality: Internet.Quality, minutes: Int) -> String {
         t("\(self.quality(quality)) in \(minutes) min", "in \(minutes) Min. \(self.quality(quality))")
     }

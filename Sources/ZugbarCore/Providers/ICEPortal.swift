@@ -69,7 +69,6 @@ public struct ICEPortal: TrainProvider {
             nextStopID: trip.stopInfo?.actualNext,
             progress: progress,
             vehicle: ICEVehicle.describe(tzn: status.tzn),
-            wagonClass: status.wagonClass.flatMap { ["FIRST": 1, "SECOND": 2][$0] },
             // Most trains dropped the connectivity block with its forecast and only send the current level.
             internet: status.connectivity.flatMap { internet($0, now: now) }
                 ?? quality(status.internet).map { Internet(current: $0) },
@@ -106,7 +105,6 @@ public struct ICEPortal: TrainProvider {
         let latitude: Double?
         let longitude: Double?
         let tzn: String?
-        let wagonClass: String?
         let internet: String?
         let connectivity: Connectivity?
 

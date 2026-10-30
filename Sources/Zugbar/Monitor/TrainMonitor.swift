@@ -40,6 +40,7 @@ final class TrainMonitor {
     let picker: StationSearch
     let estimates = SpeedEstimator()
     let wifi = WiFiForecaster()
+    let link = LinkProber()
     let journey: Journey
     let trips = TripStore()
     private(set) var lastUpdate: Date?
@@ -739,7 +740,12 @@ final class TrainMonitor {
             marker = GPSMarker()
         }
         journey.refreshConnectionIfNeeded()
-        if !demoMode { newStatus = wifi.update(newStatus, strings: strings) }
+        if !demoMode {
+            if !newStatus.isOnline {
+                newStatus.internet = Internet.combining(portal: newStatus.internet, measured: link.current(at: Date()))
+            }
+            newStatus = wifi.update(newStatus, strings: strings)
+        }
         status = newStatus
         lastUpdate = Date()
         journey.refreshCoaches()
@@ -1025,6 +1031,7 @@ final class TrainMonitor {
             // Picks up the setting being switched on and the train entering a new section without waiting for the next poll.
             if let status { estimates.prepareProfile(for: status) }
             estimates.refreshSection(for: status, at: now)
+            updateLink()
         }
 
         // An on-board train whose portal stopped answering, e.g. after the Wi-Fi went away or a sleep: its last
@@ -1048,6 +1055,21 @@ final class TrainMonitor {
         }
         if shown != displaySpeed { displaySpeed = shown }
         if shown > topSpeed { topSpeed = shown }
+    }
+}
+
+extension TrainMonitor {
+    /// Measures the Wi-Fi on board, where a portal answers; not while following a train online, where the Mac is
+    /// often on a regional train's Wi-Fi with a data limit, or on a phone's hotspot.
+    fileprivate func updateLink() {
+        let onBoard = status.map { !$0.isOnline } == true && !demoMode && !isSnapshot
+        link.run(onBoard)
+        // With the portal silent, e.g. its own server down, only the measurement still knows.
+        guard onBoard, var kept = status, let last = lastUpdate, now.timeIntervalSince(last) > 10,
+              let reading = link.current(at: now), kept.internet?.current != reading.quality
+        else { return }
+        kept.internet = Internet(current: reading.quality)
+        status = kept
     }
 }
 
