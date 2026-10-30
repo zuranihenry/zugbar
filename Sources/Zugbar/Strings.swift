@@ -309,12 +309,12 @@ struct Strings {
         }
     }
 
-    /// "departs 14:33 · Track 5 · arr. 14:31": the connection's departure next to the user's arrival, to judge the change by.
+    /// "arr. 14:31 · departs 14:33 · Track 5": the user's arrival, then the connection's departure, to judge the change by.
     func transferDetails(_ connection: Connection, arrival: Date?) -> String {
         var parts: [String] = []
+        if let arrival { parts.append(arrives(arrival.formatted(.dateTime.hour().minute()))) }
         if let departure = connection.departure { parts.append(departs(departure.formatted(.dateTime.hour().minute()))) }
         if let track = connection.track { parts.append(self.track(track)) }
-        if let arrival { parts.append(arrives(arrival.formatted(.dateTime.hour().minute()))) }
         return parts.joined(separator: " · ")
     }
 
