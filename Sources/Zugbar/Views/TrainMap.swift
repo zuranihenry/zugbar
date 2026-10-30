@@ -9,6 +9,15 @@ struct TrainMap: View {
     @Environment(\.strings) private var strings
     @AppStorage("mapHeadingUp") private var headingUp = false
     @AppStorage("mapTrackSpeeds") private var showsTrackSpeeds = false
+    /// Whether the map can be seen. A plain `State` value: the `@State` macro needs a plugin the Command Line Tools lack.
+    private var visibility = State(initialValue: Visibility())
+
+    private final class Visibility {
+        var appeared = false
+        var onScreen = true
+        /// In the monitor's count of maps shown, which asks for smooth frames.
+        var counted = false
+    }
 
     var body: some View {
         let stretches = monitor.map.trackStretches
@@ -102,8 +111,10 @@ struct TrainMap: View {
             }
             monitor.map.expectedCenter = newPosition
         }
-        .onAppear { monitor.mapsShown += 1 }
-        .onDisappear { monitor.mapsShown -= 1 }
+        // Counts as shown only while its window can be seen: a window minimized or behind others stays open.
+        .background(WindowVisibility { visibility.wrappedValue.onScreen = $0; countShown() })
+        .onAppear { visibility.wrappedValue.appeared = true; countShown() }
+        .onDisappear { visibility.wrappedValue.appeared = false; countShown() }
         .onMapCameraChange(frequency: .continuous) { context in
             let camera = context.camera
             let center = Coordinate(latitude: camera.centerCoordinate.latitude, longitude: camera.centerCoordinate.longitude)
@@ -148,6 +159,14 @@ struct TrainMap: View {
     private var trackingHelp: String {
         guard monitor.map.followsTrain else { return strings.followTrain }
         return headingUp ? strings.stopFollowingTrain : strings.headingUp
+    }
+
+    private func countShown() {
+        let state = visibility.wrappedValue
+        let shown = state.appeared && state.onScreen
+        guard shown != state.counted else { return }
+        state.counted = shown
+        monitor.mapsShown += shown ? 1 : -1
     }
 
     private func cycleTracking(_ position: Coordinate?) {
@@ -285,6 +304,37 @@ private struct MapControl: View {
         .buttonStyle(.plain)
         .help(help)
         .accessibilityLabel(help)
+    }
+}
+
+/// Reports whether the hosting window can be seen: not minimized and not fully covered by other windows.
+private struct WindowVisibility: NSViewRepresentable {
+    let changed: (Bool) -> Void
+
+    func makeNSView(context: Context) -> Watcher { Watcher() }
+
+    func updateNSView(_ view: Watcher, context: Context) { view.changed = changed }
+
+    final class Watcher: NSView {
+        var changed: (Bool) -> Void = { _ in }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            NotificationCenter.default.removeObserver(self)
+            guard let window else { return }
+            for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+                         NSWindow.didDeminiaturizeNotification] {
+                NotificationCenter.default.addObserver(self, selector: #selector(windowChanged), name: name, object: window)
+            }
+            windowChanged()
+        }
+
+        @objc private func windowChanged() {
+            guard let window else { return }
+            let visible = window.occlusionState.contains(.visible) && !window.isMiniaturized
+            // Not during a SwiftUI update.
+            DispatchQueue.main.async { [changed] in changed(visible) }
+        }
     }
 }
 
