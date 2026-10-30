@@ -497,7 +497,12 @@ struct Strings {
     func allowanceLeft(_ allowance: DataAllowance) -> String {
         let limit = Int((Double(allowance.limit) / 1_000_000).rounded())
         let left = Int((Double(allowance.remaining) / 1_000_000).rounded())
-        return t("\(left) of \(limit) MB left", "\(left) von \(limit) MB übrig")
+        var text = t("\(left) of \(limit) MB left", "\(left) von \(limit) MB übrig")
+        if let rate = allowance.throttledTo {
+            let speed = rate >= 1_000_000 ? "\(rate / 1_000_000) Mbit/s" : "\(rate / 1000) kbit/s"
+            text += t(", then \(speed)", ", dann \(speed)")
+        }
+        return text
     }
     var savingData: String { t("saving data", "Daten sparen an") }
     func allowanceWarning(_ allowance: DataAllowance) -> (String, String) {

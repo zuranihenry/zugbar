@@ -6,10 +6,13 @@ public struct DataAllowance: Sendable, Equatable {
     /// Bytes, everything on the Mac, not just Zugbar.
     public var used: Int64
     public var limit: Int64
+    /// Bits per second once it's used up, where the Wi-Fi slows down rather than cutting off.
+    public var throttledTo: Int?
 
-    public init(used: Int64, limit: Int64) {
+    public init(used: Int64, limit: Int64, throttledTo: Int? = nil) {
         self.used = used
         self.limit = limit
+        self.throttledTo = throttledTo
     }
 
     public var remaining: Int64 { max(limit - used, 0) }
@@ -44,6 +47,36 @@ extension Icomera {
             }
         }
         return nil
+    }
+}
+
+/// Hotspot Wi-Fi on regional trains and buses (hotsplots and other CoovaChilli gateways) counts each session's
+/// data and slows it down past a limit. The gateway, the network's router, tells how much is left.
+public enum HotspotGateway {
+    /// Plain HTTP to the router's private address, which never leaves the train.
+    public static func statusURL(router: String) -> URL? { URL(string: "http://\(router)/json/status") }
+
+    /// `maxOctetsBeforeNextRate` is what's left before the slower rate, `inputOctets` and `outputOctets` what the
+    /// session used; `nil` when the answer has no such session, e.g. from a home router.
+    public static func parseStatus(_ data: Data) -> DataAllowance? {
+        struct Status: Decodable {
+            struct Session: Decodable {
+                let maxOctetsBeforeNextRate: Int64?
+                let maxNextRateDown: Int?
+            }
+            struct Accounting: Decodable {
+                let inputOctets: Int64?
+                let outputOctets: Int64?
+            }
+            let session: Session?
+            let accounting: Accounting?
+        }
+        guard let status = try? JSONDecoder().decode(Status.self, from: data),
+              let left = status.session?.maxOctetsBeforeNextRate, left >= 0
+        else { return nil }
+        let used = max(status.accounting?.inputOctets ?? 0, 0) + max(status.accounting?.outputOctets ?? 0, 0)
+        guard used + left > 0 else { return nil }
+        return DataAllowance(used: used, limit: used + left, throttledTo: status.session?.maxNextRateDown.flatMap { $0 > 0 ? $0 : nil })
     }
 }
 

@@ -21,6 +21,17 @@ struct DataAllowanceTests {
         #expect(try Icomera.parseAllowance(Data(jsonp.utf8)) == DataAllowance(used: 1000, limit: 2000))
     }
 
+    @Test func readsAHotspotGatewaysSession() {
+        let json = #"{"version":"1.0","clientState":1,"session":{"sessionTimeout":0,"maxOctetsBeforeNextRate":96327609,"maxRateDown":2048000,"maxNextRateDown":64000},"accounting":{"sessionTime":104,"inputOctets":3756650,"outputOctets":4772317}}"#
+        let allowance = HotspotGateway.parseStatus(Data(json.utf8))
+        #expect(allowance == DataAllowance(used: 8_528_967, limit: 104_856_576, throttledTo: 64000))
+        #expect(allowance?.remaining == 96_327_609)
+        // A home router answers with something else, or not at all.
+        #expect(HotspotGateway.parseStatus(Data(#"{"status":"ok"}"#.utf8)) == nil)
+        #expect(HotspotGateway.parseStatus(Data("<html>".utf8)) == nil)
+        #expect(HotspotGateway.statusURL(router: "10.0.0.1")?.absoluteString == "http://10.0.0.1/json/status")
+    }
+
     @Test func garbageThrows() {
         #expect(throws: (any Error).self) { try Icomera.parseAllowance(Data("<html>".utf8)) }
     }

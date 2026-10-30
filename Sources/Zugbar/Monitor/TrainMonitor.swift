@@ -860,10 +860,10 @@ final class TrainMonitor {
                 }
                 do {
                     ride.received(try await router.fetch(), at: Date())
-                    DataSaver.shared.routerAnswered(router, strings: strings)
+                    DataSaver.shared.routerAnswered(router)
                 } catch ProviderError.missingResource("GPS fix") {
                     ride.answeredWithoutFix()
-                    DataSaver.shared.routerAnswered(router, strings: strings)
+                    DataSaver.shared.routerAnswered(router)
                 } catch {
                     ride.unreachable()
                 }
