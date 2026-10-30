@@ -195,3 +195,26 @@ struct ConnectionRefreshTests {
         #expect(try await TransitousClient(loader: { _ in trip }).refresh(original) == original)
     }
 }
+
+struct OEBBNumberTests {
+    @Test func numbersEitherWay() throws {
+        let json = Data(#"""
+        {"trainType":"RJ","tripNumber":"7","latestStatus":{"speed":"143","gpsPosition":{"latitude":47.5,"longitude":13.1}},
+         "stations":[{"id":"1","name":{"all":"Ahornstadt"}},{"id":"2","name":{"all":"Buchenweiler"}}]}
+        """#.utf8)
+        let status = try OEBBRailnet.parse(combined: json, now: utc("2099-01-01T10:00:00Z"))
+        #expect(status.speed == 143)
+        #expect(status.position == Coordinate(latitude: 47.5, longitude: 13.1))
+    }
+
+    @Test func oddValuesDropOnlyThemselves() throws {
+        let json = Data(#"""
+        {"latestStatus":{"speed":true,"gpsPosition":{"latitude":"","longitude":{}}},
+         "stations":[{"id":"1","name":{"all":"Ahornstadt"}}]}
+        """#.utf8)
+        let status = try OEBBRailnet.parse(combined: json, now: utc("2099-01-01T10:00:00Z"))
+        #expect(status.speed == nil)
+        #expect(status.position == nil)
+        #expect(status.stops.count == 1)
+    }
+}
