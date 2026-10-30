@@ -268,6 +268,7 @@ struct Strings {
     var reload: String { t("Reload train data", "Zugdaten neu laden") }
     var takeNextTrain: String { t("Take the next train", "Nächsten Zug nehmen") }
     var connectionMissed: String { t("Connection missed", "Anschluss verpasst") }
+    var connectionCancelled: String { t("Connection cancelled", "Anschluss fällt aus") }
     var nextTrainTitle: String { t("Next train", "Nächster Zug") }
     func nextTrain(_ connection: Connection) -> String {
         var text = connection.name

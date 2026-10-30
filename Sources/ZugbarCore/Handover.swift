@@ -24,6 +24,17 @@ public enum Handover {
         return arrival <= now.addingTimeInterval(leeway)
     }
 
+    /// Whether an on-board train the clock says has reached the destination is still on its way there: its portal
+    /// hasn't passed the stop, and it's going at speed or its GPS is over a kilometer out, e.g. held at a signal
+    /// before the portal's times catch up. Only while the portal answers; once the Wi-Fi goes, the clock decides.
+    public static func isStillApproaching(plan: JourneyPlan?, status: TrainStatus) -> Bool {
+        guard !status.isOnline, let plan, let destination = destination(of: plan, in: status), !destination.passed
+        else { return false }
+        if let speed = status.speed, speed >= 20 { return true }
+        guard let position = status.position, let coordinate = destination.coordinate else { return false }
+        return position.distance(to: coordinate) > 1
+    }
+
     /// How long after its expected arrival a train followed online counts as arrived.
     public static let onlineGrace: TimeInterval = 2 * 60
 
@@ -51,9 +62,11 @@ public enum Handover {
     }
 
     /// A plan saved on an earlier day can come back when the same train number runs again;
-    /// its connection left long ago and isn't worth following.
+    /// its connection left long ago and isn't worth following. One whose ride isn't over yet still is, e.g. when the
+    /// laptop was closed on the first train and opened on the connection more than an hour after it left.
     private static func isCurrent(_ connection: Connection?, now: Date) -> Bool {
         guard let connection else { return false }
+        if let end = connection.finalArrival, end > now { return true }
         guard let departure = connection.departure else { return true }
         return departure > now.addingTimeInterval(-60 * 60)
     }
@@ -88,6 +101,20 @@ public enum Handover {
         return end.map { $0.addingTimeInterval(15 * 60) } ?? now.addingTimeInterval(60 * 60)
     }
 
+    /// Updates in a row that may fail for lack of network before the shown train is given up: about ten minutes at 30 s.
+    public static let outageLimit = 20
+
+    /// Whether the shown train stays up after `outages` updates in a row failed for lack of network. A train followed
+    /// online also stays through a longer dead zone, e.g. on a rural line, as long as its trip runs by the timetable:
+    /// its stops and times are still there, and router GPS still moves it. Until its fallback deadline, with `plan`
+    /// when only followed to the destination.
+    public static func staysUp(_ status: TrainStatus?, outages: Int, plan: JourneyPlan? = nil, now: Date) -> Bool {
+        guard outages > 0 else { return false }
+        if outages < outageLimit { return true }
+        guard let status, status.isOnline, status.stops.last?.arrival != nil else { return false }
+        return now < fallbackDeadline(for: status, plan: plan, now: now)
+    }
+
     /// Finds a connection listed by the ICE portal on a Transitous departure board, so it can be followed by
     /// trip; Transitous's name search only knows long-distance trains. Matches the departure time, then the
     /// name or line ("RE 6" and "RE6 (89736)"), or else the category and where the train is headed.
@@ -115,6 +142,12 @@ public enum Handover {
     public static func isMissed(_ connection: Connection, arrival: Date?) -> Bool {
         guard !connection.cancelled, let arrival, let departure = connection.departure else { return false }
         return departure < arrival
+    }
+
+    /// Whether to take the next train to the same place instead of the connection: it's cancelled, or it leaves
+    /// before the followed train gets there.
+    public static func needsReplacement(_ connection: Connection, arrival: Date?) -> Bool {
+        connection.cancelled || isMissed(connection, arrival: arrival)
     }
 
     /// The train to take instead of a missed one: of the direct trains leaving from `earliest` on, the one that

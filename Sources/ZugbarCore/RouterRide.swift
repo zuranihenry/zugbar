@@ -48,6 +48,14 @@ public struct RouterRide: Sendable {
         return fix
     }
 
+    /// Whether the map keeps going on from the last fix though it's no longer fresh: the router still answers and had a
+    /// fix within three minutes, e.g. in a tunnel or under a station roof. Longer without one, the times say more; and a
+    /// fresh fix that didn't move the train is off its line.
+    public func holdsPosition(at now: Date) -> Bool {
+        guard !isGone, freshFix(at: now) == nil, let fix, let fixReceived else { return false }
+        return fix.age + now.timeIntervalSince(fixReceived) < 3 * 60
+    }
+
     /// Seconds until the next poll: quick while fixes come in and right after a missed one, slow once it's gone.
     public var pollDelay: TimeInterval { failures < 3 ? 3 : 30 }
 
