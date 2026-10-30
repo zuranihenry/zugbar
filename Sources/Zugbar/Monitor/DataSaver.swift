@@ -17,6 +17,8 @@ final class DataSaver {
     @ObservationIgnored private var checked: Date?
     @ObservationIgnored private var warning = AllowanceWarning()
     @ObservationIgnored private var router: String?
+    /// Only on a train does Zugbar ask a network's router about its allowance, not at home or in the office.
+    @ObservationIgnored private var onTrain = false
     @ObservationIgnored private var gatewayTask: Task<Void, Never>?
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
 
@@ -45,6 +47,13 @@ final class DataSaver {
         }
     }
 
+    /// Whether a train is followed, on board or online; checked every second.
+    func followsTrain(_ onTrain: Bool) {
+        guard onTrain != self.onTrain else { return }
+        self.onTrain = onTrain
+        watchGateway()
+    }
+
     /// Path updates also come from lease renewals and VPNs; only another router is another network.
     private func networkChanged(lowDataMode: Bool) {
         self.lowDataMode = lowDataMode
@@ -53,22 +62,31 @@ final class DataSaver {
         self.router = router
         allowance = nil
         checked = nil
-        watchGateway(router)
+        watchGateway()
     }
 
-    /// Asks a hotspot gateway for the session's allowance once on joining, and every minute after if it has one.
-    private func watchGateway(_ router: String?) {
+    /// Asks a hotspot gateway for the session's allowance every minute. Before the login page there's no session
+    /// yet, so a gateway is asked again for a while; any other router only once.
+    private func watchGateway() {
         gatewayTask?.cancel()
-        guard let url = router.flatMap(HotspotGateway.statusURL) else { return }
+        gatewayTask = nil
+        guard onTrain, let url = router.flatMap(HotspotGateway.statusURL) else { return }
         gatewayTask = Task { [weak self] in
-            var isHotspot = false
+            var isGateway = false, waited = 0
             while !Task.isCancelled {
-                let found = (try? await URLSession.portal.loader(url)).flatMap(HotspotGateway.parseStatus)
+                let data = try? await URLSession.portal.loader(url)
                 guard let self, !Task.isCancelled else { return }
-                if found != nil { isHotspot = true }
-                // Most networks have no such gateway: one request, then quiet.
-                guard isHotspot else { return }
-                update(found)
+                if let found = data.flatMap(HotspotGateway.parseStatus) {
+                    isGateway = true
+                    update(found)
+                } else if let data, HotspotGateway.isGateway(data) {
+                    isGateway = true
+                    waited += 1
+                    if waited > 15, allowance == nil { return }
+                } else if !isGateway {
+                    return
+                }
+                // A failed read keeps what was there.
                 try? await Task.sleep(for: .seconds(60))
             }
         }

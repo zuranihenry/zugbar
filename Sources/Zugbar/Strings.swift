@@ -490,13 +490,15 @@ struct Strings {
         case .off: t("Off", "Aus")
         }
     }
+    /// Operators' "100 MB" are 100 × 1024 × 1024 bytes.
+    private static let megabyte = 1_048_576.0
     private func megabytes(_ bytes: Int64) -> String {
-        "\(Int((Double(bytes) / 1_000_000).rounded())) MB"
+        "\(Int((Double(bytes) / Self.megabyte).rounded())) MB"
     }
-    /// e.g. "62 of 105 MB left"
+    /// e.g. "62 of 100 MB left, then 64 kbit/s"
     func allowanceLeft(_ allowance: DataAllowance) -> String {
-        let limit = Int((Double(allowance.limit) / 1_000_000).rounded())
-        let left = Int((Double(allowance.remaining) / 1_000_000).rounded())
+        let limit = Int((Double(allowance.limit) / Self.megabyte).rounded())
+        let left = Int((Double(allowance.remaining) / Self.megabyte).rounded())
         var text = t("\(left) of \(limit) MB left", "\(left) von \(limit) MB übrig")
         if let rate = allowance.throttledTo {
             let speed = rate >= 1_000_000 ? "\(rate / 1_000_000) Mbit/s" : "\(rate / 1000) kbit/s"
@@ -504,7 +506,7 @@ struct Strings {
         }
         return text
     }
-    var savingData: String { t("saving data", "Daten sparen an") }
+    var savingData: String { t("Saving data", "Spart Daten") }
     func allowanceWarning(_ allowance: DataAllowance) -> (String, String) {
         (t("Wi-Fi data almost used up", "WLAN-Datenvolumen fast aufgebraucht"),
          t("\(megabytes(allowance.remaining)) left on this train's Wi-Fi. Pause downloads and cloud sync to make it last.",

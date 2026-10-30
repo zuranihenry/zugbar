@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import ZugbarCore
@@ -11,6 +12,7 @@ final class LinkProber {
 
     @ObservationIgnored private var probe = LinkProbe()
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var wakeObserver: NSObjectProtocol?
 
     /// Apple's own captive-portal check, which macOS asks anyway; it answers with a tiny page.
     nonisolated private static let url = URL(string: "https://captive.apple.com/hotspot-detect.html")!
@@ -28,6 +30,20 @@ final class LinkProber {
 
     var isRunning: Bool { task != nil }
 
+    init() {
+        // Requests lost while asleep and reconnecting say nothing about the train's Wi-Fi.
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.forget() }
+        }
+    }
+
+    private func forget() {
+        probe.reset()
+        reading = nil
+    }
+
     /// Starts measuring, or stops and forgets the last reading.
     func run(_ on: Bool) {
         guard on != isRunning else { return }
@@ -36,8 +52,7 @@ final class LinkProber {
         } else {
             task?.cancel()
             task = nil
-            probe.reset()
-            reading = nil
+            forget()
         }
     }
 
@@ -50,31 +65,49 @@ final class LinkProber {
 
     private func loop() async {
         while !Task.isCancelled {
-            let latency = await Self.measure()
+            let outcome = await Self.measure()
             guard !Task.isCancelled else { return }
-            probe.record(latency: latency, at: Date())
+            if case .answered(let latency) = outcome {
+                probe.record(latency: latency, at: Date())
+            } else if outcome == .lost {
+                probe.record(latency: nil, at: Date())
+            }
             _ = current(at: Date())
             try? await Task.sleep(for: .seconds(probe.interval(at: Date())))
         }
     }
 
-    /// Time from sending the request to the first byte of the answer, without setting up the connection, so a
-    /// fresh connection doesn't count as a slow one; `nil` when no answer came in time.
-    nonisolated private static func measure() async -> TimeInterval? {
+    private enum Outcome: Equatable {
+        /// Time from sending the request to the first byte of the answer.
+        case answered(TimeInterval)
+        case lost
+        /// The Mac isn't on a network at all, e.g. while the Wi-Fi reconnects: not the train's doing.
+        case offline
+    }
+
+    /// Times only the request, not setting up the connection, so a fresh connection doesn't count as a slow one.
+    nonisolated private static func measure() async -> Outcome {
         var request = URLRequest(url: url)
         request.httpMethod = "HEAD"
         let metrics = MetricsCatcher()
         let started = Date()
-        guard let (_, response) = try? await session.data(for: request, delegate: metrics),
-              let response = response as? HTTPURLResponse, response.statusCode == 200,
+        let response: URLResponse
+        do {
+            (_, response) = try await session.data(for: request, delegate: metrics)
+        } catch let error as URLError where [.notConnectedToInternet, .networkConnectionLost].contains(error.code) {
+            return .offline
+        } catch {
+            return .lost
+        }
+        guard let response = response as? HTTPURLResponse, response.statusCode == 200,
               // Not yet logged in, a captive portal redirects elsewhere: that's no internet either.
               response.url?.host == url.host
-        else { return nil }
+        else { return .lost }
         if let transaction = metrics.value?.transactionMetrics.last,
            let sent = transaction.requestStartDate, let answered = transaction.responseStartDate {
-            return answered.timeIntervalSince(sent)
+            return .answered(answered.timeIntervalSince(sent))
         }
-        return Date().timeIntervalSince(started)
+        return .answered(Date().timeIntervalSince(started))
     }
 }
 

@@ -58,6 +58,11 @@ public enum HotspotGateway {
 
     /// `maxOctetsBeforeNextRate` is what's left before the slower rate, `inputOctets` and `outputOctets` what the
     /// session used; `nil` when the answer has no such session, e.g. from a home router.
+    /// A CoovaChilli answer, with or without a session yet: before the login page, the session is missing.
+    public static func isGateway(_ data: Data) -> Bool {
+        ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["clientState"] != nil
+    }
+
     public static func parseStatus(_ data: Data) -> DataAllowance? {
         struct Status: Decodable {
             struct Session: Decodable {
@@ -107,10 +112,12 @@ public struct AllowanceWarning: Sendable {
 
     public init() {}
 
-    /// Whether to warn now. Warns again on a new session, where the router starts counting from zero.
+    /// Whether to warn now. Warns again on a new session, where the router starts counting from zero, or under a
+    /// different limit; not when a gateway's limit, added up from its counters, is off by a few bytes.
     public mutating func check(_ allowance: DataAllowance) -> Bool {
         defer { lastUsed = allowance.used }
-        if allowance.used < lastUsed || warnedLimit.map({ $0 != allowance.limit }) == true {
+        let otherLimit = warnedLimit.map { abs(Double($0 - allowance.limit)) > Double($0) * 0.05 } == true
+        if allowance.used < lastUsed || otherLimit {
             warnedLimit = nil
         }
         guard warnedLimit == nil, allowance.fractionUsed >= Self.threshold else { return false }

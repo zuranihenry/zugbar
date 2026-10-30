@@ -43,6 +43,8 @@ struct LinkProbeTests {
         #expect(reading?.quality == .weak)
         #expect(reading?.isSlow == false)
         #expect(reading?.lost == 2)
+        // Learning goes by the last request alone.
+        #expect(reading?.latest == .good)
 
         var later = probe
         var date = now
@@ -71,13 +73,13 @@ struct LinkProbeTests {
 
     @Test func theWorseOfPortalAndMeasurementWins() {
         let portal = Internet(current: .good, next: .weak, nextChange: start + 300)
-        let measured = probe([0.1, nil, nil]).0.reading(at: start + 30)
+        let measured = probe([0.1, nil, nil]).0.reading(at: start + 30)?.quality
         let combined = Internet.combining(portal: portal, measured: measured)
         #expect(combined?.current == Internet.Quality.none)
         // The portal's forecast stays.
         #expect(combined?.next == .weak)
 
-        let good = probe([0.1, 0.1]).0.reading(at: start + 15)
+        let good = probe([0.1, 0.1]).0.reading(at: start + 15)?.quality
         #expect(Internet.combining(portal: Internet(current: .weak), measured: good)?.current == .weak)
         #expect(Internet.combining(portal: nil, measured: good)?.current == .good)
         #expect(Internet.combining(portal: portal, measured: nil) == portal)

@@ -29,6 +29,9 @@ struct DataAllowanceTests {
         // A home router answers with something else, or not at all.
         #expect(HotspotGateway.parseStatus(Data(#"{"status":"ok"}"#.utf8)) == nil)
         #expect(HotspotGateway.parseStatus(Data("<html>".utf8)) == nil)
+        #expect(HotspotGateway.isGateway(Data(json.utf8)))
+        #expect(HotspotGateway.isGateway(Data(#"{"version":"1.0","clientState":0}"#.utf8)))
+        #expect(!HotspotGateway.isGateway(Data(#"{"status":"ok"}"#.utf8)))
         #expect(HotspotGateway.statusURL(router: "10.0.0.1")?.absoluteString == "http://10.0.0.1/json/status")
     }
 
@@ -50,5 +53,10 @@ struct DataAllowanceTests {
         let warnings = [50, 80, 90, 5, 85].map { warning.check(DataAllowance(used: $0, limit: 100)) }
         // Once at 80 %, and again in a new session, which counts from zero.
         #expect(warnings == [false, true, false, false, true])
+        // A gateway's limit wobbles by a few bytes between reads; another limit is another allowance.
+        let wobbled = warning.check(DataAllowance(used: 90, limit: 101))
+        let doubled = warning.check(DataAllowance(used: 180, limit: 200))
+        #expect(!wobbled)
+        #expect(doubled)
     }
 }

@@ -741,10 +741,11 @@ final class TrainMonitor {
         }
         journey.refreshConnectionIfNeeded()
         if !demoMode {
-            if !newStatus.isOnline {
-                newStatus.internet = Internet.combining(portal: newStatus.internet, measured: link.current(at: Date()))
-            }
+            let measured = newStatus.isOnline ? nil : link.current(at: Date())
+            // The forecast learns from the last request alone; the panel shows the last two minutes.
+            newStatus.internet = Internet.combining(portal: newStatus.internet, measured: measured?.latest)
             newStatus = wifi.update(newStatus, strings: strings)
+            newStatus.internet = Internet.combining(portal: newStatus.internet, measured: measured?.quality)
         }
         status = newStatus
         lastUpdate = Date()
@@ -1065,6 +1066,7 @@ extension TrainMonitor {
     /// often on a regional train's Wi-Fi with a data limit, or on a phone's hotspot, nor while saving data.
     fileprivate func updateLink() {
         let onBoard = status.map { !$0.isOnline } == true && !demoMode && !isSnapshot
+        DataSaver.shared.followsTrain(status != nil && !demoMode && !isSnapshot)
         link.run(onBoard && !DataSaver.shared.isOn)
         // With the portal silent, e.g. its own server down, only the measurement still knows.
         guard onBoard, var kept = status, let last = lastUpdate, now.timeIntervalSince(last) > 10,
