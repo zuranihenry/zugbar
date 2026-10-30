@@ -80,3 +80,39 @@ struct CutShortTests {
         #expect(status.destination == "Eibental Hbf")
     }
 }
+
+struct CityNameRetryTests {
+    let trip = Data(#"{"legs":[{"mode":"HIGHSPEED_RAIL","displayName":"ICE 7","from":{"name":"Fahrstedt Hbf","lat":49.1,"lon":8.1,"departure":"2099-10-06T10:00:00Z"},"to":{"name":"Hauptbahnhof (oben)","lat":48.2,"lon":9.2,"arrival":"2099-10-06T11:00:00Z"}}]}"#.utf8)
+
+    /// In a tunnel the lookup fails; the next update asks again.
+    @Test func asksAgainAfterANetworkError() async throws {
+        let lookups = Counter()
+        let trip = trip
+        let loader: DataLoader = { url in
+            guard url.path.contains("reverse-geocode") else { return trip }
+            await lookups.increment()
+            if await lookups.value == 1 { throw URLError(.timedOut) }
+            return Data(#"[{"name":"Ahornstadt Hauptbahnhof"}]"#.utf8)
+        }
+        let transitous = Transitous(tripID: "x", label: "ICE 7", loader: loader)
+        #expect(try await transitous.fetch().stops.last?.name == "Hauptbahnhof (oben)")
+        #expect(try await transitous.fetch().stops.last?.name == "Ahornstadt Hbf")
+        _ = try await transitous.fetch()
+        #expect(await lookups.value == 2)
+    }
+
+    /// An answer that can't be used isn't asked for again on every update.
+    @Test func keepsAnUnusableAnswer() async throws {
+        let lookups = Counter()
+        let trip = trip
+        let loader: DataLoader = { url in
+            guard url.path.contains("reverse-geocode") else { return trip }
+            await lookups.increment()
+            return Data("not json".utf8)
+        }
+        let transitous = Transitous(tripID: "x", label: "ICE 7", loader: loader)
+        _ = try await transitous.fetch()
+        #expect(try await transitous.fetch().stops.last?.name == "Hauptbahnhof (oben)")
+        #expect(await lookups.value == 1)
+    }
+}

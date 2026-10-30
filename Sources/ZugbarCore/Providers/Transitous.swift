@@ -71,8 +71,15 @@ public actor Transitous: TrainProvider {
             if betterNames[key] == nil {
                 var url = Self.base.appending(path: "v1/reverse-geocode")
                 url.appendQuery([URLQueryItem(name: "place", value: key), URLQueryItem(name: "type", value: "STOP")])
-                let names = (try? JSONDecoder().decode([NamedPlace].self, from: await loader(url)))?.map(\.name) ?? []
-                betterNames[key] = names.map(StationName.tidy).first { !StationName.lacksCity($0) } ?? result[index].name
+                do {
+                    let names = try JSONDecoder().decode([NamedPlace].self, from: await loader(url)).map(\.name)
+                    betterNames[key] = names.map(StationName.tidy).first { !StationName.lacksCity($0) } ?? result[index].name
+                } catch where error.isTransientNetwork {
+                    // In a tunnel or on weak Wi-Fi: ask again next update rather than keep the bare name all ride.
+                } catch {
+                    // An answer, just not a usable one: don't ask again on every update.
+                    betterNames[key] = result[index].name
+                }
             }
             result[index].name = betterNames[key] ?? result[index].name
         }
