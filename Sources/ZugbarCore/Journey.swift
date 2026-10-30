@@ -34,9 +34,16 @@ public struct JourneyPlan: Codable, Sendable, Equatable {
 
     /// Drops transfer warnings that aren't worse than one already sent. A delay swinging around the
     /// five-minute mark would otherwise send "tight connection" again every time it tips over.
+    /// Comfortable again after "at risk" or "cancelled" is an all-clear, sent once, and later warnings count anew.
     public mutating func withoutRepeatedWarnings(_ events: [JourneyEvent]) -> [JourneyEvent] {
         events.filter { event in
             guard case .transferChanged(_, let transfer) = event else { return true }
+            if transfer.severity == 0 {
+                // Not after just "tight": the change was never in doubt, and that's where a delay swings back and forth.
+                guard (warnedTransferLevel ?? 0) >= 2 else { return false }
+                warnedTransferLevel = 0
+                return true
+            }
             guard transfer.severity > (warnedTransferLevel ?? 0) else { return false }
             warnedTransferLevel = transfer.severity
             return true
@@ -222,9 +229,10 @@ public enum JourneyWatcher {
                 if settings.trackChanges, let from = oldConnection.track, let to = newConnection.track, from != to {
                     events.append(.connectionTrackChanged(name: newConnection.name, from: from, to: to))
                 }
-                let oldTransfer = oldConnection.transfer(after: before.arrival)
-                let newTransfer = newConnection.transfer(after: after.arrival)
-                if let newTransfer, newTransfer.severity > (oldTransfer?.severity ?? 0) {
+                let oldSeverity = oldConnection.transfer(after: before.arrival)?.severity ?? 0
+                // Worse than before, or comfortable again, e.g. because the connection waits.
+                if let newTransfer = newConnection.transfer(after: after.arrival),
+                   newTransfer.severity > oldSeverity || newTransfer.severity == 0 && oldSeverity > 0 {
                     events.append(.transferChanged(name: newConnection.name, newTransfer))
                 }
             }

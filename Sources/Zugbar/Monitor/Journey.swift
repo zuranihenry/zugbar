@@ -169,12 +169,20 @@ final class Journey {
             }
         }
         if plan != self.plan { self.plan = plan }
+        let destination = newStatus.stops.first { $0.id == plan.destinationStopID }
         for event in events {
             var (title, body) = strings.notification(event)
-            // The arrival reminder is the moment to think about the connection, so mention it.
-            if case .arrivingSoon = event, let connection = plan.connection,
-               let destination = newStatus.stops.first(where: { $0.id == plan.destinationStopID }) {
-                body = [body, strings.connectionSummary(connection, arrival: destination.arrival)].compactMap { $0 }.joined(separator: " · ")
+            if let connection = plan.connection, let destination {
+                switch event {
+                // The arrival reminder is the moment to think about the connection, so mention it.
+                case .arrivingSoon:
+                    body = [body, strings.connectionSummary(connection, arrival: destination.arrival)].compactMap { $0 }.joined(separator: " · ")
+                // What the change looks like now, without opening the menu bar.
+                case .transferChanged:
+                    body = [body, strings.transferDetails(connection, arrival: destination.arrival)]
+                        .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                default: break
+                }
             }
             Notifier.post(title: title, body: body)
         }

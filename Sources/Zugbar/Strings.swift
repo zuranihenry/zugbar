@@ -298,9 +298,21 @@ struct Strings {
             return (t("\(name): now \(signed(to)) min", "\(name): jetzt \(signed(to)) Min."), t("Was \(signed(from)) min", "Vorher \(signed(from)) Min."))
         case .connectionTrackChanged(let name, let from, let to):
             return (t("\(name) now leaves from track \(to)", "\(name) fährt jetzt von Gleis \(to)"), t("Instead of track \(from)", "Statt Gleis \(from)"))
+        case .transferChanged(let name, .comfortable(let minutes)):
+            return (t("\(name): connection reachable again", "\(name): Anschluss wieder erreichbar"),
+                    self.transfer(.comfortable(minutes: minutes)))
         case .transferChanged(let name, let transfer):
             return ("\(name): \(self.transfer(transfer))", nil)
         }
+    }
+
+    /// "departs 14:33 · Track 5 · arr. 14:31": the connection's departure next to the user's arrival, to judge the change by.
+    func transferDetails(_ connection: Connection, arrival: Date?) -> String {
+        var parts: [String] = []
+        if let departure = connection.departure { parts.append(departs(departure.formatted(.dateTime.hour().minute()))) }
+        if let track = connection.track { parts.append(self.track(track)) }
+        if let arrival { parts.append(arrives(arrival.formatted(.dateTime.hour().minute()))) }
+        return parts.joined(separator: " · ")
     }
 
     /// "then RE 1 at 19:15 from track 12 (10 min to change)"
