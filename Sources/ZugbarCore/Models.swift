@@ -75,8 +75,8 @@ public struct TrainStatus: Sendable, Equatable {
         }
         // Standing at a stop: on the track, where the section ended and the next one starts, not at the
         // station's own coordinate a little to the side.
-        if let route, let stop = stops.first(where: { $0.isCurrent(at: now) }), let coordinate = stop.coordinate {
-            return route.coordinate(at: route.distance(of: coordinate))
+        if let route, let index = stops.firstIndex(where: { $0.isCurrent(at: now) }), let along = stopAlongs(on: route)[index] {
+            return route.coordinate(at: along)
         }
         guard let nextIndex = nextStopIndex(at: now) else { return stops.last?.coordinate }
         let next = stops[nextIndex]

@@ -229,13 +229,10 @@ extension TrainStatus {
     /// the platform hasn't passed it. Stops without a coordinate go with their neighbors.
     public func passingStops(at along: Double, on route: Route, margin: Double = 400) -> TrainStatus {
         var status = self
-        var previous = 0.0
         var decided: [Int: Bool] = [:]
-        for index in status.stops.indices {
-            guard let coordinate = status.stops[index].coordinate else { continue }
-            // In order: a station the train comes back to is placed on the way back.
-            let stop = route.along(of: coordinate, from: previous)
-            previous = stop
+        // In order: a station the train comes back to is placed on the way back.
+        for (index, stop) in stopAlongs(on: route).enumerated() {
+            guard let stop else { continue }
             decided[index] = along > stop + margin
         }
         for index in status.stops.indices {
