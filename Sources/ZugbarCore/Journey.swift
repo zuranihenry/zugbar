@@ -212,8 +212,18 @@ public enum JourneyWatcher {
             status.stops.first { $0.id == id }
         }
 
+        /// The plan's stop in the previous update. Online, a stop without a station ID is known by its platform,
+        /// so its ID changes when the train changes track; its place in the trip and its name stay.
+        func previous(_ id: String?) -> Stop? {
+            if let before = stop(id, in: old) { return before }
+            guard old.provider == new.provider, let index = new.stops.firstIndex(where: { $0.id == id }) else { return nil }
+            let name = new.stops[index].name
+            if old.stops.indices.contains(index), StationName.same(old.stops[index].name, name) { return old.stops[index] }
+            return old.stops.first { StationName.same($0.name, name) && stop($0.id, in: new) == nil }
+        }
+
         // Before boarding: departure delay and track at the boarding stop.
-        if let before = stop(plan.boardingStopID, in: old), let after = stop(plan.boardingStopID, in: new), !after.passed {
+        if let before = previous(plan.boardingStopID), let after = stop(plan.boardingStopID, in: new), !after.passed {
             events += changes(before: before, after: after, departure: true, settings: settings, delays: &delays)
             if !after.cancelled, let oldDeparture = before.departure, let newDeparture = after.departure, newDeparture > newTime,
                let minutes = crossedReminder(settings.departureReminders, old: oldDeparture.timeIntervalSince(oldTime),
@@ -222,7 +232,7 @@ public enum JourneyWatcher {
             }
         }
 
-        if let before = stop(plan.destinationStopID, in: old), let after = stop(plan.destinationStopID, in: new), !after.passed {
+        if let before = previous(plan.destinationStopID), let after = stop(plan.destinationStopID, in: new), !after.passed {
             events += changes(before: before, after: after, departure: false, settings: settings, delays: &delays)
 
             if !after.cancelled, let oldArrival = before.arrival, let newArrival = after.arrival, newArrival > newTime,
@@ -360,8 +370,17 @@ extension TransitousClient {
     /// Re-fetches a connecting train and reads its departure at `station`.
     public func refresh(_ connection: Connection) async throws -> Connection {
         let status = try Transitous.parse(trip: await loader(Transitous.tripURL(connection.tripID, shape: false)), now: Date())
-        let wanted = Transitous.normalize(connection.station)
-        guard let stop = status.stops.first(where: { Transitous.normalize($0.name) == wanted }) else { return connection }
+        // The station is named as the followed train names it, which can differ ("Hauptbahnhof (oben)"); the
+        // planned departure came from this same trip, so it finds the stop when the name doesn't. The closest one,
+        // since S-Bahn stops can be a minute apart.
+        let byTime = connection.scheduledDeparture.flatMap { planned in
+            status.stops
+                .compactMap { stop in stop.scheduledDeparture.map { (stop, abs($0.timeIntervalSince(planned))) } }
+                .filter { $0.1 <= 90 }
+                .min { $0.1 < $1.1 }?.0
+        }
+        guard let stop = status.stops.first(where: { StationName.same($0.name, connection.station) }) ?? byTime
+        else { return connection }
         var updated = connection
         updated.scheduledDeparture = stop.scheduledDeparture ?? connection.scheduledDeparture
         updated.expectedDeparture = stop.expectedDeparture
