@@ -13,6 +13,8 @@ final class LinkProber {
     @ObservationIgnored private var probe = LinkProbe()
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
+    /// Before the first answer, failures are more likely a login page not yet passed or a firewall than the train.
+    @ObservationIgnored private var answeredOnce = false
 
     /// Apple's own captive-portal check, which macOS asks anyway; it answers with a tiny page.
     nonisolated private static let url = URL(string: "https://captive.apple.com/hotspot-detect.html")!
@@ -41,6 +43,7 @@ final class LinkProber {
 
     private func forget() {
         probe.reset()
+        answeredOnce = false
         reading = nil
     }
 
@@ -68,8 +71,9 @@ final class LinkProber {
             let outcome = await Self.measure()
             guard !Task.isCancelled else { return }
             if case .answered(let latency) = outcome {
+                answeredOnce = true
                 probe.record(latency: latency, at: Date())
-            } else if outcome == .lost {
+            } else if outcome == .lost, answeredOnce {
                 probe.record(latency: nil, at: Date())
             }
             _ = current(at: Date())
@@ -81,7 +85,7 @@ final class LinkProber {
         /// Time from sending the request to the first byte of the answer.
         case answered(TimeInterval)
         case lost
-        /// The Mac isn't on a network at all, e.g. while the Wi-Fi reconnects: not the train's doing.
+        /// Not the train's doing: the Mac isn't on a network at all, e.g. while the Wi-Fi reconnects, or not logged in.
         case offline
     }
 
@@ -99,10 +103,9 @@ final class LinkProber {
         } catch {
             return .lost
         }
-        guard let response = response as? HTTPURLResponse, response.statusCode == 200,
-              // Not yet logged in, a captive portal redirects elsewhere: that's no internet either.
-              response.url?.host == url.host
-        else { return .lost }
+        guard let response = response as? HTTPURLResponse, response.statusCode == 200 else { return .lost }
+        // Redirected elsewhere: a login page, not the train's uplink.
+        guard response.url?.host == url.host else { return .offline }
         if let transaction = metrics.value?.transactionMetrics.last,
            let sent = transaction.requestStartDate, let answered = transaction.responseStartDate {
             return .answered(answered.timeIntervalSince(sent))

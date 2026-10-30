@@ -179,6 +179,13 @@ extension JourneyPlan {
     public func resolved(in status: TrainStatus) -> JourneyPlan {
         var plan = self
         if let name = status.trainName { plan.trainName = name }
+        // Saved while online stops were named by platform, "3-…:6115:1:3", now by station, "3-…:6115".
+        func migrated(_ id: String?) -> String? {
+            guard let id, !status.stops.contains(where: { $0.id == id }) else { return id }
+            return status.stops.first { id.hasPrefix($0.id + ":") }?.id ?? id
+        }
+        plan.boardingStopID = migrated(plan.boardingStopID)
+        plan.destinationStopID = migrated(plan.destinationStopID)
         if let pending = pendingBoarding, plan.boardingStopID == nil,
            let stop = status.stops.first(where: { !$0.cancelled && StationName.same($0.name, pending) }) {
             plan.boardingStopID = stop.id

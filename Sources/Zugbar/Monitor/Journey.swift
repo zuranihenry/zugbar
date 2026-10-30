@@ -178,7 +178,7 @@ final class Journey {
                 case .arrivingSoon:
                     body = [body, strings.connectionSummary(connection, arrival: destination.arrival)].compactMap { $0 }.joined(separator: " · ")
                 // What the change looks like now, without opening the menu bar.
-                case .transferChanged:
+                case .transferChanged(_, let transfer) where transfer != .cancelled:
                     body = [body, strings.transferDetails(connection, arrival: destination.arrival)]
                         .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
                 default: break

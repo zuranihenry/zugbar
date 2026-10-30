@@ -53,8 +53,11 @@ extension Icomera {
 /// Hotspot Wi-Fi on regional trains and buses (hotsplots and other CoovaChilli gateways) counts each session's
 /// data and slows it down past a limit. The gateway, the network's router, tells how much is left.
 public enum HotspotGateway {
-    /// Plain HTTP to the router's private address, which never leaves the train.
-    public static func statusURL(router: String) -> URL? { URL(string: "http://\(router)/json/status") }
+    /// Plain HTTP to the router's private address, which never leaves the train: CoovaChilli's own port first,
+    /// which answers before and after the login, then the usual one.
+    public static func statusURLs(router: String) -> [URL] {
+        ["http://\(router):3990/json/status", "http://\(router)/json/status"].compactMap(URL.init(string:))
+    }
 
     /// `maxOctetsBeforeNextRate` is what's left before the slower rate, `inputOctets` and `outputOctets` what the
     /// session used; `nil` when the answer has no such session, e.g. from a home router.

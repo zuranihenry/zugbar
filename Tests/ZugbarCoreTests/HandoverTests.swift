@@ -158,6 +158,17 @@ struct HandoverTests {
         #expect(plan.resolved(in: portal).trainName == "ICE1001")
     }
 
+    @Test func plansSavedWithPlatformIDsFindTheirStations() {
+        let stops = ["0-de:1:100", "1-de:1:200", "2-de:1:300"].map { Stop(id: $0, name: $0, passed: false) }
+        let status = TrainStatus(provider: "Transitous", trainName: "RE 7", stops: stops)
+        let plan = JourneyPlan(trainName: "RE 7", boardingStopID: "0-de:1:100:1:2", destinationStopID: "2-de:1:300:9:1")
+        let resolved = plan.resolved(in: status)
+        #expect(resolved.boardingStopID == "0-de:1:100")
+        #expect(resolved.destinationStopID == "2-de:1:300")
+        // Another station starting alike isn't the same one.
+        #expect(JourneyPlan(trainName: "RE 7", destinationStopID: "2-de:1:3000").resolved(in: status).destinationStopID == "2-de:1:3000")
+    }
+
     @Test func fallbackLastsUntilAQuarterHourAfterTheLastStop() {
         #expect(Handover.fallbackDeadline(for: ice(arrival: minutes(5)), now: now) == minutes(75))
         let unknown = TrainStatus(provider: "DB", trainName: "ICE 1356", stops: [])

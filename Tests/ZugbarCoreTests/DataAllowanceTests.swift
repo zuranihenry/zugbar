@@ -32,7 +32,8 @@ struct DataAllowanceTests {
         #expect(HotspotGateway.isGateway(Data(json.utf8)))
         #expect(HotspotGateway.isGateway(Data(#"{"version":"1.0","clientState":0}"#.utf8)))
         #expect(!HotspotGateway.isGateway(Data(#"{"status":"ok"}"#.utf8)))
-        #expect(HotspotGateway.statusURL(router: "10.0.0.1")?.absoluteString == "http://10.0.0.1/json/status")
+        #expect(HotspotGateway.statusURLs(router: "10.0.0.1").map(\.absoluteString)
+            == ["http://10.0.0.1:3990/json/status", "http://10.0.0.1/json/status"])
     }
 
     @Test func garbageThrows() {

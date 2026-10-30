@@ -70,11 +70,17 @@ final class DataSaver {
     private func watchGateway() {
         gatewayTask?.cancel()
         gatewayTask = nil
-        guard onTrain, let url = router.flatMap(HotspotGateway.statusURL) else { return }
+        guard onTrain, let router else { return }
+        var urls = HotspotGateway.statusURLs(router: router)
         gatewayTask = Task { [weak self] in
             var isGateway = false, waited = 0
             while !Task.isCancelled {
-                let data = try? await URLSession.portal.loader(url)
+                var data: Data?
+                for url in urls {
+                    data = try? await URLSession.portal.loader(url)
+                    // Once one answers like a gateway, only that one.
+                    if let data, HotspotGateway.isGateway(data) { urls = [url]; break }
+                }
                 guard let self, !Task.isCancelled else { return }
                 if let found = data.flatMap(HotspotGateway.parseStatus) {
                     isGateway = true

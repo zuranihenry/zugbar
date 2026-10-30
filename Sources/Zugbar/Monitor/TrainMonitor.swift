@@ -449,6 +449,10 @@ final class TrainMonitor {
                           Handover.isDue(plan: journey.plan, status: status, now: Date(), leeway: Self.arrivalLeeway) {
                     // The train's Wi-Fi went away as it arrived at the destination: the user is changing trains.
                     followConnection()
+                } else if let search = replacementSearch, search.networkError, !findingReplacement,
+                          search.tripID == journey.plan?.connection?.tripID, Date().timeIntervalSince(search.at) > 120 {
+                    // The search for the next train failed without network, e.g. right after waking: again.
+                    followConnection()
                 } else if let manualTarget {
                     await lookUp(manualTarget)
                 } else if let train = fallbackTrain {
@@ -603,6 +607,7 @@ final class TrainMonitor {
     private func followConnection() {
         guard !demoMode, !findingReplacement, let plan = journey.plan, let connection = plan.connection else { return }
         let arrival = status?.stops.first { $0.id == plan.destinationStopID }?.arrival
+            ?? replacementSearch.flatMap { $0.tripID == connection.tripID ? $0.after : nil }
         if Handover.needsReplacement(connection, arrival: arrival) {
             // The connection is cancelled, or left before the train got in: take the next train to the same place
             // instead. Searched once per connection, again only after a network error.
@@ -614,7 +619,7 @@ final class TrainMonitor {
             let title = connection.cancelled ? strings.connectionCancelled : strings.connectionMissed
             Task {
                 let (next, networkError) = await replacement(for: connection, after: arrival ?? Date())
-                replacementSearch = (connection.tripID, Date(), networkError)
+                replacementSearch = (connection.tripID, Date(), networkError, arrival ?? Date())
                 findingReplacement = false
                 if let next {
                     Notifier.post(title: title, body: strings.nextTrain(next))
@@ -622,6 +627,8 @@ final class TrainMonitor {
                     followConnection()
                 } else if !networkError {
                     Notifier.post(title: title, body: strings.noNextTrain)
+                    // Nothing to change to: the train is then followed only to the destination, as without a connection.
+                    if journey.plan?.connection?.tripID == connection.tripID { journey.plan?.connection = nil }
                 }
             }
             return
@@ -639,7 +646,8 @@ final class TrainMonitor {
     }
 
     @ObservationIgnored private var findingReplacement = false
-    @ObservationIgnored private var replacementSearch: (tripID: String, at: Date, networkError: Bool)?
+    /// `after`: when the train got in, kept for a retry once its status is gone.
+    @ObservationIgnored private var replacementSearch: (tripID: String, at: Date, networkError: Bool, after: Date)?
 
     /// The earliest direct train after `connection` from the same station to the same final stop.
     /// The next direct train between the connection's stops, and whether the search failed for lack of network.
@@ -1096,7 +1104,12 @@ extension TrainMonitor {
     /// often on a regional train's Wi-Fi with a data limit, or on a phone's hotspot, nor while saving data.
     fileprivate func updateLink() {
         let onBoard = status.map { !$0.isOnline } == true && !demoMode && !isSnapshot
-        DataSaver.shared.followsTrain(status != nil && !demoMode && !isSnapshot)
+        // On board, or on a train followed online that's running now: not one looked up for later at home.
+        let underway = status.map { status in
+            status.isOnline && (status.stops.first?.departure).map { $0 <= now } == true
+                && (status.stops.last?.arrival).map { $0 >= now } == true
+        } == true
+        DataSaver.shared.followsTrain(!demoMode && !isSnapshot && (onBoard || followsPick || underway))
         link.run(onBoard && !DataSaver.shared.isOn)
         // With the portal silent, e.g. its own server down, only the measurement still knows.
         guard onBoard, var kept = status, let last = lastUpdate, now.timeIntervalSince(last) > 10,
