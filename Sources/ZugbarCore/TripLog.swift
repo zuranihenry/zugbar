@@ -127,14 +127,15 @@ public struct TripRecorder: Sendable {
 
     /// Whether `status` is the ride `paused` was recording: the same train, to the same last stop, on the same
     /// timetable where the trip began. The next train on a line, or one going back the other way, often has the
-    /// same name on regional portals.
+    /// same name on regional portals. A portal without times there can't tell runs apart, so the ride is split.
     static func sameRun(_ paused: Ongoing, _ status: TrainStatus, at date: Date) -> Bool {
         guard date.timeIntervalSince(paused.last) <= resumeWithin, let train = status.trainName,
               TrainName.same(paused.train, train), let last = status.stops.last?.name, last == paused.status.stops.last?.name,
               let before = paused.status.stops.first(where: { $0.name == paused.from }),
+              let time = before.scheduledDeparture ?? before.scheduledArrival,
               let now = status.stops.first(where: { $0.name == paused.from })
         else { return false }
-        return (before.scheduledDeparture ?? before.scheduledArrival) == (now.scheduledDeparture ?? now.scheduledArrival)
+        return time == (now.scheduledDeparture ?? now.scheduledArrival)
     }
 
     /// The trip on board so far, for the live chart.

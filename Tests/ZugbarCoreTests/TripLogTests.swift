@@ -158,6 +158,24 @@ struct TripLogTests {
         #expect(later.current?.id != ended.id)
     }
 
+    @Test func withoutTimesWhereItBeganANewTrip() throws {
+        var recorder = TripRecorder()
+        func untimed(_ minute: Double) -> TrainStatus {
+            var status = onBoard(minute, latitude: 50 + minute / 60, speed: 111)
+            status.stops[0].scheduledDeparture = nil
+            return status
+        }
+        for minute in stride(from: 0.0, through: 15, by: 1) {
+            _ = recorder.update(untimed(minute), at: start.addingTimeInterval(minute * 60))
+        }
+        let idle = recorder.finishIfIdle(at: start.addingTimeInterval(36 * 60))
+        let firstPart = try #require(idle)
+        // Nothing tells this run from the next one of the same name.
+        _ = recorder.update(untimed(55), at: start.addingTimeInterval(55 * 60))
+        #expect(recorder.current?.id != firstPart.id)
+        #expect(recorder.current?.distance == 0)
+    }
+
     @Test func ignoresGlimpsesAndJumps() {
         var recorder = TripRecorder()
         _ = recorder.update(onBoard(0, latitude: 50, speed: 0), at: start)
