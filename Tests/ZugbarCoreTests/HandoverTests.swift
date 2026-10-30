@@ -60,6 +60,22 @@ struct HandoverTests {
         #expect(!Handover.isDueAfterTripEnded(plan: plan, trainName: "ICE 1356", now: tomorrow))
     }
 
+    @Test func connectionStillUnderwayIsFollowedAfterAWake() {
+        // Closed on the ICE, opened on the RE 80 minutes after it left: it's still 40 minutes from its last stop.
+        var long = plan
+        long.connection?.finalArrival = minutes(130)
+        let woken = minutes(90)
+        #expect(Handover.isDue(plan: long, status: ice(arrival: minutes(5)), now: woken))
+        #expect(Handover.isDueAfterTripEnded(plan: long, trainName: "ICE 1356", now: woken))
+        // Once it got there, it's over.
+        #expect(!Handover.isDue(plan: long, status: ice(arrival: minutes(5)), now: minutes(135)))
+        // Without an arrival time, an hour after leaving is as long as it counts.
+        var noArrival = long
+        noArrival.connection?.finalArrival = nil
+        #expect(!Handover.isDue(plan: noArrival, status: ice(arrival: minutes(5)), now: woken))
+        #expect(Handover.isDue(plan: noArrival, status: ice(arrival: minutes(5)), now: minutes(60)))
+    }
+
     @Test func dueAfterTheFollowedTripEnded() {
         #expect(Handover.isDueAfterTripEnded(plan: plan, trainName: "ICE 1356", now: now))
         #expect(Handover.isDueAfterTripEnded(plan: plan, trainName: "ICE 1356 → München Hbf", now: now))

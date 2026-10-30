@@ -51,9 +51,11 @@ public enum Handover {
     }
 
     /// A plan saved on an earlier day can come back when the same train number runs again;
-    /// its connection left long ago and isn't worth following.
+    /// its connection left long ago and isn't worth following. One whose ride isn't over yet still is, e.g. when the
+    /// laptop was closed on the first train and opened on the connection more than an hour after it left.
     private static func isCurrent(_ connection: Connection?, now: Date) -> Bool {
         guard let connection else { return false }
+        if let end = connection.finalArrival, end > now { return true }
         guard let departure = connection.departure else { return true }
         return departure > now.addingTimeInterval(-60 * 60)
     }
