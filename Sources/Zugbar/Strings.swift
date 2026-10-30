@@ -542,8 +542,8 @@ struct Strings {
     var data: String { t("Data", "Daten") }
     var dataSaving: String { t("Save data", "Daten sparen") }
     var dataSavingHint: String {
-        t("Asks for updates half as often and leaves out speed limits from OpenStreetMap, the list of moving trains and the update check. Automatic: where the train Wi-Fi has a data limit, or Low Data Mode is on.",
-          "Fragt halb so oft nach und lässt Tempolimits von OpenStreetMap, die Liste fahrender Züge und die Update-Suche weg. Automatisch: wo das Zug-WLAN ein Datenlimit hat oder der Datensparmodus an ist.")
+        t("Asks for updates half as often, leaves out speed limits from OpenStreetMap, the list of moving trains and the update check, and the map no longer zooms in on stops by itself. Automatic: where the train Wi-Fi has a data limit, or Low Data Mode is on.",
+          "Fragt halb so oft nach, lässt Tempolimits von OpenStreetMap, die Liste fahrender Züge und die Update-Suche weg, und die Karte zoomt nicht mehr von selbst auf Halte. Automatisch: wo das Zug-WLAN ein Datenlimit hat oder der Datensparmodus an ist.")
     }
     func name(of saving: DataSaving) -> String {
         switch saving {

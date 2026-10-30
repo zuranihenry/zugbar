@@ -24,6 +24,13 @@ struct MapZoomTests {
         #expect(MapZoom.closeIn(speed: nil, toNextStop: 2_000) == 6_000)
     }
 
+    @Test func savingDataKeepsTheUsersZoom() {
+        // Closing in on a station loads the town's detailed map; while saving data the map stays where the user put it.
+        #expect(MapZoom.closeIn(speed: 0, toNextStop: 200, savingData: true) == nil)
+        #expect(MapZoom.closeIn(speed: 15, toNextStop: nil, savingData: true) == nil)
+        #expect(MapZoom.closeIn(speed: 0, toNextStop: 200, savingData: false) == 1_500)
+    }
+
     @Test func easesWithoutJumps() {
         // A frame at 30 Hz moves well under the 3 % the map takes for a zoom by the user.
         let step = MapZoom.eased(from: 40_000, to: 1_500, elapsed: 1.0 / 30)
