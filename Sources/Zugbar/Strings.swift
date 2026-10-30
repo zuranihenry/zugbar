@@ -412,8 +412,18 @@ struct Strings {
     }
     var settingsTitle: String { t("Zugbar Settings", "Zugbar-Einstellungen") }
 
-    func shareText(_ status: TrainStatus, destination: Stop?, connection: Connection?) -> String {
+    /// `waitingAt`: the stop the user is still waiting at for the train, whose departure matters more then.
+    func shareText(_ status: TrainStatus, destination: Stop?, connection: Connection?, waitingAt boarding: Stop? = nil) -> String {
         var text = t("I'm on \(status.trainName ?? "the train")", "Ich sitze im \(status.trainName ?? "Zug")")
+        if let boarding, !boarding.cancelled, let departure = boarding.departure {
+            let time = departure.formatted(.dateTime.hour().minute())
+            let train = status.trainName ?? t("the train", "dem Zug")
+            text = t("I'm taking \(train) from \(boarding.name) at \(time)", "Ich fahre um \(time) mit \(train) ab \(boarding.name)")
+            var extras: [String] = []
+            if let delay = boarding.departureDelayMinutes, delay > 0 { extras.append("+\(delay)") }
+            if let track = boarding.track { extras.append(t("track \(track)", "Gleis \(track)")) }
+            if !extras.isEmpty { text += " (" + extras.joined(separator: ", ") + ")" }
+        }
         if let destination, let arrival = destination.arrival {
             let time = arrival.formatted(.dateTime.hour().minute())
             text += t(", arriving at \(destination.name) at \(time)", " und komme um \(time) in \(destination.name) an")
