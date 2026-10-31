@@ -201,10 +201,11 @@ struct TrainMap: View {
     }
 
     /// Following the train: north up, or turned with the train when that's switched on. Zooms in on its own while
-    /// the train crawls or nears its next stop.
+    /// the train crawls or nears its next stop, unless saving data.
     private func camera(at position: Coordinate) -> MapCamera {
         let toStop = status.nextStop?.coordinate.map { position.distance(to: $0) * 1000 }
-        let distance = monitor.map.cameraDistance(closeIn: MapZoom.closeIn(speed: monitor.displaySpeed, toNextStop: toStop), at: Date())
+        let closeIn = MapZoom.closeIn(speed: monitor.displaySpeed, toNextStop: toStop, savingData: DataSaver.shared.isOn)
+        let distance = monitor.map.cameraDistance(closeIn: closeIn, at: Date())
         return MapCamera(centerCoordinate: CLLocationCoordinate2D(position), distance: distance,
                          heading: monitor.map.cameraHeading(toward: headingUp ? monitor.map.heading.degrees ?? 0 : 0, at: Date()))
     }

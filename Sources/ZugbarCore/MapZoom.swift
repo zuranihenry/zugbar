@@ -7,8 +7,10 @@ public enum MapZoom {
     static let closest = 1_500.0
 
     /// Camera distance for a train at `speed` km/h that is `toNextStop` meters from its next stop; it only applies
-    /// where it's closer than the user's own zoom. Nil when neither is known.
-    public static func closeIn(speed: Int?, toNextStop meters: Double?) -> Double? {
+    /// where it's closer than the user's own zoom. Nil when neither is known, or while saving data: closing in on
+    /// each stop loads that town's detailed map, most of what following a train downloads.
+    public static func closeIn(speed: Int?, toNextStop meters: Double?, savingData: Bool = false) -> Double? {
+        guard !savingData else { return nil }
         // Grows with the square of the speed: 3 km at 10 km/h, 15 at 30, about 40 at 50.
         let bySpeed = speed.map { closest * (1 + pow(Double(max($0, 0)) / 10, 2)) }
         // Wide enough to keep the stop in view with the train in the middle.
