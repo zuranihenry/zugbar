@@ -35,24 +35,39 @@ public actor Transitous: TrainProvider {
     /// Name searches download a map of the moving trains (megabytes), so what they found is remembered for the
     /// whole app: every new lookup, Reload or network change would otherwise search again.
     static let found = FoundTrips()
+    static let routes = TripRoutes()
 
     public func fetch() async throws -> TrainStatus {
         let now = Date()
+        var searched = false
         if tripID == nil, let query {
             switch await Self.found.lookup(query, at: now) {
             case .found(let id): tripID = id
             case .notRunning: throw LookupError.notRunning
             case nil:
                 tripID = try await findTrip(named: query, now: now)
+                searched = true
                 if tripID == nil { await Self.found.notRunning(query, at: now) }
             }
         }
-        guard let tripID else { throw LookupError.notRunning }
+        guard var tripID else { throw LookupError.notRunning }
 
-        var url = Self.base.appending(path: "v6/trip")
-        url.appendQuery([URLQueryItem(name: "tripId", value: tripID)])
-        var status = try Self.parse(trip: await loader(url), now: now)
+        // The shape only the first time: it's nearly all of the data.
+        var shape = await Self.routes.lookup(tripID) == nil
+        let data: Data
+        do {
+            data = try await loader(Self.tripURL(tripID, shape: shape))
+        } catch ProviderError.badStatus(404) {
+            // Just searched: another search now would find the same trip.
+            guard let query, !searched else { throw ProviderError.badStatus(404) }
+            (tripID, data) = try await searchAgain(query, after: tripID, now: now)
+            shape = true
+        }
+        var status = try Self.parse(trip: data, now: now)
+        if shape { await Self.routes.store(status.route, for: tripID) } else { status.route = await Self.routes.lookup(tripID) ?? nil }
         status.stops = await withCityNames(status.stops)
+        // A train cut short may end at one of those stops.
+        if let end = Self.cutShortEnd(of: status.stops) { status.destination = end }
 
         if let end = status.stops.last?.arrival, now > end.addingTimeInterval(15 * 60) {
             if let query { await Self.found.ended(query, at: now) }
@@ -60,6 +75,24 @@ public actor Transitous: TrainProvider {
         }
         if let query { await Self.found.store(query, tripID: tripID, until: (status.stops.last?.arrival ?? now).addingTimeInterval(15 * 60)) }
         return status
+    }
+
+    /// Transitous renumbers trips when it reloads a feed, so a trip found by name can vanish under its old ID.
+    /// Searches the name once more; when that finds nothing new, waits as for a train that isn't running,
+    /// so a dead ID doesn't cost a map download on every update.
+    private func searchAgain(_ query: String, after dead: String, now: Date) async throws -> (String, Data) {
+        await Self.found.ended(query, at: now)
+        tripID = nil
+        do {
+            guard let found = try await findTrip(named: query, now: now), found != dead else { throw LookupError.notRunning }
+            // Another trip: its shape too.
+            let data = try await loader(Self.tripURL(found, shape: true))
+            tripID = found
+            return (found, data)
+        } catch LookupError.notRunning, ProviderError.badStatus(404) {
+            await Self.found.notRunning(query, at: now)
+            throw LookupError.notRunning
+        }
     }
 
     /// Replaces names like "Hauptbahnhof (oben)" with the nearest proper station name ("Stuttgart Hbf").
@@ -71,8 +104,15 @@ public actor Transitous: TrainProvider {
             if betterNames[key] == nil {
                 var url = Self.base.appending(path: "v1/reverse-geocode")
                 url.appendQuery([URLQueryItem(name: "place", value: key), URLQueryItem(name: "type", value: "STOP")])
-                let names = (try? JSONDecoder().decode([NamedPlace].self, from: await loader(url)))?.map(\.name) ?? []
-                betterNames[key] = names.map(StationName.tidy).first { !StationName.lacksCity($0) } ?? result[index].name
+                do {
+                    let names = try JSONDecoder().decode([NamedPlace].self, from: await loader(url)).map(\.name)
+                    betterNames[key] = names.map(StationName.tidy).first { !StationName.lacksCity($0) } ?? result[index].name
+                } catch where error.isTransientNetwork {
+                    // In a tunnel or on weak Wi-Fi: ask again next update rather than keep the bare name all ride.
+                } catch {
+                    // An answer, just not a usable one: don't ask again on every update.
+                    betterNames[key] = result[index].name
+                }
             }
             result[index].name = betterNames[key] ?? result[index].name
         }
@@ -158,6 +198,14 @@ public actor Transitous: TrainProvider {
         return ranked.first.map { TripMatch(tripID: $0.trip.tripId, ambiguous: numberOnly) }
     }
 
+    /// A trip's stops and times, and with `shape` the line it runs along: almost all of the data.
+    static func tripURL(_ tripID: String, shape: Bool) -> URL {
+        var url = base.appending(path: "v6/trip")
+        url.appendQuery([URLQueryItem(name: "tripId", value: tripID)]
+            + (shape ? [] : [URLQueryItem(name: "detailedLegs", value: "false")]))
+        return url
+    }
+
     public static func normalize(_ text: String) -> String {
         text.uppercased().filter { !$0.isWhitespace }
     }
@@ -174,7 +222,8 @@ public actor Transitous: TrainProvider {
         let tripCancelled = leg.cancelled ?? false
         let stops = places.enumerated().map { index, place in
             Stop(
-                id: "\(index)-\(place.stopId ?? place.name)",
+                // The station rather than its platform: the platform's ID changes when the train changes track.
+                id: "\(index)-\(place.parentId ?? place.stopId ?? place.name)",
                 name: StationName.tidy(place.name),
                 scheduledArrival: place.scheduledArrival,
                 expectedArrival: place.arrival,
@@ -200,12 +249,18 @@ public actor Transitous: TrainProvider {
             provider: "Transitous",
             trainName: leg.displayName ?? leg.tripShortName,
             // Some trips (e.g. TGVs) come with an empty headsign.
-            destination: StationName.tidy(leg.headsign.flatMap { $0.isEmpty ? nil : $0 } ?? leg.to.name),
+            destination: cutShortEnd(of: stops) ?? StationName.tidy(leg.headsign.flatMap { $0.isEmpty ? nil : $0 } ?? leg.to.name),
             stops: stops,
             nextStopID: stops.first { !$0.passed && !$0.cancelled }?.id,
             progress: progress,
             route: route.flatMap { $0.points.count > 1 ? $0 : nil }
         )
+    }
+
+    /// A train cut short keeps its headsign; it now ends at the last stop it still calls at. A trip cancelled
+    /// as a whole has no such stop and keeps its destination.
+    static func cutShortEnd(of stops: [Stop]) -> String? {
+        stops.last?.cancelled == true ? stops.last(where: { !$0.cancelled })?.name : nil
     }
 
     struct MapSegment: Decodable {
@@ -243,6 +298,8 @@ public actor Transitous: TrainProvider {
     struct Place: Decodable {
         let name: String
         let stopId: String?
+        /// The station a platform's `stopId` belongs to; not every feed gives one.
+        let parentId: String?
         let arrival: Date?
         let departure: Date?
         let scheduledArrival: Date?

@@ -175,7 +175,7 @@ final class SpeedEstimator {
         profileState = .loading
         let points = route.points(from: estimate.startDistance, to: estimate.endDistance)
         let cacheKey = LimitCache.key(for: points)
-        let overpass = overpass, cache = limitCache
+        let overpass = overpass, cache = limitCache, savingData = DataSaver.shared.isOn
         Task {
             // Matching tracks to the route is a bit of work, so keep it off the main thread.
             let result: Result<[Int]?, Error> = await Task.detached {
@@ -188,6 +188,8 @@ final class SpeedEstimator {
                     await cache.store(limits, for: cacheKey)
                     return .success(limits)
                 }
+                // Hundreds of kilobytes a section: not on Wi-Fi with a data limit.
+                guard !savingData else { return .success(nil) }
                 do {
                     let tracks = try await overpass.tracks(along: points)
                     // No tagged tracks is an answer too: remembered, so it isn't asked again every two minutes.

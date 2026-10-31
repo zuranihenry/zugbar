@@ -14,8 +14,18 @@ final class CoachSectors {
         let departure: Date
     }
 
+    /// A spot as asked about. After a platform change the coaches stop in other sectors, so the new platform is
+    /// asked about on its own, without waiting out the old one's half hour.
+    private struct Asked: Hashable {
+        let spot: Spot
+        let platform: String?
+    }
+
     private(set) var sequences: [Spot: CoachSequence] = [:]
-    @ObservationIgnored private var policy = CoachSequencePolicy<Spot>()
+    /// The platform the cards had when each sequence was asked for. DB often knows of a platform change before
+    /// Transitous does; a sequence only counts as outdated once the cards' own track changed after loading it.
+    @ObservationIgnored private var loadedFor: [Spot: String?] = [:]
+    @ObservationIgnored private var policy = CoachSequencePolicy<Asked>()
     @ObservationIgnored private var loading = false
     /// DB station numbers by stop name and train category, which don't change.
     @ObservationIgnored private var stations: [String: String] = [:]
@@ -25,21 +35,35 @@ final class CoachSectors {
         self.client = client
     }
 
-    /// The coach sequence of `train` leaving `stop` at `departure`, once it's been loaded.
-    func sequence(train: String, at stop: Stop, departure: Date?) -> CoachSequence? {
-        departure.flatMap { sequences[Spot(train: train, stop: stop.name, departure: $0)] }
+    /// The coach sequence of `train` leaving `stop` at `departure` from `track`, once it's been loaded.
+    /// Nil while DB still has it on another platform.
+    func sequence(train: String, at stop: Stop, departure: Date?, track: String?) -> CoachSequence? {
+        guard let departure else { return nil }
+        let spot = Spot(train: train, stop: stop.name, departure: departure)
+        return isCurrent(spot, track: track) ? sequences[spot] : nil
     }
 
-    /// Asks for the coach sequence of `train` leaving `stop` at its planned `departure`, when the policy allows.
-    /// A train's last stop has no departure, and no coach sequence either.
-    func load(train: String, at stop: Stop, departure: Date?, now: Date) {
+    private func isCurrent(_ spot: Spot, track: String?) -> Bool {
+        guard let sequence = sequences[spot] else { return false }
+        return sequence.fits(track: track) || loadedFor[spot].map { $0 == CoachSequence.platform(track) } == true
+    }
+
+    /// Asks for the coach sequence of `train` leaving `stop` at its planned `departure` from `track`, when the policy
+    /// allows. A train's last stop has no departure, and no coach sequence either.
+    func load(train: String, at stop: Stop, departure: Date?, track: String?, now: Date) {
         guard !loading, let departure, let category = TrainStatus(provider: "", trainName: train).trainNumber?.category
         else { return }
         let spot = Spot(train: train, stop: stop.name, departure: departure)
-        guard policy.mayAsk(spot, departure: departure, now: now) else { return }
+        // A sequence loaded for another platform is asked about again; a track that only just became known isn't a change.
+        let moved = sequences[spot] != nil && !isCurrent(spot, track: track)
+        let asked = Asked(spot: spot, platform: moved ? CoachSequence.platform(track) : nil)
+        guard policy.mayAsk(asked, departure: departure, now: now) else { return }
         loading = true
         // Earlier trains are no use any more.
-        for old in sequences.keys where old.departure < now.addingTimeInterval(-60 * 60) { sequences[old] = nil }
+        for old in sequences.keys where old.departure < now.addingTimeInterval(-60 * 60) {
+            sequences[old] = nil
+            loadedFor[old] = nil
+        }
         Task {
             defer { loading = false }
             do {
@@ -48,6 +72,7 @@ final class CoachSectors {
                       let sequence = try await client.sequence(query)
                 else { return }
                 sequences[spot] = sequence
+                loadedFor[spot] = CoachSequence.platform(track)
             } catch {
                 policy.failed(error, now: Date())
             }

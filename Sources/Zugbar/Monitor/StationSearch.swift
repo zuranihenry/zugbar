@@ -53,7 +53,8 @@ final class StationSearch {
     /// Refreshes the "live right now" list at most every five minutes.
     func loadLiveTrains() {
         if let loaded = liveTrainsLoaded, Date().timeIntervalSince(loaded) < 300 { return }
-        guard !liveTrainsLoading else { return }
+        // A map of every moving train, megabytes: not on Wi-Fi with a data limit.
+        guard !liveTrainsLoading, !DataSaver.shared.isOn else { return }
         liveTrainsLoading = true
         Task {
             defer { liveTrainsLoading = false }

@@ -83,8 +83,11 @@ struct StatusPanel: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        if status.wagonClass != nil || status.internet != nil {
-            OnboardRow(status: status, now: monitor.now)
+        if let internet = status.internet {
+            WiFiRow(internet: internet, measured: monitor.link.reading, now: monitor.now)
+        }
+        if DataSaver.shared.allowance != nil || DataSaver.shared.isOn {
+            DataRow(saver: DataSaver.shared)
         }
         if let progress = status.progress {
             ProgressView(value: progress)
@@ -240,29 +243,34 @@ private struct SpeedRow: View {
     }
 }
 
-private struct OnboardRow: View {
-    let status: TrainStatus
+private struct WiFiRow: View {
+    let internet: Internet
+    /// What Zugbar measured itself, when it decides the level shown.
+    let measured: LinkProbe.Reading?
     let now: Date
     @Environment(\.strings) private var strings
 
     var body: some View {
-        HStack(spacing: 12) {
-            if let wagonClass = status.wagonClass {
-                Label(strings.wagonClass(wagonClass), systemImage: "chair")
-            }
-            if let internet = status.internet {
-                Label(wifiText(internet), systemImage: icon(for: internet.current))
-                    .foregroundStyle(internet.current == .good ? Color.secondary : Color.orange)
-                    .help(internet.learned ? strings.wifiForecastHelp : "")
-            }
+        HStack {
+            Label(wifiText, systemImage: icon(for: internet.current))
+                .foregroundStyle(internet.current == .good ? Color.secondary : Color.orange)
+                .help(help)
             Spacer()
         }
         .font(.caption)
         .foregroundStyle(.secondary)
     }
 
-    private func wifiText(_ internet: Internet) -> String {
-        var text = strings.wifi(internet.current)
+    private var help: String {
+        var lines: [String] = []
+        if let measured { lines.append(strings.wifiMeasured(measured)) }
+        if internet.learned { lines.append(strings.wifiForecastHelp) }
+        return lines.joined(separator: "\n")
+    }
+
+    private var wifiText: String {
+        let reading = measured.flatMap { $0.quality == internet.current ? $0 : nil }
+        var text = strings.wifi(internet.current, measured: reading)
         if let next = internet.next, next != internet.current, let change = internet.nextChange, change > now {
             let minutes = max(1, Int((change.timeIntervalSince(now) / 60).rounded()))
             text += " · " + strings.wifiChange(to: next, minutes: minutes)
@@ -276,6 +284,27 @@ private struct OnboardRow: View {
         case .weak: "wifi.exclamationmark"
         case .none: "wifi.slash"
         }
+    }
+}
+
+/// What's left of the Wi-Fi's data limit, and whether Zugbar holds back because of it.
+private struct DataRow: View {
+    let saver: DataSaver
+    @Environment(\.strings) private var strings
+
+    var body: some View {
+        HStack {
+            if let allowance = saver.allowance {
+                Label(strings.allowanceLeft(allowance) + (saver.isOn ? " · " + strings.savingData : ""), systemImage: "gauge.with.dots.needle.33percent")
+                    .foregroundStyle(allowance.fractionUsed >= AllowanceWarning.threshold ? Color.orange : Color.secondary)
+            } else {
+                Label(strings.savingData, systemImage: "leaf")
+            }
+            Spacer()
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .help(strings.dataSavingHint)
     }
 }
 
@@ -509,7 +538,9 @@ private struct Footer: View {
                         .accessibilityLabel(strings.map)
                 }
                 Button {
-                    SharePicker.show(strings.shareText(status, destination: monitor.journey.destination, connection: monitor.journey.plan?.connection),
+                    let waiting = status.waitingStop(monitor.journey.plan?.boardingStopID, at: monitor.now)
+                    SharePicker.show(strings.shareText(status, destination: monitor.journey.destination,
+                                                       connection: monitor.journey.plan?.connection, waitingAt: waiting),
                                      copyTitle: strings.copy)
                 } label: { Image(systemName: "square.and.arrow.up") }
                     .help(strings.share)

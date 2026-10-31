@@ -92,8 +92,11 @@ struct Strings {
         t("OpenStreetMap is down right now, so this is a simpler estimate. Zugbar reconnects automatically.",
           "OpenStreetMap ist gerade nicht erreichbar, daher eine einfachere Schätzung. Zugbar verbindet sich automatisch neu.")
     }
-    var menuBarEstimate: String { t("Estimated speed for trains followed online", "Geschätzte Geschwindigkeit bei online verfolgten Zügen") }
-    var menuBarEstimateHint: String { t("Shown as “≈ 180”.", "Wird als „≈ 180“ angezeigt.") }
+    var menuBarEstimate: String { t("Show estimate (≈) in the menu bar", "Schätzung (≈) in der Menüleiste zeigen") }
+    var menuBarEstimateHint: String {
+        t("For trains followed online, as “≈ 180”. Needs the estimate turned on under General.",
+          "Bei online verfolgten Zügen, als „≈ 180“. Braucht die Schätzung unter Allgemein.")
+    }
     var estimatedSpeedSetting: String { t("Estimated speed for trains followed online", "Geschätzte Geschwindigkeit bei online verfolgten Zügen") }
     var estimatedHelp: String { t("Average speed between the last and next stop, from the timetable", "Durchschnitt zwischen letztem und nächstem Halt, aus dem Fahrplan") }
     var topHelp: String { t("Highest speed this trip", "Höchstgeschwindigkeit dieser Fahrt") }
@@ -108,9 +111,6 @@ struct Strings {
         guard stop.trackChanged, let scheduled = stop.scheduledTrack else { return self.track(track) }
         return t("Track \(track) instead of \(scheduled)", "Gleis \(track) statt \(scheduled)")
     }
-    func wagonClass(_ number: Int) -> String {
-        number == 1 ? t("1st class", "1. Klasse") : t("2nd class", "2. Klasse")
-    }
     func quality(_ quality: Internet.Quality) -> String {
         switch quality {
         case .good: t("good", "gut")
@@ -118,7 +118,30 @@ struct Strings {
         case .none: t("offline", "kein Netz")
         }
     }
-    func wifi(_ quality: Internet.Quality) -> String { t("Wi-Fi \(self.quality(quality))", "WLAN \(self.quality(quality))") }
+    /// "Wi-Fi slow" or "Wi-Fi patchy" rather than just "weak" when Zugbar measured it.
+    func wifi(_ quality: Internet.Quality, measured: LinkProbe.Reading? = nil) -> String {
+        switch quality {
+        case .good: t("Wi-Fi good", "WLAN gut")
+        case .weak where measured?.isSlow == true: t("Wi-Fi slow", "WLAN langsam")
+        case .weak where measured != nil: t("Wi-Fi patchy", "WLAN wackelig")
+        case .weak: t("Wi-Fi weak", "WLAN schwach")
+        case .none: t("No internet", "Kein Internet")
+        }
+    }
+    /// e.g. "Measured: answers in 1.2 s, 2 of 8 requests unanswered in the last 2 min"
+    func wifiMeasured(_ reading: LinkProbe.Reading) -> String {
+        let window = Int(LinkProbe.window / 60)
+        var parts: [String] = []
+        if let latency = reading.latency {
+            let time = latency < 1 ? "\(Int((latency * 1000).rounded())) ms"
+                : (latency.formatted(.number.precision(.fractionLength(1)).locale(Locale(identifier: de ? "de_DE" : "en_US")))) + " s"
+            parts.append(t("answers in \(time)", "Antwort nach \(time)"))
+        }
+        if reading.lost > 0 {
+            parts.append(t("\(reading.lost) of \(reading.sent) requests unanswered", "\(reading.lost) von \(reading.sent) Anfragen ohne Antwort"))
+        }
+        return t("Measured: ", "Gemessen: ") + parts.joined(separator: ", ") + t(" in the last \(window) min", " in den letzten \(window) Min.")
+    }
     func wifiChange(to quality: Internet.Quality, minutes: Int) -> String {
         t("\(self.quality(quality)) in \(minutes) min", "in \(minutes) Min. \(self.quality(quality))")
     }
@@ -245,6 +268,7 @@ struct Strings {
     var reload: String { t("Reload train data", "Zugdaten neu laden") }
     var takeNextTrain: String { t("Take the next train", "Nächsten Zug nehmen") }
     var connectionMissed: String { t("Connection missed", "Anschluss verpasst") }
+    var connectionCancelled: String { t("Connection cancelled", "Anschluss fällt aus") }
     var nextTrainTitle: String { t("Next train", "Nächster Zug") }
     func nextTrain(_ connection: Connection) -> String {
         var text = connection.name
@@ -278,9 +302,21 @@ struct Strings {
             return (t("\(name): now \(signed(to)) min", "\(name): jetzt \(signed(to)) Min."), t("Was \(signed(from)) min", "Vorher \(signed(from)) Min."))
         case .connectionTrackChanged(let name, let from, let to):
             return (t("\(name) now leaves from track \(to)", "\(name) fährt jetzt von Gleis \(to)"), t("Instead of track \(from)", "Statt Gleis \(from)"))
+        case .transferChanged(let name, .comfortable(let minutes)):
+            return (t("\(name): connection reachable again", "\(name): Anschluss wieder erreichbar"),
+                    self.transfer(.comfortable(minutes: minutes)))
         case .transferChanged(let name, let transfer):
             return ("\(name): \(self.transfer(transfer))", nil)
         }
+    }
+
+    /// "arr. 14:31 · departs 14:33 · Track 5": the user's arrival, then the connection's departure, to judge the change by.
+    func transferDetails(_ connection: Connection, arrival: Date?) -> String {
+        var parts: [String] = []
+        if let arrival { parts.append(arrives(arrival.formatted(.dateTime.hour().minute()))) }
+        if let departure = connection.departure { parts.append(departs(departure.formatted(.dateTime.hour().minute()))) }
+        if let track = connection.track { parts.append(self.track(track)) }
+        return parts.joined(separator: " · ")
     }
 
     /// "then RE 1 at 19:15 from track 12 (10 min to change)"
@@ -302,7 +338,8 @@ struct Strings {
 
     // Tracking, map, share, window
     var endTracking: String { t("Stop tracking", "Tracking beenden") }
-    var stop: String { t("Stop", "Beenden") }
+    /// Not "Beenden", which on a Mac means quitting the app.
+    var stop: String { t("Stop", "Stopp") }
     var map: String { t("Map", "Karte") }
     var followTrain: String { t("Follow train", "Zug folgen") }
     var headingUp: String { t("Turn map with the train", "Karte in Fahrtrichtung drehen") }
@@ -375,10 +412,55 @@ struct Strings {
         let minutes = Int((date.timeIntervalSince(start) / 60).rounded(roundingUp ? .up : .down))
         return minutes <= 0 ? now : t("in \(minutes) min", "in \(minutes) Min.")
     }
+    /// The menu bar title for VoiceOver, e.g. "248 km/h, Next stop Oberwald in 7 min", or while waiting
+    /// "Dornstadt, departs in 4 min, 3 min late, Track 4". Nil when there's nothing to say.
+    func spokenMenuTitle(_ status: TrainStatus, speed: Int?, estimate: Int?, waitingAt boarding: Stop?, now: Date,
+                         options: MenuTitleOptions) -> String? {
+        var parts: [String] = []
+        if let boarding {
+            parts.append(boarding.name)
+            if boarding.cancelled {
+                parts.append(cancelled)
+            } else {
+                if let departure = boarding.departure {
+                    parts.append(t("departs \(spokenCountdown(to: departure, from: now, roundingUp: false))",
+                                   "Abfahrt \(spokenCountdown(to: departure, from: now, roundingUp: false))"))
+                }
+                if let delay = boarding.departureDelayMinutes, delay > 0 { parts.append(spokenDelay(delay)) }
+                if let track = boarding.track { parts.append(self.track(track)) }
+            }
+        } else {
+            if options.showSpeed, let speed {
+                parts.append(spokenSpeed(speed))
+            } else if options.showSpeed, let estimate {
+                parts.append(spokenEstimate(estimate, source: estimated))
+            }
+            if options.showStation, let stop = status.nextStop {
+                if stop.isCurrent(at: now) {
+                    parts.append("\(nowAt) \(stop.name)")
+                } else if options.showCountdown, let arrival = stop.arrival {
+                    parts.append("\(nextStop) \(stop.name) \(spokenCountdown(to: arrival, from: now))")
+                } else {
+                    parts.append("\(nextStop) \(stop.name)")
+                }
+            }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
     var settingsTitle: String { t("Zugbar Settings", "Zugbar-Einstellungen") }
 
-    func shareText(_ status: TrainStatus, destination: Stop?, connection: Connection?) -> String {
+    /// `waitingAt`: the stop the user is still waiting at for the train, whose departure matters more then.
+    func shareText(_ status: TrainStatus, destination: Stop?, connection: Connection?, waitingAt boarding: Stop? = nil) -> String {
         var text = t("I'm on \(status.trainName ?? "the train")", "Ich sitze im \(status.trainName ?? "Zug")")
+        if let boarding, !boarding.cancelled, let departure = boarding.departure {
+            let time = departure.formatted(.dateTime.hour().minute())
+            let train = status.trainName ?? t("the train", "dem Zug")
+            text = t("I'm taking \(train) from \(boarding.name) at \(time)", "Ich fahre um \(time) mit \(train) ab \(boarding.name)")
+            var extras: [String] = []
+            if let delay = boarding.departureDelayMinutes, delay > 0 { extras.append("+\(delay)") }
+            if let track = boarding.track { extras.append(t("track \(track)", "Gleis \(track)")) }
+            if !extras.isEmpty { text += " (" + extras.joined(separator: ", ") + ")" }
+        }
         if let destination, let arrival = destination.arrival {
             let time = arrival.formatted(.dateTime.hour().minute())
             text += t(", arriving at \(destination.name) at \(time)", " und komme um \(time) in \(destination.name) an")
@@ -458,6 +540,40 @@ struct Strings {
     var showRecordings: String { t("Show recordings in Finder", "Aufzeichnungen im Finder zeigen") }
     var send: String { t("Send", "Senden") }
     var data: String { t("Data", "Daten") }
+    var dataSaving: String { t("Save data", "Daten sparen") }
+    var dataSavingHint: String {
+        t("Asks for updates half as often, leaves out speed limits from OpenStreetMap, the list of moving trains and the update check, and the map no longer zooms in on stops by itself. Automatic: where the train Wi-Fi has a data limit, or Low Data Mode is on.",
+          "Fragt halb so oft nach, lässt Tempolimits von OpenStreetMap, die Liste fahrender Züge und die Update-Suche weg, und die Karte zoomt nicht mehr von selbst auf Halte. Automatisch: wo das Zug-WLAN ein Datenlimit hat oder der Datensparmodus an ist.")
+    }
+    func name(of saving: DataSaving) -> String {
+        switch saving {
+        case .automatic: t("Automatic", "Automatisch")
+        case .always: t("Always", "Immer")
+        case .off: t("Off", "Aus")
+        }
+    }
+    /// Operators' "100 MB" are 100 × 1024 × 1024 bytes.
+    private static let megabyte = 1_048_576.0
+    private func megabytes(_ bytes: Int64) -> String {
+        "\(Int((Double(bytes) / Self.megabyte).rounded())) MB"
+    }
+    /// e.g. "62 of 100 MB left, then 64 kbit/s"
+    func allowanceLeft(_ allowance: DataAllowance) -> String {
+        let limit = Int((Double(allowance.limit) / Self.megabyte).rounded())
+        let left = Int((Double(allowance.remaining) / Self.megabyte).rounded())
+        var text = t("\(left) of \(limit) MB left", "\(left) von \(limit) MB übrig")
+        if let rate = allowance.throttledTo {
+            let speed = rate >= 1_000_000 ? "\(rate / 1_000_000) Mbit/s" : "\(rate / 1000) kbit/s"
+            text += t(", then \(speed)", ", dann \(speed)")
+        }
+        return text
+    }
+    var savingData: String { t("Saving data", "Spart Daten") }
+    func allowanceWarning(_ allowance: DataAllowance) -> (String, String) {
+        (t("Wi-Fi data almost used up", "WLAN-Datenvolumen fast aufgebraucht"),
+         t("\(megabytes(allowance.remaining)) left on this train's Wi-Fi. Pause downloads and cloud sync to make it last.",
+           "Noch \(megabytes(allowance.remaining)) im WLAN dieses Zugs. Downloads und Cloud-Sync pausieren, damit es reicht."))
+    }
     var clear: String { t("Clear", "Löschen") }
     var suggestionHistory: String { t("Suggestion history", "Verlauf der Vorschläge") }
     var destinationAndConnection: String { t("Destination and connection", "Ziel und Anschluss") }
@@ -465,6 +581,7 @@ struct Strings {
     var preview: String { t("Preview", "Vorschau") }
     var showUnit: String { t("Show “km/h”", "„km/h“ anzeigen") }
     var stationNames: String { t("Station names", "Stationsnamen") }
+    var stationAutomatic: String { t("Automatic", "Automatisch") }
     var stationFull: String { t("Full", "Voll") }
     var stationCompact: String { t("Compact", "Kompakt") }
     var stationShort: String { t("Short (12 characters)", "Kurz (12 Zeichen)") }

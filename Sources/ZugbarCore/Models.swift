@@ -12,8 +12,6 @@ public struct TrainStatus: Sendable, Equatable {
     public var progress: Double?
     /// e.g. "ICE 4 · Tz 9018 „Gießen“"
     public var vehicle: String?
-    /// 1 or 2, when the portal knows which car you're in.
-    public var wagonClass: Int?
     public var internet: Internet?
     /// The on-board portal's own web page, when connected to one.
     public var portal: TrainLink?
@@ -31,7 +29,6 @@ public struct TrainStatus: Sendable, Equatable {
         nextStopID: String? = nil,
         progress: Double? = nil,
         vehicle: String? = nil,
-        wagonClass: Int? = nil,
         internet: Internet? = nil,
         portal: TrainLink? = nil,
         position: Coordinate? = nil,
@@ -45,7 +42,6 @@ public struct TrainStatus: Sendable, Equatable {
         self.nextStopID = nextStopID
         self.progress = progress
         self.vehicle = vehicle
-        self.wagonClass = wagonClass
         self.internet = internet
         self.portal = portal
         self.position = position
@@ -79,8 +75,8 @@ public struct TrainStatus: Sendable, Equatable {
         }
         // Standing at a stop: on the track, where the section ended and the next one starts, not at the
         // station's own coordinate a little to the side.
-        if let route, let stop = stops.first(where: { $0.isCurrent(at: now) }), let coordinate = stop.coordinate {
-            return route.coordinate(at: route.distance(of: coordinate))
+        if let route, let index = stops.firstIndex(where: { $0.isCurrent(at: now) }), let along = stopAlongs(on: route)[index] {
+            return route.coordinate(at: along)
         }
         guard let nextIndex = nextStopIndex(at: now) else { return stops.last?.coordinate }
         let next = stops[nextIndex]

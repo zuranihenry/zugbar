@@ -49,6 +49,28 @@ struct HandoverTests {
         #expect(!Handover.isDue(plan: plan, status: ice(arrival: now, cancelled: true), now: now))
     }
 
+    @Test func onBoardTrainStillOnItsWayInIsntLeftYet() {
+        let station = Coordinate(latitude: 49.0, longitude: 11.0)
+        func onBoard(speed: Int?, kmOut: Double?, passed: Bool = false, provider: String = "DB") -> TrainStatus {
+            var status = ice(arrival: minutes(-1), passed: passed)
+            status.provider = provider
+            status.stops[1].coordinate = station
+            status.speed = speed
+            status.position = kmOut.map { Coordinate(latitude: 49.0 + $0 / 111.2, longitude: 11.0) }
+            return status
+        }
+        // Held at a signal, or still running in after the portal's arrival time.
+        #expect(Handover.isStillApproaching(plan: plan, status: onBoard(speed: 0, kmOut: 3)))
+        #expect(Handover.isStillApproaching(plan: plan, status: onBoard(speed: 60, kmOut: nil)))
+        // Standing at the platform, or nothing to tell: the clock decides.
+        #expect(!Handover.isStillApproaching(plan: plan, status: onBoard(speed: 0, kmOut: 0.3)))
+        #expect(!Handover.isStillApproaching(plan: plan, status: onBoard(speed: nil, kmOut: nil)))
+        // Through the station already, or followed online, where the router's GPS says it instead.
+        #expect(!Handover.isStillApproaching(plan: plan, status: onBoard(speed: 60, kmOut: 3, passed: true)))
+        #expect(!Handover.isStillApproaching(plan: plan, status: onBoard(speed: 60, kmOut: 3, provider: "Transitous")))
+        #expect(!Handover.isStillApproaching(plan: nil, status: onBoard(speed: 60, kmOut: 3)))
+    }
+
     @Test func otherSpellingOfTheTrainStillCounts() {
         #expect(Handover.isDue(plan: plan, status: ice(name: "ICE1356", arrival: now), now: now))
     }
@@ -58,6 +80,22 @@ struct HandoverTests {
         let tomorrow = now.addingTimeInterval(24 * 60 * 60)
         #expect(!Handover.isDue(plan: plan, status: ice(arrival: tomorrow), now: tomorrow))
         #expect(!Handover.isDueAfterTripEnded(plan: plan, trainName: "ICE 1356", now: tomorrow))
+    }
+
+    @Test func connectionStillUnderwayIsFollowedAfterAWake() {
+        // Closed on the ICE, opened on the RE 80 minutes after it left: it's still 40 minutes from its last stop.
+        var long = plan
+        long.connection?.finalArrival = minutes(130)
+        let woken = minutes(90)
+        #expect(Handover.isDue(plan: long, status: ice(arrival: minutes(5)), now: woken))
+        #expect(Handover.isDueAfterTripEnded(plan: long, trainName: "ICE 1356", now: woken))
+        // Once it got there, it's over.
+        #expect(!Handover.isDue(plan: long, status: ice(arrival: minutes(5)), now: minutes(135)))
+        // Without an arrival time, an hour after leaving is as long as it counts.
+        var noArrival = long
+        noArrival.connection?.finalArrival = nil
+        #expect(!Handover.isDue(plan: noArrival, status: ice(arrival: minutes(5)), now: woken))
+        #expect(Handover.isDue(plan: noArrival, status: ice(arrival: minutes(5)), now: minutes(60)))
     }
 
     @Test func dueAfterTheFollowedTripEnded() {
@@ -120,6 +158,17 @@ struct HandoverTests {
         #expect(plan.resolved(in: portal).trainName == "ICE1001")
     }
 
+    @Test func plansSavedWithPlatformIDsFindTheirStations() {
+        let stops = ["0-de:1:100", "1-de:1:200", "2-de:1:300"].map { Stop(id: $0, name: $0, passed: false) }
+        let status = TrainStatus(provider: "Transitous", trainName: "RE 7", stops: stops)
+        let plan = JourneyPlan(trainName: "RE 7", boardingStopID: "0-de:1:100:1:2", destinationStopID: "2-de:1:300:9:1")
+        let resolved = plan.resolved(in: status)
+        #expect(resolved.boardingStopID == "0-de:1:100")
+        #expect(resolved.destinationStopID == "2-de:1:300")
+        // Another station starting alike isn't the same one.
+        #expect(JourneyPlan(trainName: "RE 7", destinationStopID: "2-de:1:3000").resolved(in: status).destinationStopID == "2-de:1:3000")
+    }
+
     @Test func fallbackLastsUntilAQuarterHourAfterTheLastStop() {
         #expect(Handover.fallbackDeadline(for: ice(arrival: minutes(5)), now: now) == minutes(75))
         let unknown = TrainStatus(provider: "DB", trainName: "ICE 1356", stops: [])
@@ -144,6 +193,40 @@ struct HandoverTests {
         let elsewhere = JourneyPlan(trainName: "ICE 901", destinationStopID: "x")
         #expect(Handover.fallbackDeadline(for: run(arrivingAtB: minutes(5)), plan: elsewhere, now: now) == minutes(75))
         #expect(Handover.fallbackDeadline(for: run(arrivingAtB: minutes(5), cancelled: true), plan: toB, now: now) == minutes(75))
+    }
+
+    @Test func trainPickedFromRouterGPSEndsAtTheDestination() {
+        // Picked from the router's GPS, with a destination set: once the router is gone, it's followed only that far.
+        var status = run(arrivingAtB: minutes(5))
+        status.provider = "Transitous"
+        let toB = JourneyPlan(trainName: "ICE 901", destinationStopID: "b")
+        var ride = RouterRide()
+        ride.picked(.init(tripID: "t1", label: "ICE 901"))
+        ride.followed(until: Handover.fallbackDeadline(for: status, plan: toB, now: now))
+        for _ in 0..<4 { ride.unreachable() }
+        #expect(ride.pickToFollow(at: minutes(19)) != nil)
+        #expect(ride.pickToFollow(at: minutes(21)) == nil)
+    }
+
+    @Test func trainFollowedOnlineStaysUpThroughADeadZone() {
+        var online = run(arrivingAtB: minutes(5))
+        online.provider = "Transitous"
+        let limit = Handover.outageLimit
+        // A short outage keeps any train up; a failure that wasn't the network doesn't.
+        #expect(Handover.staysUp(online, outages: 1, now: now))
+        #expect(!Handover.staysUp(online, outages: 0, now: now))
+        // Past the limit, while its trip runs: until a quarter of an hour after its last stop, or the destination.
+        #expect(Handover.staysUp(online, outages: limit + 40, now: minutes(70)))
+        #expect(!Handover.staysUp(online, outages: limit + 40, now: minutes(76)))
+        let toB = JourneyPlan(trainName: "ICE 901", destinationStopID: "b")
+        #expect(Handover.staysUp(online, outages: limit, plan: toB, now: minutes(15)))
+        #expect(!Handover.staysUp(online, outages: limit, plan: toB, now: minutes(21)))
+        // Without times there's no telling how long it runs; an on-board train's portal has its own fallback.
+        let noTimes = TrainStatus(provider: "Transitous", trainName: "ICE 901", stops: [])
+        #expect(!Handover.staysUp(noTimes, outages: limit, now: now))
+        #expect(!Handover.staysUp(run(arrivingAtB: minutes(5)), outages: limit, now: now))
+        #expect(!Handover.staysUp(nil, outages: limit, now: now))
+        #expect(Handover.staysUp(nil, outages: limit - 1, now: now))
     }
 
     @Test func reachedTheDestinationWithoutAConnection() {
@@ -265,6 +348,18 @@ struct TrainNameTests {
         #expect(!Handover.isMissed(connection, arrival: departure.addingTimeInterval(-6 * 60)))
         #expect(Handover.isMissed(connection, arrival: departure.addingTimeInterval(4 * 60)))
         #expect(!Handover.isMissed(connection, arrival: nil))
+    }
+
+    @Test func cancelledConnectionIsReplacedLikeAMissedOne() {
+        let departure = utc("2026-06-12T16:20:00Z")
+        var connection = Connection(tripID: "re-1", name: "RE 1", headsign: "B", station: "A",
+                                    scheduledDeparture: departure, expectedDeparture: departure, track: "1", finalStop: "B")
+        let inTime = departure.addingTimeInterval(-6 * 60)
+        #expect(!Handover.needsReplacement(connection, arrival: inTime))
+        #expect(Handover.needsReplacement(connection, arrival: departure.addingTimeInterval(4 * 60)))
+        connection.cancelled = true
+        #expect(Handover.needsReplacement(connection, arrival: inTime))
+        #expect(Handover.needsReplacement(connection, arrival: nil))
     }
 
     @Test func replacementIsTheNextTrainThatRuns() {

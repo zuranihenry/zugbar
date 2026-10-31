@@ -30,6 +30,8 @@ final class UpdateChecker {
     func check(ifDue: Bool = false) {
         guard isEnabled, !checking, let currentVersion else { return }
         let defaults = UserDefaults.standard
+        // Can wait for a Wi-Fi without a data limit.
+        if ifDue, DataSaver.shared.isOn { return }
         if ifDue, let last = defaults.object(forKey: "lastUpdateCheck") as? Date, Date().timeIntervalSince(last) < 86_400 { return }
         checking = true
         Task {

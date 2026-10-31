@@ -31,3 +31,22 @@ actor FoundTrips {
         entries[Transitous.normalize(query)] = nil
     }
 }
+
+/// The track of each trip followed, shared like `FoundTrips`. Its shape is nearly all of a trip's data, some 40 of
+/// 45 KB compressed for an ICE, so it's fetched once and every update after that, every 30 seconds, goes without:
+/// on a regional train's Wi-Fi with a 100 MB limit that's the difference between 5 MB an hour and a quarter of one.
+actor TripRoutes {
+    /// A trip without a shape is remembered too, as `nil`.
+    private var routes: [String: Route?] = [:]
+    private var order: [String] = []
+    /// A ride with a connection or two, and some looking around.
+    static let capacity = 8
+
+    /// `.some(nil)`: fetched before, the trip has no shape.
+    func lookup(_ tripID: String) -> Route?? { routes[tripID] }
+
+    func store(_ route: Route?, for tripID: String) {
+        if routes.updateValue(route, forKey: tripID) == nil { order.append(tripID) }
+        while order.count > Self.capacity { routes[order.removeFirst()] = nil }
+    }
+}
