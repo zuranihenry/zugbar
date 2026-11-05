@@ -34,8 +34,14 @@ final class TrainMonitor {
     enum Tracking { case onBoard, online, demo }
 
     private(set) var status: TrainStatus?
-    /// Where the map draws the train; glides between updates instead of jumping.
-    private(set) var trainPosition: Coordinate?
+    /// Where the map draws the train; glides between updates instead of jumping. Changes about 30 times a second
+    /// while a map shows it, so only the marker and the camera following it read it: any other view reading it is
+    /// redone every frame. The rest of the panel uses `predictedPosition(at: now)` or `placesTrain`.
+    private(set) var trainPosition: Coordinate? {
+        didSet { if (trainPosition != nil) != placesTrain { placesTrain = trainPosition != nil } }
+    }
+    /// Whether the map has a train to show, for views that only need that, not where it is.
+    private(set) var placesTrain = false
     let map = MapState()
     let picker: StationSearch
     let estimates = SpeedEstimator()
@@ -336,6 +342,10 @@ final class TrainMonitor {
             // In a tunnel the router's GPS goes quiet: the marker goes on from its last fix as between fixes, instead of
             // jumping to where the times say and back.
             trainPosition = held
+        } else if !status.isOnline, let held = marker.held(at: date) {
+            // The portal has no current fix, e.g. the ICE portal's "last known position", which can come every other
+            // minute at speed: go on from the last fix for a while, instead of jumping to the timetable and back.
+            trainPosition = held
         } else {
             // Back on GPS later, the marker starts from the new fix instead of gliding from an old one.
             marker = GPSMarker()
@@ -349,6 +359,7 @@ final class TrainMonitor {
         guard let status else { return nil }
         guard status.position != nil else {
             if holdsMarker(for: status, at: date), let held = marker.position(at: date) { return held }
+            if !status.isOnline, let held = marker.held(at: date) { return held }
             return estimates.position(of: status, at: date)
         }
         return marker.position(at: date) ?? status.position
