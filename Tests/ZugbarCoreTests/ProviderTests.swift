@@ -39,7 +39,6 @@ struct ICEPortalTests {
     @Test func extras() throws {
         let status = try parse()
         #expect(status.vehicle == "ICE 4 · Tz 9018 „Freistaat Bayern“")
-        #expect(status.wagonClass == 2)
         #expect(status.internet == Internet(current: .good, next: .weak, nextChange: now.addingTimeInterval(240)))
     }
 

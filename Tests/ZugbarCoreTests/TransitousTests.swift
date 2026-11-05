@@ -113,6 +113,23 @@ struct MenuTitleTests {
         #expect(MenuTitle.shorten("Berlin Hauptbahnhof", style: .compact) == "Berlin Hbf")
     }
 
+    @Test func automaticStationNamesShortenOnlyWhenTooWide() {
+        let stop = Stop(id: "a", name: "Oberwald (Main) Flughafen Fernbahnhof", expectedArrival: now.addingTimeInterval(402))
+        let status = TrainStatus(provider: "DB", stops: [stop], nextStopID: "a")
+        // One point per character stands in for the menu bar's font.
+        func fitted(_ style: MenuTitleOptions.StationStyle, maxWidth: Double) -> String {
+            MenuTitle.fitted(MenuTitleOptions(stationStyle: style), maxWidth: maxWidth, width: { Double($0.count) }) {
+                MenuTitle.make(status: status, displaySpeed: 248, isTopSpeed: false, now: now, options: $0)
+            }
+        }
+        #expect(fitted(.automatic, maxWidth: 100) == "248 km/h · → Oberwald (Main) Flughafen Fernbahnhof 6:42")
+        #expect(fitted(.automatic, maxWidth: 40) == "248 km/h · → Oberwald Flugh. 6:42")
+        #expect(fitted(.automatic, maxWidth: 20) == "248 km/h · → Oberwald Fl… 6:42")
+        // A chosen style stays as chosen.
+        #expect(fitted(.full, maxWidth: 20) == "248 km/h · → Oberwald (Main) Flughafen Fernbahnhof 6:42")
+        #expect(MenuTitle.shorten("Oberwald (Main)", style: .automatic) == "Oberwald (Main)")
+    }
+
     @Test func standingAtStation() {
         let stop = Stop(id: "a", name: "Oberwald", expectedArrival: now.addingTimeInterval(-60), expectedDeparture: now.addingTimeInterval(60))
         let status = TrainStatus(provider: "DB", stops: [stop], nextStopID: "a")
@@ -181,4 +198,36 @@ struct CityNameTests {
         let status = try await Transitous(tripID: "x", label: "ICE 619", loader: loader).fetch()
         #expect(status.stops.last?.name == "Stuttgart Hbf")
     }
+
+    /// The shape is nearly all of a trip's data: fetched once, then left out of each update.
+    @Test func fetchesTheShapeOnce() async throws {
+        let stops = #""from":{"name":"Aheim","lat":50.0,"lon":9.0,"departure":"2099-10-06T10:00:00Z"},"to":{"name":"Beheim","lat":50.1,"lon":9.1,"arrival":"2099-10-06T11:00:00Z"}"#
+        let full = Data(#"{"legs":[{"mode":"HIGHSPEED_RAIL","displayName":"ICE 9",\#(stops),"legGeometry":{"points":"_ibE_mjB_ibE_mjB","precision":5}}]}"#.utf8)
+        let light = Data(#"{"legs":[{"mode":"HIGHSPEED_RAIL","displayName":"ICE 9",\#(stops),"legGeometry":{"points":"","precision":6}}]}"#.utf8)
+        let asked = Asked()
+        let loader: DataLoader = { url in
+            let shape = url.query?.contains("detailedLegs=false") != true
+            await asked.append(shape)
+            return shape ? full : light
+        }
+        let provider = Transitous(tripID: "shape-once", label: "ICE 9", loader: loader)
+        let first = try await provider.fetch()
+        let second = try await provider.fetch()
+        // A new lookup after a network change doesn't need it again either.
+        let third = try await Transitous(tripID: "shape-once", label: "ICE 9", loader: loader).fetch()
+        #expect(await asked.shapes == [true, false, false])
+        #expect(first.route != nil)
+        #expect(second.route == first.route)
+        #expect(third.route == first.route)
+    }
+
+    @Test func connectionsRefreshWithoutTheShape() {
+        #expect(Transitous.tripURL("t", shape: false).query?.contains("detailedLegs=false") == true)
+        #expect(Transitous.tripURL("t", shape: true).query?.contains("detailedLegs") == false)
+    }
+}
+
+private actor Asked {
+    var shapes: [Bool] = []
+    func append(_ shape: Bool) { shapes.append(shape) }
 }

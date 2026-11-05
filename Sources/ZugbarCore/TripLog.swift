@@ -59,10 +59,15 @@ public struct TripRecorder: Sendable {
     }
 
     private(set) var ongoing: Ongoing?
+    /// A trip ended for going quiet, kept a while in case the same ride comes back: the lid was closed or the
+    /// portal was down, rather than the user getting off.
+    private var paused: Ongoing?
 
     /// Shorter or briefer than this is a train passed on a platform or a portal glimpsed in a station.
     static let minimumDistance = 5.0
     static let minimumDuration: TimeInterval = 5 * 60
+    /// How long after going quiet a ride can still go on.
+    static let resumeWithin: TimeInterval = 3 * 3600
 
     public init() {}
 
@@ -71,10 +76,18 @@ public struct TripRecorder: Sendable {
         var finished = finishIfIdle(at: date)
         guard !status.isOnline, let train = status.trainName, let position = status.position else {
             // The same train followed online while its portal is down: the ride goes on.
-            if status.isOnline, let ongoing, let name = status.trainName, TrainName.same(ongoing.train, name) { return finished }
+            if status.isOnline, let riding = ongoing ?? paused, let name = status.trainName, TrainName.same(riding.train, name) {
+                return finished
+            }
             return status.isOnline ? finish() ?? finished : finished
         }
         if let current = ongoing, !TrainName.same(current.train, train) { finished = finish() ?? finished }
+        if ongoing == nil, let paused, Self.sameRun(paused, status, at: date) {
+            // Back on the same ride: it goes on as the same trip, and the part logged meanwhile is updated.
+            ongoing = paused
+            if finished?.id == paused.id { finished = nil }
+        }
+        paused = nil
         guard var current = ongoing else {
             // Boarded at the last stop left behind, or at the next one when the train hasn't left its first stop.
             let from = status.stops.last { $0.passed }?.name ?? status.nextStop?.name ?? "?"
@@ -103,10 +116,26 @@ public struct TripRecorder: Sendable {
         return finished
     }
 
-    /// Ends a trip not heard from in 20 minutes: the user got off while the Wi-Fi was gone.
+    /// Ends a trip not heard from in 20 minutes: the user got off while the Wi-Fi was gone. Kept for a few hours
+    /// in case the same ride comes back, e.g. after the lid was closed.
     public mutating func finishIfIdle(at date: Date) -> Trip? {
         guard let ongoing, date.timeIntervalSince(ongoing.last) > 20 * 60 else { return nil }
-        return finish()
+        let trip = finish()
+        paused = ongoing
+        return trip
+    }
+
+    /// Whether `status` is the ride `paused` was recording: the same train, to the same last stop, on the same
+    /// timetable where the trip began. The next train on a line, or one going back the other way, often has the
+    /// same name on regional portals. A portal without times there can't tell runs apart, so the ride is split.
+    static func sameRun(_ paused: Ongoing, _ status: TrainStatus, at date: Date) -> Bool {
+        guard date.timeIntervalSince(paused.last) <= resumeWithin, let train = status.trainName,
+              TrainName.same(paused.train, train), let last = status.stops.last?.name, last == paused.status.stops.last?.name,
+              let before = paused.status.stops.first(where: { $0.name == paused.from }),
+              let time = before.scheduledDeparture ?? before.scheduledArrival,
+              let now = status.stops.first(where: { $0.name == paused.from })
+        else { return false }
+        return time == (now.scheduledDeparture ?? now.scheduledArrival)
     }
 
     /// The trip on board so far, for the live chart.
@@ -114,6 +143,7 @@ public struct TripRecorder: Sendable {
 
     /// Ends the trip at the stop closest to where the train was last seen.
     public mutating func finish() -> Trip? {
+        paused = nil
         guard let current = ongoing else { return nil }
         ongoing = nil
         guard current.distance >= Self.minimumDistance, current.last.timeIntervalSince(current.start) >= Self.minimumDuration
@@ -128,8 +158,13 @@ public struct TripLog: Codable, Sendable, Equatable {
 
     public init() {}
 
+    /// Adds a trip, or updates it in place when an earlier part of it was logged before the ride went on.
     public mutating func add(_ trip: Trip) {
-        trips.insert(trip, at: 0)
+        if let index = trips.firstIndex(where: { $0.id == trip.id }) {
+            trips[index] = trip
+        } else {
+            trips.insert(trip, at: 0)
+        }
     }
 
     public mutating func remove(_ id: Trip.ID) {

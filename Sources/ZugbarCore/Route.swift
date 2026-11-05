@@ -178,14 +178,50 @@ extension TrainStatus {
               let nextIndex = nextStopIndex(at: now), nextIndex > 0
         else { return nil }
         let previous = stops[nextIndex - 1], next = stops[nextIndex]
-        guard let from = previous.coordinate, let to = next.coordinate,
-              let departure = previous.departure, let arrival = next.arrival, arrival > departure,
+        guard let departure = previous.departure, let arrival = next.arrival, arrival > departure,
               !previous.isCurrent(at: now), !next.isCurrent(at: now)
         else { return nil }
-        let start = route.distance(of: from)
-        let end = route.distance(of: to, from: start)
-        guard end > start else { return nil }
+        // Placed in order, so a station the train comes back to doesn't stretch the section back over the loop.
+        let alongs = stopAlongs(on: route)
+        guard let start = alongs[nextIndex - 1], let end = alongs[nextIndex], end > start else { return nil }
         return RouteEstimate(previousStopID: previous.id, nextStopID: next.id, startDistance: start, endDistance: end,
                              departure: departure, arrival: arrival, kind: TrainKind.of(trainName))
+    }
+
+    /// Meters along `route` of each stop, placed in order: a station the train comes back to after reversing, or on
+    /// a circular trip, gets its own visit. `nil` for stops without a coordinate. Remembered per route and stops,
+    /// since sections and positions ask for it several times a second.
+    public func stopAlongs(on route: Route) -> [Double?] {
+        let key = "\(route.points.count)|\(route.length)|" + stops.map { stop in
+            stop.id + (stop.coordinate.map { "@\($0.latitude),\($0.longitude)" } ?? "")
+        }.joined(separator: ";")
+        if let known = StopAlongs.shared.get(key) { return known }
+        var previous = 0.0
+        let alongs = stops.map { stop in
+            stop.coordinate.map { coordinate -> Double in
+                previous = route.along(of: coordinate, from: previous)
+                return previous
+            }
+        }
+        StopAlongs.shared.set(key, alongs)
+        return alongs
+    }
+}
+
+/// The last few stop placements: the train and a connection, both followed online, ask in turn.
+private final class StopAlongs: @unchecked Sendable {
+    static let shared = StopAlongs()
+    private let lock = NSLock()
+    private var placed: [String: [Double?]] = [:]
+
+    func get(_ key: String) -> [Double?]? {
+        lock.withLock { placed[key] }
+    }
+
+    func set(_ key: String, _ alongs: [Double?]) {
+        lock.withLock {
+            if placed.count >= 4 { placed.removeAll() }
+            placed[key] = alongs
+        }
     }
 }

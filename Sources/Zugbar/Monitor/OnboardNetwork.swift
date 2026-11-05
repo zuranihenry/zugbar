@@ -15,4 +15,16 @@ enum OnboardNetwork {
             return String(data: data, encoding: .utf8)
         }
     }
+
+    /// The primary network's router, e.g. "10.0.0.1"; only private IPv4 addresses, which stay on the train.
+    static var router: String? {
+        guard let store = SCDynamicStoreCreate(nil, "Zugbar" as CFString, nil, nil),
+              let global = SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv4" as CFString) as? [String: Any],
+              let router = global["Router"] as? String
+        else { return nil }
+        let parts = router.split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 4 else { return nil }
+        let isPrivate = parts[0] == 10 || (parts[0] == 172 && (16...31).contains(parts[1])) || (parts[0] == 192 && parts[1] == 168)
+        return isPrivate ? router : nil
+    }
 }

@@ -2,6 +2,8 @@ import Foundation
 
 public struct MenuTitleOptions: Sendable, Equatable {
     public enum StationStyle: String, Sendable, CaseIterable {
+        /// Full names, shortened when the title gets too wide; see `MenuTitle.fitted`.
+        case automatic
         case full, compact, short
     }
 
@@ -96,10 +98,25 @@ public enum MenuTitle {
         return "\(minutes)′"
     }
 
+    /// The title with `.automatic` station names: full when it's no wider than `maxWidth` as measured by `width`,
+    /// else compact, else short, so a long name doesn't push the item off a full menu bar. Other styles as chosen.
+    public static func fitted(
+        _ options: MenuTitleOptions, maxWidth: Double = 260, width: (String) -> Double, make: (MenuTitleOptions) -> String
+    ) -> String {
+        var title = make(options)
+        guard options.stationStyle == .automatic else { return title }
+        for style in [MenuTitleOptions.StationStyle.compact, .short] where width(title) > maxWidth {
+            var shorter = options
+            shorter.stationStyle = style
+            title = make(shorter)
+        }
+        return title
+    }
+
     /// Shorter station names for a narrow menu bar.
     /// compact: "Düsseldorf Flughafen Fernbahnhof" → "Düsseldorf Flugh."; short: compact, cut to 12 characters.
     public static func shorten(_ name: String, style: MenuTitleOptions.StationStyle) -> String {
-        guard style != .full else { return name }
+        guard style == .compact || style == .short else { return name }
         // "Halle(Saale)Hbf" has no spaces around the parentheses, so leave one in their place.
         var result = name.replacingOccurrences(of: #"\s*\([^)]*\)\s*"#, with: " ", options: .regularExpression)
         for (long, short) in [("Fernbahnhof", ""), ("Flughafen", "Flugh."), ("Hauptbahnhof", "Hbf"), ("Bahnhof", "Bf"), ("Sankt ", "St. ")] {

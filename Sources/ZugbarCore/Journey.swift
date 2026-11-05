@@ -34,9 +34,16 @@ public struct JourneyPlan: Codable, Sendable, Equatable {
 
     /// Drops transfer warnings that aren't worse than one already sent. A delay swinging around the
     /// five-minute mark would otherwise send "tight connection" again every time it tips over.
+    /// Comfortable again after "at risk" or "cancelled" is an all-clear, sent once, and later warnings count anew.
     public mutating func withoutRepeatedWarnings(_ events: [JourneyEvent]) -> [JourneyEvent] {
         events.filter { event in
             guard case .transferChanged(_, let transfer) = event else { return true }
+            if transfer.severity == 0 {
+                // Not after just "tight": the change was never in doubt, and that's where a delay swings back and forth.
+                guard (warnedTransferLevel ?? 0) >= 2 else { return false }
+                warnedTransferLevel = 0
+                return true
+            }
             guard transfer.severity > (warnedTransferLevel ?? 0) else { return false }
             warnedTransferLevel = transfer.severity
             return true
@@ -90,6 +97,14 @@ public struct Connection: Codable, Sendable, Equatable {
     }
 
     public var departure: Date? { expectedDeparture ?? scheduledDeparture }
+
+    /// How long to wait between checks of the connection, given when the followed train gets to the change: every
+    /// five minutes while that's more than half an hour away, when a minute's news doesn't matter and train Wi-Fi
+    /// may be capped, then every minute.
+    public static func refreshInterval(arrival: Date?, now: Date) -> TimeInterval {
+        guard let arrival, arrival.timeIntervalSince(now) > 30 * 60 else { return 60 }
+        return 5 * 60
+    }
 
     public var delayMinutes: Int? {
         guard let scheduledDeparture, let expectedDeparture else { return nil }
@@ -157,6 +172,21 @@ public enum JourneyEvent: Equatable, Sendable {
     case transferChanged(name: String, Connection.Transfer)
 }
 
+extension JourneyEvent {
+    /// For news that outdates the last notification of its kind, like a delay that grew again: posted under this ID,
+    /// it replaces that one instead of piling up next to it. Nil for reminders and cancellations, which stand alone.
+    public var replaceableID: String? {
+        switch self {
+        case .delayChanged(let stop, _, _): "delay:" + stop
+        case .trackChanged(let stop, _, _): "track:" + stop
+        case .connectionDelayChanged(let name, _, _): "connectionDelay:" + name
+        case .connectionTrackChanged(let name, _, _): "connectionTrack:" + name
+        case .transferChanged(let name, _): "transfer:" + name
+        case .arrivingSoon, .departingSoon, .stopCancelled: nil
+        }
+    }
+}
+
 /// Compares two snapshots of a followed train and reports what's worth a notification.
 public enum JourneyWatcher {
     public static func events(
@@ -182,8 +212,18 @@ public enum JourneyWatcher {
             status.stops.first { $0.id == id }
         }
 
+        /// The plan's stop in the previous update. Online, a stop without a station ID is known by its platform,
+        /// so its ID changes when the train changes track; its place in the trip and its name stay.
+        func previous(_ id: String?) -> Stop? {
+            if let before = stop(id, in: old) { return before }
+            guard old.provider == new.provider, let index = new.stops.firstIndex(where: { $0.id == id }) else { return nil }
+            let name = new.stops[index].name
+            if old.stops.indices.contains(index), StationName.same(old.stops[index].name, name) { return old.stops[index] }
+            return old.stops.first { StationName.same($0.name, name) && stop($0.id, in: new) == nil }
+        }
+
         // Before boarding: departure delay and track at the boarding stop.
-        if let before = stop(plan.boardingStopID, in: old), let after = stop(plan.boardingStopID, in: new), !after.passed {
+        if let before = previous(plan.boardingStopID), let after = stop(plan.boardingStopID, in: new), !after.passed {
             events += changes(before: before, after: after, departure: true, settings: settings, delays: &delays)
             if !after.cancelled, let oldDeparture = before.departure, let newDeparture = after.departure, newDeparture > newTime,
                let minutes = crossedReminder(settings.departureReminders, old: oldDeparture.timeIntervalSince(oldTime),
@@ -192,7 +232,7 @@ public enum JourneyWatcher {
             }
         }
 
-        if let before = stop(plan.destinationStopID, in: old), let after = stop(plan.destinationStopID, in: new), !after.passed {
+        if let before = previous(plan.destinationStopID), let after = stop(plan.destinationStopID, in: new), !after.passed {
             events += changes(before: before, after: after, departure: false, settings: settings, delays: &delays)
 
             if !after.cancelled, let oldArrival = before.arrival, let newArrival = after.arrival, newArrival > newTime,
@@ -214,9 +254,10 @@ public enum JourneyWatcher {
                 if settings.trackChanges, let from = oldConnection.track, let to = newConnection.track, from != to {
                     events.append(.connectionTrackChanged(name: newConnection.name, from: from, to: to))
                 }
-                let oldTransfer = oldConnection.transfer(after: before.arrival)
-                let newTransfer = newConnection.transfer(after: after.arrival)
-                if let newTransfer, newTransfer.severity > (oldTransfer?.severity ?? 0) {
+                let oldSeverity = oldConnection.transfer(after: before.arrival)?.severity ?? 0
+                // Worse than before, or comfortable again, e.g. because the connection waits.
+                if let newTransfer = newConnection.transfer(after: after.arrival),
+                   newTransfer.severity > oldSeverity || newTransfer.severity == 0 && oldSeverity > 0 {
                     events.append(.transferChanged(name: newConnection.name, newTransfer))
                 }
             }
@@ -328,11 +369,18 @@ extension TransitousClient {
 
     /// Re-fetches a connecting train and reads its departure at `station`.
     public func refresh(_ connection: Connection) async throws -> Connection {
-        var url = Transitous.base.appending(path: "v6/trip")
-        url.appendQuery([URLQueryItem(name: "tripId", value: connection.tripID)])
-        let status = try Transitous.parse(trip: await loader(url), now: Date())
-        let wanted = Transitous.normalize(connection.station)
-        guard let stop = status.stops.first(where: { Transitous.normalize($0.name) == wanted }) else { return connection }
+        let status = try Transitous.parse(trip: await loader(Transitous.tripURL(connection.tripID, shape: false)), now: Date())
+        // The station is named as the followed train names it, which can differ ("Hauptbahnhof (oben)"); the
+        // planned departure came from this same trip, so it finds the stop when the name doesn't. The closest one,
+        // since S-Bahn stops can be a minute apart.
+        let byTime = connection.scheduledDeparture.flatMap { planned in
+            status.stops
+                .compactMap { stop in stop.scheduledDeparture.map { (stop, abs($0.timeIntervalSince(planned))) } }
+                .filter { $0.1 <= 90 }
+                .min { $0.1 < $1.1 }?.0
+        }
+        guard let stop = status.stops.first(where: { StationName.same($0.name, connection.station) }) ?? byTime
+        else { return connection }
         var updated = connection
         updated.scheduledDeparture = stop.scheduledDeparture ?? connection.scheduledDeparture
         updated.expectedDeparture = stop.expectedDeparture

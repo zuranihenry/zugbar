@@ -49,6 +49,21 @@ public struct CoachSequence: Sendable, Equatable {
         return coaches.first { Self.normalize($0.number) == wanted }
     }
 
+    /// Whether the sectors are for `track`, where the train leaves now. After a platform change they're the old
+    /// platform's, which would send the user to the wrong spot. Either one unknown counts as fitting.
+    public func fits(track current: String?) -> Bool {
+        guard let mine = Self.platform(track), let current = Self.platform(current) else { return true }
+        return mine == current
+    }
+
+    /// The platform a track stands for, so sources that write it differently agree: "7" for "7", "7 D-G" or "07";
+    /// a track named without a number as it is.
+    public static func platform(_ track: String?) -> String? {
+        guard let track = track?.trimmingCharacters(in: .whitespaces), !track.isEmpty else { return nil }
+        let digits = track.prefix(while: \.isNumber).drop { $0 == "0" }
+        return digits.isEmpty ? track : String(digits)
+    }
+
     /// Long-distance trains, whose coaches are numbered on tickets and reservations.
     public static func numbersCoaches(_ trainName: String?) -> Bool {
         [TrainKind.highSpeed, .intercity].contains(TrainKind.of(trainName))

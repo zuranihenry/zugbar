@@ -50,6 +50,34 @@ struct JourneyTests {
         #expect(changes.contains(.transferChanged(name: "RE 5", .tight(minutes: 2))))
     }
 
+    @Test func transferComfortableAgain() {
+        let old = status(arrivalDelay: 6, arrivalIn: 25, now: t0)
+        let new = status(arrivalDelay: 6, arrivalIn: 24, now: t1)
+        let arrival = old.stops[0].expectedArrival!
+        let late = Connection(tripID: "re5", name: "RE 5", headsign: nil, station: "Nürnberg Hbf",
+                              scheduledDeparture: arrival.addingTimeInterval(60), expectedDeparture: arrival.addingTimeInterval(60), track: "4")
+        var waiting = late
+        // The connection waits for the late train.
+        waiting.expectedDeparture = arrival.addingTimeInterval(7 * 60)
+        #expect(events(old, new, late, waiting) == [
+            .connectionDelayChanged(name: "RE 5", from: 0, to: 6), .transferChanged(name: "RE 5", .comfortable(minutes: 7)),
+        ])
+        // Staying comfortable says nothing more.
+        #expect(events(old, new, waiting, waiting).isEmpty)
+    }
+
+    @Test func updatesReplaceTheirLastNotification() {
+        let grown = JourneyEvent.delayChanged(stop: "Nürnberg Hbf", from: 5, to: 8)
+        #expect(grown.replaceableID == JourneyEvent.delayChanged(stop: "Nürnberg Hbf", from: 0, to: 5).replaceableID)
+        #expect(grown.replaceableID != JourneyEvent.delayChanged(stop: "Weidenhagen", from: 5, to: 8).replaceableID)
+        #expect(grown.replaceableID != JourneyEvent.trackChanged(stop: "Nürnberg Hbf", from: "7", to: "8").replaceableID)
+        #expect(JourneyEvent.transferChanged(name: "RE 5", .tight(minutes: 3)).replaceableID
+            == JourneyEvent.transferChanged(name: "RE 5", .atRisk(minutes: 1)).replaceableID)
+        // Reminders and cancellations each stay.
+        #expect(JourneyEvent.arrivingSoon(stop: "Nürnberg Hbf", minutes: 5, track: nil).replaceableID == nil)
+        #expect(JourneyEvent.stopCancelled(stop: "Nürnberg Hbf").replaceableID == nil)
+    }
+
     @Test func connectionCancelled() {
         let old = status(arrivalDelay: 0, now: t0), new = status(arrivalDelay: 0, arrivalIn: 19, now: t1)
         var connection = Connection(tripID: "re5", name: "RE 5", headsign: nil, station: "Nürnberg Hbf",
@@ -57,6 +85,13 @@ struct JourneyTests {
         let before = connection
         connection.cancelled = true
         #expect(events(old, new, before, connection).contains(.transferChanged(name: "RE 5", .cancelled)))
+    }
+
+    @Test func connectionIsCheckedMoreOftenCloseToTheChange() {
+        #expect(Connection.refreshInterval(arrival: t0.addingTimeInterval(2 * 3600), now: t0) == 300)
+        #expect(Connection.refreshInterval(arrival: t0.addingTimeInterval(20 * 60), now: t0) == 60)
+        #expect(Connection.refreshInterval(arrival: t0.addingTimeInterval(-60), now: t0) == 60)
+        #expect(Connection.refreshInterval(arrival: nil, now: t0) == 60)
     }
 
     @Test func boardingStopDepartureDelay() {
@@ -210,6 +245,23 @@ struct RepeatedWarningTests {
         plan.connection = Connection(tripID: "s5", name: "S5", headsign: nil, station: "Weidenhagen Hbf",
                                      scheduledDeparture: nil, expectedDeparture: nil, track: "2")
         #expect(plan.withoutRepeatedWarnings([.transferChanged(name: "S5", .tight(minutes: 3))]).count == 1)
+    }
+
+    @Test func allClearOnceAfterARealWarning() {
+        let connection = Connection(tripID: "s4", name: "S4", headsign: nil, station: "Weidenhagen Hbf",
+                                    scheduledDeparture: nil, expectedDeparture: nil, track: "2")
+        var plan = JourneyPlan(trainName: "ICE 619", destinationStopID: "h", connection: connection)
+        let comfortable: [JourneyEvent] = [.transferChanged(name: "S4", .comfortable(minutes: 6))]
+        // Nothing to clear before any warning, nor after just "tight".
+        #expect(plan.withoutRepeatedWarnings(comfortable).isEmpty)
+        #expect(plan.withoutRepeatedWarnings([.transferChanged(name: "S4", .tight(minutes: 4))]).count == 1)
+        #expect(plan.withoutRepeatedWarnings(comfortable).isEmpty)
+        // After "at risk", comfortable again is said once.
+        #expect(plan.withoutRepeatedWarnings([.transferChanged(name: "S4", .atRisk(minutes: 1))]).count == 1)
+        #expect(plan.withoutRepeatedWarnings(comfortable).count == 1)
+        #expect(plan.withoutRepeatedWarnings(comfortable).isEmpty)
+        // And a relapse is warned about again.
+        #expect(plan.withoutRepeatedWarnings([.transferChanged(name: "S4", .atRisk(minutes: 0))]).count == 1)
     }
 
     @Test func survivesSaving() throws {

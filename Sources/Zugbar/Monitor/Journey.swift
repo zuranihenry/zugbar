@@ -104,20 +104,23 @@ final class Journey {
         let now = now()
         if plan.seat != nil {
             for stop in [boarding, destination].compactMap({ $0 }) where !stop.cancelled {
-                coaches.load(train: train, at: stop, departure: stop.scheduledDeparture, now: now)
+                coaches.load(train: train, at: stop, departure: stop.scheduledDeparture, track: stop.track, now: now)
             }
         }
-        // The connection leaves from the station the followed train gets to.
+        // The connection leaves from the station the followed train gets to, but from its own track.
         if let connection = plan.connection, connection.seat != nil, let destination {
-            coaches.load(train: connection.name, at: destination, departure: connection.scheduledDeparture, now: now)
+            coaches.load(train: connection.name, at: destination, departure: connection.scheduledDeparture,
+                         track: connection.track, now: now)
         }
     }
 
     /// The followed train's coach sequence at `stop`, or the connection's where it leaves.
     func coachSequence(at stop: Stop, connection: Connection? = nil) -> CoachSequence? {
-        if let connection { return coaches.sequence(train: connection.name, at: stop, departure: connection.scheduledDeparture) }
+        if let connection {
+            return coaches.sequence(train: connection.name, at: stop, departure: connection.scheduledDeparture, track: connection.track)
+        }
         guard let train = status()?.trainName else { return nil }
-        return coaches.sequence(train: train, at: stop, departure: stop.scheduledDeparture)
+        return coaches.sequence(train: train, at: stop, departure: stop.scheduledDeparture, track: stop.track)
     }
 
     func clear() { plan = nil }
@@ -166,24 +169,34 @@ final class Journey {
             }
         }
         if plan != self.plan { self.plan = plan }
+        let destination = newStatus.stops.first { $0.id == plan.destinationStopID }
         for event in events {
             var (title, body) = strings.notification(event)
-            // The arrival reminder is the moment to think about the connection, so mention it.
-            if case .arrivingSoon = event, let connection = plan.connection,
-               let destination = newStatus.stops.first(where: { $0.id == plan.destinationStopID }) {
-                body = [body, strings.connectionSummary(connection, arrival: destination.arrival)].compactMap { $0 }.joined(separator: " · ")
+            if let connection = plan.connection, let destination {
+                switch event {
+                // The arrival reminder is the moment to think about the connection, so mention it.
+                case .arrivingSoon:
+                    body = [body, strings.connectionSummary(connection, arrival: destination.arrival)].compactMap { $0 }.joined(separator: " · ")
+                // What the change looks like now, without opening the menu bar.
+                case .transferChanged(_, let transfer) where transfer != .cancelled:
+                    body = [body, strings.transferDetails(connection, arrival: destination.arrival)]
+                        .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                default: break
+                }
             }
-            Notifier.post(title: title, body: body)
+            Notifier.post(title: title, body: body, id: event.replaceableID)
         }
     }
 
-    /// Connections come from Transitous, so check them about once a minute.
+    /// Connections come from Transitous, so check them every few minutes, and about once a minute close to the change.
     func refreshConnectionIfNeeded() {
+        let now = now()
+        let interval = Connection.refreshInterval(arrival: destination?.arrival, now: now)
         // Transitous trips only: not the demo connection or one an older version took from the ICE portal.
         guard let connection = plan?.connection, connection.portalStationID == nil,
-              connectionRefreshed.map({ Date().timeIntervalSince($0) > 60 }) ?? true
+              connectionRefreshed.map({ now.timeIntervalSince($0) > interval }) ?? true
         else { return }
-        connectionRefreshed = Date()
+        connectionRefreshed = now
         Task {
             guard var updated = try? await client.refresh(connection), plan?.connection?.tripID == updated.tripID else { return }
             // The coach may have been entered while this was loading.

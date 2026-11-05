@@ -23,6 +23,22 @@ struct CoachSequenceTests {
         #expect(sequence.coach("1") == nil)
     }
 
+    @Test func sectorsAreForOnePlatform() {
+        let sequence = CoachSequence(track: "7", coaches: [.init(number: "8", sector: "C")])
+        #expect(sequence.fits(track: "7"))
+        // Written differently by another source, still the same platform.
+        #expect(sequence.fits(track: "7 D-G"))
+        #expect(sequence.fits(track: "07"))
+        // Unknown on either side: nothing to go by.
+        #expect(sequence.fits(track: nil))
+        #expect(CoachSequence(track: nil, coaches: []).fits(track: "9"))
+        // After a platform change the sectors are the old platform's.
+        #expect(!sequence.fits(track: "9"))
+        #expect(!sequence.fits(track: "17"))
+        #expect(CoachSequence.platform("Gl. A") == "Gl. A")
+        #expect(CoachSequence.platform(" ") == nil)
+    }
+
     @Test func longDistanceTrainsNumberTheirCoaches() {
         #expect(CoachSequence.numbersCoaches("ICE 999"))
         #expect(CoachSequence.numbersCoaches("IC 998"))

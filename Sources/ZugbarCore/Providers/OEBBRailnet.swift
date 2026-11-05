@@ -73,10 +73,10 @@ public struct OEBBRailnet: TrainProvider {
         let trainName = [json.trainType ?? journey?.trainType, json.tripNumber ?? json.lineNumber ?? journey?.tripNumber ?? journey?.lineNumber]
             .compactMap { $0?.nilIfEmpty }
             .joined(separator: " ")
-        let speed = json.latestStatus?.speed ?? json.operationalMessagesInfo?.speed.flatMap(Double.init)
+        let speed = json.latestStatus?.speed?.value ?? json.operationalMessagesInfo?.speed?.value
         let gps = json.latestStatus?.gpsPosition
-        let latitude = (gps?.latitude ?? json.mapInfo?.latitude).flatMap(Double.init)
-        let longitude = (gps?.longitude ?? json.mapInfo?.longitude).flatMap(Double.init)
+        let latitude = gps?.latitude?.value ?? json.mapInfo?.latitude?.value
+        let longitude = gps?.longitude?.value ?? json.mapInfo?.longitude?.value
 
         return TrainStatus(
             provider: "ÖBB",
@@ -161,7 +161,7 @@ public struct OEBBRailnet: TrainProvider {
     struct Latest: Decodable {
         let dateTime: String?
         /// km/h
-        let speed: Double?
+        let speed: LenientDouble?
         let gpsPosition: MapInfo?
         let situation: Situation?
 
@@ -184,12 +184,23 @@ public struct OEBBRailnet: TrainProvider {
     }
 
     struct MapInfo: Decodable {
-        let latitude: String?
-        let longitude: String?
+        let latitude: LenientDouble?
+        let longitude: LenientDouble?
     }
 
     struct OperationalInfo: Decodable {
-        let speed: String?
+        let speed: LenientDouble?
+    }
+
+    /// A number the portal sends as 198, "198" or "", depending on the format and the field. One field of a type
+    /// we didn't expect would otherwise make the whole file unreadable.
+    struct LenientDouble: Decodable {
+        let value: Double?
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            value = (try? container.decode(Double.self)) ?? (try? container.decode(String.self)).flatMap(Double.init)
+        }
     }
 
     struct Journey: Decodable {

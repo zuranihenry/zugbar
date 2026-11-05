@@ -36,6 +36,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>LSApplicationCategoryType</key><string>public.app-category.travel</string>
+    <key>NSLocalNetworkUsageDescription</key><string>Zugbar reads the train's speed, stops and Wi-Fi data allowance from its on-board Wi-Fi.</string>
 </dict>
 </plist>
 PLIST

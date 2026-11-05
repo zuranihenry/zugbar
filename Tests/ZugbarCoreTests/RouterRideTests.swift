@@ -151,6 +151,22 @@ struct RouterRideTests {
         #expect(ride.freshFix(at: start.addingTimeInterval(21)) == nil)
     }
 
+    @Test func holdsThePositionThroughATunnel() {
+        var ride = RouterRide()
+        ride.received(fix(0), at: start)
+        // Fresh: the fix itself places the train.
+        #expect(!ride.holdsPosition(at: start.addingTimeInterval(10)))
+        // The router answers without a fix for a while: the marker goes on from the last one.
+        ride.answeredWithoutFix()
+        #expect(ride.holdsPosition(at: start.addingTimeInterval(60)))
+        #expect(ride.holdsPosition(at: start.addingTimeInterval(170)))
+        // Minutes without GPS, or the router gone: back to the times.
+        #expect(!ride.holdsPosition(at: start.addingTimeInterval(190)))
+        for _ in 0..<4 { ride.unreachable() }
+        #expect(!ride.holdsPosition(at: start.addingTimeInterval(60)))
+        #expect(!RouterRide().holdsPosition(at: start))
+    }
+
     @Test func searching() {
         var ride = RouterRide()
         ride.received(fix(0), at: start)
