@@ -34,8 +34,14 @@ final class TrainMonitor {
     enum Tracking { case onBoard, online, demo }
 
     private(set) var status: TrainStatus?
-    /// Where the map draws the train; glides between updates instead of jumping.
-    private(set) var trainPosition: Coordinate?
+    /// Where the map draws the train; glides between updates instead of jumping. Changes about 30 times a second
+    /// while a map shows it, so only the marker and the camera following it read it: any other view reading it is
+    /// redone every frame. The rest of the panel uses `predictedPosition(at: now)` or `placesTrain`.
+    private(set) var trainPosition: Coordinate? {
+        didSet { if (trainPosition != nil) != placesTrain { placesTrain = trainPosition != nil } }
+    }
+    /// Whether the map has a train to show, for views that only need that, not where it is.
+    private(set) var placesTrain = false
     let map = MapState()
     let picker: StationSearch
     let estimates = SpeedEstimator()
