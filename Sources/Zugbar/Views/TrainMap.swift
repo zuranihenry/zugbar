@@ -11,12 +11,49 @@ struct TrainMap: View {
     @AppStorage("mapTrackSpeeds") private var showsTrackSpeeds = false
     /// Whether the map can be seen. A plain `State` value: the `@State` macro needs a plugin the Command Line Tools lack.
     private var visibility = State(initialValue: Visibility())
+    private var lines = State(initialValue: Lines())
 
     private final class Visibility {
         var appeared = false
         var onScreen = true
         /// In the monitor's count of maps shown, which asks for smooth frames.
         var counted = false
+    }
+
+    /// The lines on the map, made once per route. The map's content is redrawn on every frame of the moving marker,
+    /// and MapKit lays out a line again whenever it's handed a new one: 30 times a second. Right after a wake from
+    /// sleep that outran freeing the old ones, and the app grew by gigabytes a minute.
+    private final class Lines {
+        struct Stretch {
+            let line: MKPolyline
+            let band: Int?
+        }
+
+        private var routeSource: [Coordinate]?
+        private var routeLine: MKPolyline?
+        private var stretchesSource: [TrackSpeeds.Stretch]?
+        private var stretchLines: [Stretch] = []
+
+        /// Arrays compare by storage first, so an unchanged route costs next to nothing to check.
+        func route(_ points: [Coordinate]) -> MKPolyline? {
+            defer { routeSource = points } // Keeps the cheap check once a new poll brings the same route again.
+            if points != routeSource {
+                let coordinates = TrainMap.thinned(points).map(CLLocationCoordinate2D.init)
+                routeLine = coordinates.count > 1 ? MKPolyline(coordinates: coordinates, count: coordinates.count) : nil
+            }
+            return routeLine
+        }
+
+        func stretches(_ stretches: [TrackSpeeds.Stretch]) -> [Stretch] {
+            defer { stretchesSource = stretches }
+            if stretches != stretchesSource {
+                stretchLines = stretches.map { stretch in
+                    let coordinates = stretch.points.map(CLLocationCoordinate2D.init)
+                    return Stretch(line: MKPolyline(coordinates: coordinates, count: coordinates.count), band: stretch.band)
+                }
+            }
+            return stretchLines
+        }
     }
 
     /// Spelled out: older compilers make the memberwise one private because of `visibility`.
@@ -26,21 +63,19 @@ struct TrainMap: View {
     }
 
     var body: some View {
-        let stretches = monitor.map.trackStretches
-        let route = status.route.map { Self.thinned($0.points).map(CLLocationCoordinate2D.init) }
-            ?? status.stops.compactMap { $0.coordinate.map(CLLocationCoordinate2D.init) }
+        let stretches = lines.wrappedValue.stretches(monitor.map.trackStretches)
+        let routeLine = lines.wrappedValue.route(routePoints)
         let position = monitor.trainPosition
         let highlighted = [monitor.journey.plan?.destinationStopID, monitor.journey.plan?.boardingStopID].compactMap { $0 }
         @Bindable var map = monitor.map
 
         Map(position: $map.camera) {
             if showsTrackSpeeds, !stretches.isEmpty {
-                ForEach(stretches.indices, id: \.self) { index in
-                    MapPolyline(coordinates: stretches[index].points.map(CLLocationCoordinate2D.init))
-                        .stroke(Self.color(for: stretches[index].band), lineWidth: 4)
+                ForEach(stretches, id: \.line) { stretch in
+                    MapPolyline(stretch.line).stroke(Self.color(for: stretch.band), lineWidth: 4)
                 }
-            } else if route.count > 1 {
-                MapPolyline(coordinates: route).stroke(.secondary, lineWidth: 3)
+            } else if let routeLine {
+                MapPolyline(routeLine).stroke(.secondary, lineWidth: 3)
             }
             ForEach(status.stops) { stop in
                 if let coordinate = stop.coordinate {
@@ -72,7 +107,7 @@ struct TrainMap: View {
                 Divider().frame(width: 18)
                 MapControl(icon: "arrow.up.left.and.arrow.down.right", help: strings.wholeRoute) {
                     monitor.map.followsTrain = false
-                    withAnimation { fitRoute(route + [position].compactMap { $0.map(CLLocationCoordinate2D.init) }) }
+                    withAnimation { fitRoute(routePoints.map(CLLocationCoordinate2D.init) + [position].compactMap { $0.map(CLLocationCoordinate2D.init) }) }
                 }
                 Divider().frame(width: 18)
                 MapControl(icon: showsTrackSpeeds ? "gauge.with.dots.needle.67percent" : "gauge.with.dots.needle.33percent",
@@ -103,7 +138,7 @@ struct TrainMap: View {
             .padding(8)
         }
         .onAppear {
-            if !monitor.map.followsTrain { fitRoute(route + [position].compactMap { $0.map(CLLocationCoordinate2D.init) }) }
+            if !monitor.map.followsTrain { fitRoute(routePoints.map(CLLocationCoordinate2D.init) + [position].compactMap { $0.map(CLLocationCoordinate2D.init) }) }
         }
         .onChange(of: position) { _, newPosition in
             guard monitor.map.followsTrain, let newPosition, !monitor.map.movingProgrammatically,
@@ -155,6 +190,11 @@ struct TrainMap: View {
             if offset > camera.distance * 0.5 { monitor.map.followsTrain = false }
         }
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// The route's shape, else its stops.
+    private var routePoints: [Coordinate] {
+        status.route?.points ?? status.stops.compactMap(\.coordinate)
     }
 
     private var trackingIcon: String {
