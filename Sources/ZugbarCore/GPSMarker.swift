@@ -70,6 +70,14 @@ public struct GPSMarker: Sendable {
         glide = track == nil ? shown.map { ($0, min(max(gap ?? 0, 1), Self.longGap)) } : nil
     }
 
+    /// Where the marker is at `date` while its newest fix is under `reckonTime` old, else `nil`. For moments when the
+    /// GPS has no current fix at all, like the ICE portal's "last known position": the marker goes on as between
+    /// fixes instead of jumping to where the timetable puts the train and back.
+    public func held(at date: Date) -> Coordinate? {
+        guard let fix, date.timeIntervalSince(fix.time) < Self.reckonTime else { return nil }
+        return position(at: date)
+    }
+
     /// Where the marker is at `date`.
     public func position(at date: Date) -> Coordinate? {
         guard let fix else { return nil }

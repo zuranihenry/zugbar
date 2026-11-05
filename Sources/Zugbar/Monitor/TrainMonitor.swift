@@ -342,6 +342,10 @@ final class TrainMonitor {
             // In a tunnel the router's GPS goes quiet: the marker goes on from its last fix as between fixes, instead of
             // jumping to where the times say and back.
             trainPosition = held
+        } else if !status.isOnline, let held = marker.held(at: date) {
+            // The portal has no current fix, e.g. the ICE portal's "last known position", which can come every other
+            // minute at speed: go on from the last fix for a while, instead of jumping to the timetable and back.
+            trainPosition = held
         } else {
             // Back on GPS later, the marker starts from the new fix instead of gliding from an old one.
             marker = GPSMarker()
@@ -355,6 +359,7 @@ final class TrainMonitor {
         guard let status else { return nil }
         guard status.position != nil else {
             if holdsMarker(for: status, at: date), let held = marker.position(at: date) { return held }
+            if !status.isOnline, let held = marker.held(at: date) { return held }
             return estimates.position(of: status, at: date)
         }
         return marker.position(at: date) ?? status.position
