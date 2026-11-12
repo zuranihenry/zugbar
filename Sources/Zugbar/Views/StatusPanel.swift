@@ -144,51 +144,38 @@ private struct TripHeader: View {
                         Text(strings.to(destination)).font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
-                .anchorPreference(key: HeaderBounds.self, value: .bounds) { [.text: $0] }
                 Spacer()
                 Text(status.provider)
                     .font(.caption.weight(.medium))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .badgeStyle()
-                    .anchorPreference(key: HeaderBounds.self, value: .bounds) { [.badge: $0] }
-                if showsPopOut {
-                    PopOutButton().anchorPreference(key: HeaderBounds.self, value: .bounds) { [.popOut: $0] }
-                }
-            }
-            .overlayPreferenceValue(HeaderBounds.self) { bounds in
-                if let family = status.family { drawing(family, bounds) }
+                if showsPopOut { PopOutButton() }
             }
             if let vehicle = status.vehicle {
                 Text(vehicle).font(.caption).foregroundStyle(.secondary)
             }
         }
-    }
-
-    /// The train's drawing in the corner left free under the badge and beside the text. An overlay, so it
-    /// takes no room from either: it shrinks to what is free and stays away when that is too little.
-    private func drawing(_ family: TrainFamily, _ bounds: [HeaderBounds.Part: Anchor<CGRect>]) -> some View {
-        GeometryReader { proxy in
-            let text = bounds[.text].map { proxy[$0].maxX } ?? proxy.size.width
-            let above = [HeaderBounds.Part.badge, .popOut].compactMap { bounds[$0] }.map { proxy[$0].maxY }.max() ?? proxy.size.height
-            let width = proxy.size.width - text - 8
-            let height = min(13, proxy.size.height - above - 1, width / TrainSilhouette.aspectRatio)
-            if height >= 8 {
-                TrainSilhouette(family: family, height: height)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .background {
+            if let family = status.family {
+                watermark(family).transition(.opacity)
             }
         }
+        .animation(.easeIn(duration: 0.8), value: status.family)
     }
-}
 
-/// Where the parts of the header ended up, to find the room left over.
-private struct HeaderBounds: PreferenceKey {
-    enum Part { case text, badge, popOut }
-
-    static var defaultValue: [Part: Anchor<CGRect>] { [:] }
-
-    static func reduce(value: inout [Part: Anchor<CGRect>], nextValue: () -> [Part: Anchor<CGRect>]) {
-        value.merge(nextValue()) { $1 }
+    /// The train as a faint backdrop: as tall as the header, nose at the right edge, dissolving towards the text.
+    /// A background, so it takes no room and the text stays on top.
+    private func watermark(_ family: TrainFamily) -> some View {
+        GeometryReader { proxy in
+            TrainSilhouette(family: family, height: min(proxy.size.height, 56))
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .trailing)
+                .mask(LinearGradient(
+                    stops: [.init(color: .clear, location: 0.3), .init(color: .black, location: 1)],
+                    startPoint: .leading, endPoint: .trailing
+                ))
+                .opacity(0.3)
+        }
     }
 }
 
