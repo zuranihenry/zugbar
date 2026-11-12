@@ -61,6 +61,13 @@ public struct RideSampler: Sendable {
         self.limit = limit
     }
 
+    /// Goes on from a logged trip's samples, at the step they were thinned to.
+    public init(resuming samples: [RideSample], interval: TimeInterval = 30, limit: Int = 240) {
+        self.init(interval: interval, limit: limit)
+        self.samples = samples
+        if samples.count > 1 { self.interval = max(interval, Double(samples[1].time - samples[0].time)) }
+    }
+
     /// Takes the status `time` seconds into the trip, `distance` km after it started.
     public mutating func record(_ status: TrainStatus, distance: Double, at time: TimeInterval) {
         if let open, time - open.start >= interval { close() }

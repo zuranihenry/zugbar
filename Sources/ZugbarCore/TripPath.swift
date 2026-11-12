@@ -37,6 +37,13 @@ public struct PathSampler: Sendable {
         self.limit = limit
     }
 
+    /// Goes on from a logged trip's path.
+    public init(resuming path: TripPath?, spacing: Double = 0.2, limit: Int = 400) {
+        self.init(spacing: spacing, limit: limit)
+        lines = path?.lines ?? []
+        seen = lines.last?.last
+    }
+
     public mutating func record(_ position: Coordinate) {
         defer { seen = position }
         guard let seen, let last = lines.last?.last, seen.distance(to: position) <= Self.longestStep else {

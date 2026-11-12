@@ -7,6 +7,7 @@ enum CLI {
         case departures(station: String, line: String)
         case profile(String)
         case bundleTracks(String)
+        case rebuildTrips(recordings: String, output: String)
         case help
 
         init?(arguments: [String]) {
@@ -20,6 +21,8 @@ enum CLI {
                 self = .profile(args[1])
             case "--bundle-tracks" where args.count >= 2:
                 self = .bundleTracks(args[1])
+            case "--rebuild-trips" where args.count >= 3:
+                self = .rebuildTrips(recordings: args[1], output: args[2])
             case "--help", "-h":
                 self = .help
             default:
@@ -38,6 +41,8 @@ enum CLI {
                     try await profile(train)
                 case .bundleTracks(let path):
                     try await bundleTracks(to: path)
+                case .rebuildTrips(let recordings, let output):
+                    try rebuildTrips(from: recordings, to: output)
                 case .help:
                     print("""
                     Usage: Zugbar [--demo]
@@ -45,10 +50,44 @@ enum CLI {
                            Zugbar --departures "Köln Hbf" [RE5]
                            Zugbar --profile "ICE 123"
                            Zugbar --bundle-tracks Sources/ZugbarCore/Resources/main_line_tracks.lzfse
+                           Zugbar --rebuild-trips <recordings folder> <trips.json to write>
                     """)
                 }
             } catch {
                 print("Error: \(error)")
+            }
+        }
+
+        /// Plays recorded ICE portal data through the trip recorder again and writes the trips it makes: rides
+        /// logged before trips were kept, or cut into pieces by restarts, come back whole.
+        private func rebuildTrips(from recordings: String, to output: String) throws {
+            let root = URL(fileURLWithPath: recordings)
+            let days = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasPrefix("20") }.sorted()
+            var recorder = TripRecorder()
+            var log = TripLog()
+            var polls = 0
+            for day in days {
+                let folder = root.appendingPathComponent(day)
+                let files = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+                for name in files where name.hasSuffix("-iceportal-de-api1-rs-status.json") {
+                    let trip = name.replacingOccurrences(of: "rs-status.json", with: "rs-tripInfo-trip.json")
+                    guard let statusData = try? Data(contentsOf: folder.appendingPathComponent(name)),
+                          let tripData = try? Data(contentsOf: folder.appendingPathComponent(trip)),
+                          let fields = try? JSONSerialization.jsonObject(with: statusData) as? [String: Any],
+                          let serverTime = fields["serverTime"] as? Double
+                    else { continue }
+                    let date = Date(timeIntervalSince1970: serverTime / 1000)
+                    guard let status = try? ICEPortal.parse(status: statusData, trip: tripData, now: date) else { continue }
+                    polls += 1
+                    if let finished = recorder.update(status, at: date) { log.add(finished) }
+                }
+            }
+            if let last = recorder.finish() { log.add(last) }
+            try JSONEncoder().encode(log).write(to: URL(fileURLWithPath: output), options: .atomic)
+            print("\(polls) polls, \(log.trips.count) trips:")
+            for trip in log.trips.reversed() {
+                let day = trip.start.formatted(date: .numeric, time: .shortened)
+                print("  \(day)  \(trip.train)  \(trip.from) → \(trip.to)  \(Int(trip.distance.rounded())) km  \(Int(trip.duration / 60)) min")
             }
         }
 

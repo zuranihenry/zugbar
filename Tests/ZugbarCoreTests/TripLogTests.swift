@@ -82,6 +82,55 @@ struct TripLogTests {
         #expect(rest == nil)
     }
 
+    @Test func restartHalfwayIsOneTrip() throws {
+        var recorder = TripRecorder()
+        var log = TripLog()
+        for minute in stride(from: 0.0, through: 15, by: 1) {
+            _ = recorder.update(onBoard(minute, latitude: 50 + minute / 60, speed: 111), at: start.addingTimeInterval(minute * 60))
+        }
+        let quit = recorder.finish()
+        let firstPart = try #require(quit)
+        log.add(firstPart)
+        // The app starts again two minutes later: a new recorder, the same ride.
+        var restarted = TripRecorder()
+        let resumed = restarted.resume(firstPart, with: onBoard(17, latitude: 50 + 17.0 / 60, speed: 111), at: start.addingTimeInterval(17 * 60))
+        #expect(resumed)
+        for minute in stride(from: 17.0, through: 30, by: 1) {
+            let finished = restarted.update(onBoard(minute, latitude: 50 + minute / 60, speed: 111), at: start.addingTimeInterval(minute * 60))
+            #expect(finished == nil)
+        }
+        let finished = restarted.finish()
+        let trip = try #require(finished)
+        log.add(trip)
+        #expect(trip.id == firstPart.id)
+        #expect(trip.from == "A")
+        #expect(trip.start == start)
+        #expect(abs(trip.distance - 55.6) < 1)
+        #expect(log.trips.count == 1)
+        #expect((trip.samples?.count ?? 0) > (firstPart.samples?.count ?? 0))
+    }
+
+    @Test func anotherTrainOrALaterDayIsNotResumed() throws {
+        var recorder = TripRecorder()
+        for minute in stride(from: 0.0, through: 15, by: 1) {
+            _ = recorder.update(onBoard(minute, latitude: 50 + minute / 60, speed: 111), at: start.addingTimeInterval(minute * 60))
+        }
+        let quit = recorder.finish()
+        let trip = try #require(quit)
+        var other = TripRecorder()
+        let otherTrain = other.resume(trip, with: onBoard(17, latitude: 50.3, speed: 111, train: "ICE 2"), at: start.addingTimeInterval(17 * 60))
+        let nextDay = other.resume(trip, with: onBoard(17, latitude: 50.3, speed: 111), at: start.addingTimeInterval(26 * 3600))
+        #expect(!otherTrain)
+        #expect(!nextDay)
+    }
+
+    @Test func startsAtTheStopTheTrainStandsAt() throws {
+        var recorder = TripRecorder()
+        // Standing at B, which the portal doesn't count as passed yet: boarded there, not at A.
+        _ = recorder.update(onBoard(0, latitude: 50.5, speed: 0), at: start)
+        #expect(recorder.current?.from == "B")
+    }
+
     @Test func lidClosedHalfwayIsOneTrip() throws {
         var recorder = TripRecorder()
         var log = TripLog()

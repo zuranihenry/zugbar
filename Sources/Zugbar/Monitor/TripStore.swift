@@ -17,6 +17,9 @@ final class TripStore {
         }
     }
 
+    /// When the ride on board was last written to the log.
+    @ObservationIgnored private var savedAt = Date.distantPast
+
     private static var file: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Zugbar/trips.json")
@@ -27,8 +30,16 @@ final class TripStore {
     }
 
     func record(_ status: TrainStatus) {
-        guard let trip = recorder.update(status, at: Date()) else { return }
-        add(trip)
+        let now = Date()
+        // After a restart in the middle of a ride, the trip logged so far goes on instead of a new one starting.
+        if recorder.current == nil, let last = log.trips.first { _ = recorder.resume(last, with: status, at: now) }
+        if let trip = recorder.update(status, at: now) { add(trip) }
+        // Logged as it grows, so a restart or a crash finds the ride so far. Not rides too short to count.
+        if let riding = recorder.current, now.timeIntervalSince(savedAt) >= 60,
+           riding.distance >= TripRecorder.minimumDistance, riding.duration >= TripRecorder.minimumDuration {
+            savedAt = now
+            add(riding)
+        }
     }
 
     /// Ends a trip that hasn't been heard from for a while; cheap enough to call every second.

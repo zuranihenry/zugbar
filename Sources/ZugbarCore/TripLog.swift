@@ -73,8 +73,8 @@ public struct TripRecorder: Sendable {
     private var paused: Ongoing?
 
     /// Shorter or briefer than this is a train passed on a platform or a portal glimpsed in a station.
-    static let minimumDistance = 5.0
-    static let minimumDuration: TimeInterval = 5 * 60
+    public static let minimumDistance = 5.0
+    public static let minimumDuration: TimeInterval = 5 * 60
     /// How long after going quiet a ride can still go on.
     static let resumeWithin: TimeInterval = 3 * 3600
 
@@ -98,8 +98,10 @@ public struct TripRecorder: Sendable {
         }
         paused = nil
         guard var current = ongoing else {
-            // Boarded at the last stop left behind, or at the next one when the train hasn't left its first stop.
-            let from = status.stops.last { $0.passed }?.name ?? status.nextStop?.name ?? "?"
+            // Boarded at the stop the train is standing at or just leaving; else at the last stop left behind, or at
+            // the next one when the train hasn't left its first stop.
+            let from = Self.stop(at: position, in: status)?.name
+                ?? status.stops.last { $0.passed }?.name ?? status.nextStop?.name ?? "?"
             var started = Ongoing(train: train, from: from, start: date, last: date, position: position,
                                   topSpeed: status.speed ?? 0, status: status)
             started.sampler.record(status, distance: 0, at: 0)
@@ -134,6 +136,33 @@ public struct TripRecorder: Sendable {
         let trip = finish()
         paused = ongoing
         return trip
+    }
+
+    /// The stop the train is at: within reach of a platform, whether or not the portal counts it as passed yet.
+    static func stop(at position: Coordinate, in status: TrainStatus) -> Stop? {
+        status.stops
+            .filter { !$0.cancelled }
+            .compactMap { stop in stop.coordinate.map { (stop, $0.distance(to: position)) } }
+            .filter { $0.1 <= 1.5 }
+            .min { $0.1 < $1.1 }?.0
+    }
+
+    /// Takes up the newest logged trip again when the app was restarted in the middle of it: the same train, heard
+    /// from within a few hours, still calling where the trip began. The trip goes on under the same ID, so the log
+    /// keeps one entry for the ride instead of one for each start of the app.
+    public mutating func resume(_ trip: Trip, with status: TrainStatus, at date: Date) -> Bool {
+        guard ongoing == nil, paused == nil, !status.isOnline, let train = status.trainName, let position = status.position,
+              TrainName.same(trip.train, train), date >= trip.end, date.timeIntervalSince(trip.end) <= Self.resumeWithin,
+              status.stops.contains(where: { $0.name == trip.from })
+        else { return false }
+        // Where the trip left off: the end of its path, else the stop it was logged to.
+        let left = trip.path?.lines.last?.last ?? status.stops.first { $0.name == trip.to }?.coordinate ?? position
+        var riding = Ongoing(id: trip.id, train: trip.train, from: trip.from, start: trip.start, last: trip.end, position: left,
+                             distance: trip.distance, topSpeed: trip.topSpeed, status: status)
+        riding.sampler = RideSampler(resuming: trip.samples ?? [])
+        riding.path = PathSampler(resuming: trip.path)
+        ongoing = riding
+        return true
     }
 
     /// Whether `status` is the ride `paused` was recording: the same train, to the same last stop, on the same
