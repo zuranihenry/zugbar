@@ -108,6 +108,56 @@ struct CalendarJourneyTests {
         #expect(journey(title: "Astadt Hbf → Cstadt") == nil)
     }
 
+    @Test func handWrittenLookalikes() {
+        let former = """
+            Reise: Astadt Hbf nach Cstadt
+            Datum: 01.02.26
+            -
+            ab 10:00 Astadt Hbf (ICE 123)
+            an 12:20 Cstadt
+            """
+        func parsed(_ notes: String) -> CalendarJourney? {
+            CalendarJourney(title: "Astadt Hbf -> Cstadt", notes: notes, start: start, end: local(12, 20))
+        }
+        #expect(parsed(former) != nil)
+        // A flight, a taxi or a bus laid out the same way.
+        #expect(parsed(former.replacingOccurrences(of: "ICE 123", with: "LH 123")) == nil)
+        #expect(parsed(former.replacingOccurrences(of: "ICE 123", with: "Taxi 1")) == nil)
+        #expect(journey(twoLegs.replacingOccurrences(of: "RE5 (89012)", with: "Bus 647")) == nil)
+        // A date that isn't one, or isn't the event's day.
+        #expect(parsed(former.replacingOccurrences(of: "01.02.26", with: "offen")) == nil)
+        #expect(parsed(former.replacingOccurrences(of: "01.02.26", with: "02.02.26")) == nil)
+        #expect(journey(twoLegs.replacingOccurrences(of: "01.02.2026", with: "01.03.2026")) == nil)
+    }
+
+    @Test func switchStaysOffWithoutPermission() {
+        // Taken away while the app wasn't running: off, and still off once it's granted again.
+        #expect(!CalendarSwitch(saved: true, permission: .refused).isOn)
+        #expect(!CalendarSwitch(saved: true, permission: .notAsked).isOn)
+        #expect(!CalendarSwitch(saved: false, permission: .granted).isOn)
+        #expect(CalendarSwitch(saved: true, permission: .granted).isOn)
+
+        var refused = CalendarSwitch(saved: false, permission: .refused)
+        #expect(refused.turnOn(permission: .refused) == .openSystemSettings)
+        #expect(!refused.isOn)
+    }
+
+    @Test func switchedOffWhileThePromptIsOpen() {
+        var state = CalendarSwitch(saved: false, permission: .notAsked)
+        #expect(state.turnOn(permission: .notAsked) == .ask)
+        #expect(!state.isOn)
+        state.turnOff()
+        state.answered(granted: true)
+        #expect(!state.isOn)
+
+        #expect(state.turnOn(permission: .notAsked) == .ask)
+        state.answered(granted: true)
+        #expect(state.isOn)
+        #expect(state.turnOn(permission: .notAsked) == .ask)
+        state.answered(granted: false)
+        #expect(!state.isOn)
+    }
+
     @Test func unrelatedEvents() {
         #expect(CalendarJourney(title: "Zahnarzt", location: "Praxis", notes: nil, start: start, end: local(11, 0)) == nil)
         #expect(CalendarJourney(title: "Team -> Planung", notes: "Datum: offen\nab 10:00 Raum 2", start: start, end: local(11, 0)) == nil)

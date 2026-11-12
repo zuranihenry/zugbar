@@ -12,7 +12,8 @@ Live train info in your Mac's menu bar.
 - **Your journey:** when and where your train leaves while you wait, destination and connection, with alerts for delays,
   track changes and tight or missed transfers; took an SBB train instead (ECE)? Its Wi-Fi gives it away
 - **From your calendar, if you want:** off by default; switched on, Zugbar spots a connection that bahn.de or DB
-  Navigator saved to your calendar and offers its stop and connection. Read on your Mac only, never stored or logged
+  Navigator saved to your calendar and offers its stop and connection. Read on your Mac, with nothing kept from the calendar; only when you accept a
+  suggestion is its station looked up online, as when you type it, and the stop and connection saved as your journey
 - English and German
 
 <table>
