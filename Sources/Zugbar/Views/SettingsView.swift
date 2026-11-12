@@ -88,6 +88,11 @@ struct GeneralSettings: View {
                     Text(strings.learnSpeeds)
                     Text(strings.learnHint)
                 }
+                Toggle(isOn: Binding(get: { monitor.calendar.isOn }, set: { monitor.calendar.set($0) })) {
+                    Text(strings.calendarJourney)
+                    Text(strings.calendarJourneyHint)
+                }
+                .disabled(!monitor.calendar.isAvailable)
                 Picker(selection: $dataSaving) {
                     ForEach(DataSaving.allCases) { Text(strings.name(of: $0)).tag($0) }
                 } label: {

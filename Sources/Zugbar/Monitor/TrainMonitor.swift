@@ -42,6 +42,7 @@ final class TrainMonitor {
     let wifi = WiFiForecaster()
     let link = LinkProber()
     let journey: Journey
+    let calendar = CalendarJourneys()
     let trips = TripStore()
     private(set) var lastUpdate: Date?
     private(set) var lastError: String?
@@ -180,6 +181,11 @@ final class TrainMonitor {
     }
 
     var isOnline: Bool { provider is Transitous }
+
+    /// The stop and connection a booking in the calendar has for the train shown, for the user to take or leave.
+    var calendarSuggestion: CalendarJourney.Suggestion? {
+        demoMode || isSnapshot ? nil : calendar.suggestion(for: status, plan: journey.plan, now: now)
+    }
 
     var tracking: Tracking? {
         guard let status else { return nil }
@@ -1073,6 +1079,8 @@ final class TrainMonitor {
             if let status { estimates.prepareProfile(for: status) }
             estimates.refreshSection(for: status, at: now)
             updateLink()
+            // The calendar only matters next to a train it can be matched with.
+            if status != nil, !demoMode { calendar.refresh(now: now) } else { calendar.pause() }
         }
 
         // An on-board train whose portal stopped answering, e.g. after the Wi-Fi went away or a sleep: its last

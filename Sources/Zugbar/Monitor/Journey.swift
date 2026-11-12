@@ -86,6 +86,15 @@ final class Journey {
         connections.isAdding = false
     }
 
+    /// Takes what the calendar suggested: the stop from the train's own list, the connection looked up the way
+    /// picking it by hand does. One that can't be told apart for sure is left to the user in the open picker.
+    func take(_ suggestion: CalendarJourney.Suggestion) {
+        guard let stop = status()?.stops.first(where: { $0.id == suggestion.stopID }) else { return }
+        if plan?.destinationStopID != stop.id { toggleDestination(stop) }
+        guard let onward = suggestion.onward, plan?.connection == nil else { return }
+        connections.find(station: onward.to, pick: onward.pick) { [weak self] in self?.chooseConnection($0) }
+    }
+
     func removeConnection() {
         update { $0.connection = nil }
     }

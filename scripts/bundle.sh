@@ -37,6 +37,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>LSUIElement</key><true/>
     <key>LSApplicationCategoryType</key><string>public.app-category.travel</string>
     <key>NSLocalNetworkUsageDescription</key><string>Zugbar reads the train's speed, stops and Wi-Fi data allowance from its on-board Wi-Fi.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key><string>If you turn on “Journey from calendar”, Zugbar looks at the next few hours of your calendar for a booked train connection. What it reads stays on this Mac.</string>
 </dict>
 </plist>
 PLIST

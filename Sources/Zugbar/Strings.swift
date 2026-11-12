@@ -253,6 +253,21 @@ struct Strings {
     var coachMissing: String { t("not in today's train", "fährt heute nicht mit") }
     var coachClosed: String { t("closed today", "heute gesperrt") }
     var addConnection: String { t("Add connection…", "Anschluss hinzufügen…") }
+    var calendarJourney: String { t("Journey from calendar", "Reise aus dem Kalender") }
+    var calendarJourneyHint: String {
+        t("Looks at the next few hours of your calendar for a train connection added by a booking app and offers its stop and connection; what it reads stays on this Mac, and nothing is saved or looked up unless you accept.",
+          "Sucht in den nächsten Stunden deines Kalenders nach einer Zugverbindung aus einer Buchungs-App und bietet Ausstieg und Anschluss an; was dabei gelesen wird, bleibt auf diesem Mac, und ohne deine Bestätigung wird nichts gespeichert oder nachgeschlagen.")
+    }
+    func calendarSuggestion(_ suggestion: CalendarJourney.Suggestion) -> String {
+        let onward = suggestion.onward.map { "\($0.train) → \($0.to)" }
+        // The stop is already set: only the connection is new.
+        guard suggestion.setsStop else { return t("Calendar: continue with \(onward ?? "")", "Kalender: weiter mit \(onward ?? "")") }
+        guard let onward else { return t("Calendar: get off at \(suggestion.stopName)", "Kalender: Ausstieg \(suggestion.stopName)") }
+        return t("Calendar: get off at \(suggestion.stopName), continue with \(onward)",
+                 "Kalender: Ausstieg \(suggestion.stopName), weiter mit \(onward)")
+    }
+    var takeSuggestion: String { t("Use", "Übernehmen") }
+    var dismissSuggestion: String { t("Not this", "Verwerfen") }
     var continueTo: String { t("Continue to, e.g. Springfield", "Weiter nach, z. B. Musterstadt") }
     var connection: String { t("Connection", "Anschluss") }
     var enableRegional: String { t("Include regional trains", "Regionalzüge einschalten") }
