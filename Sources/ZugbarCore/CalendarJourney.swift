@@ -29,6 +29,13 @@ public struct CalendarJourney: Equatable, Sendable {
         self.legs = legs
     }
 
+    /// What trains are called in such entries, as far as the app follows them; a leg by anything else, a bus, a
+    /// flight number or a taxi in an entry typed by hand, isn't a rail journey.
+    static let railProducts: Set<String> = [
+        "ICE", "ECE", "IC", "EC", "RJ", "RJX", "NJ", "EN", "TGV", "FLX", "D", "ICN", "IR", "THA", "EST", "FR", "FA", "AVE",
+        "RE", "RB", "IRE", "MEX", "S", "ME", "ALX", "BRB", "BOB", "ERX", "ENO", "NWB", "WFB", "HLB", "VIA", "ODEG", "TLX", "REX", "R",
+    ]
+
     /// How far ahead the calendar is looked at.
     public static let lookAhead: TimeInterval = 6 * 60 * 60
 }
@@ -110,7 +117,9 @@ extension CalendarJourney {
         guard let notes, start < end, end.timeIntervalSince(start) < 24 * 60 * 60 else { return nil }
         let lines = notes.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
         let title = title.trimmingCharacters(in: .whitespaces)
-        guard lines.contains(where: { $0.hasPrefix("Datum: ") }) else { return nil }
+        // The day of the first departure, "01.02.2026" or "01.02.26".
+        guard let date = lines.lazy.compactMap({ Self.groups(#"^Datum: (\d{2})\.(\d{2})\.(?:20)?(\d{2})$"#, in: $0) }).first,
+              let day = Int(date[0]), let month = Int(date[1]), let year = Int(date[2]) else { return nil }
 
         let drafts: [Draft]?
         let ends: [String]
@@ -135,6 +144,8 @@ extension CalendarJourney {
         for zone in [TimeZone.current, TimeZone(identifier: "Europe/Berlin")].compactMap({ $0 }) {
             var calendar = Calendar(identifier: .gregorian)
             calendar.timeZone = zone
+            let written = calendar.dateComponents([.day, .month, .year], from: start)
+            guard written.day == day, written.month == month, written.year == 2000 + year else { continue }
             var time = start.addingTimeInterval(-1)
             var legs: [Leg] = []
             for draft in drafts {
@@ -173,6 +184,7 @@ extension CalendarJourney {
                   let departure = groups(#"^● ab (\d{1,2}):(\d{2}) (.+?) ▷ Gleis ?\S*( \S+)?$"#, in: line),
                   let arrival = groups(#"^○ an (\d{1,2}):(\d{2}) (.+?) ▷ Gleis ?\S*( \S+)?$"#, in: lines[index + 1]),
                   let train = groups(#"^(\p{L}{1,4}) ?(\d{1,5})(?: \((\d{1,6})\))?$"#, in: lines[index - 1]),
+                  railProducts.contains(train[0].uppercased()),
                   lines[index - 2] == "\(departure[2]) ➞ \(arrival[2])",
                   let from = clock(departure), let to = clock(arrival)
             else { return nil }
@@ -195,6 +207,7 @@ extension CalendarJourney {
             guard index + 1 < lines.count,
                   let departure = groups(#"^ab (\d{1,2}):(\d{2}) (.+?)(?: - Gleis \S+(?: \S+)?)? \((\p{L}{1,4}) *(\d{1,5})\)$"#, in: line),
                   let arrival = groups(#"^an (\d{1,2}):(\d{2}) (.+?)(?: - Gleis \S+(?: \S+)?)?$"#, in: lines[index + 1]),
+                  railProducts.contains(departure[3].uppercased()),
                   let from = clock(departure), let to = clock(arrival)
             else { return nil }
             drafts.append(Draft(
@@ -222,5 +235,46 @@ private extension Calendar {
     /// The first time the clock shows `time` after `date`.
     func next(_ time: (hour: Int, minute: Int), after date: Date) -> Date? {
         nextDate(after: date, matching: DateComponents(hour: time.hour, minute: time.minute, second: 0), matchingPolicy: .nextTime)
+    }
+}
+
+/// The "journey from calendar" switch: on only by the user's own hand and with the system's permission.
+public struct CalendarSwitch: Equatable, Sendable {
+    public enum Permission: Sendable { case granted, notAsked, refused }
+    public enum Step: Equatable, Sendable { case none, ask, openSystemSettings }
+
+    public private(set) var isOn: Bool
+    /// Switched on and waiting for the system's prompt to be answered.
+    public private(set) var isAsking = false
+
+    /// At launch. Permission taken away meanwhile turns the saved switch off for good: granting it again
+    /// later, perhaps for something else, doesn't start the reading again.
+    public init(saved: Bool, permission: Permission) {
+        isOn = saved && permission == .granted
+    }
+
+    public mutating func turnOn(permission: Permission) -> Step {
+        switch permission {
+        case .granted:
+            isOn = true
+            return .none
+        case .notAsked:
+            isAsking = true
+            return .ask
+        case .refused:
+            turnOff()
+            return .openSystemSettings
+        }
+    }
+
+    public mutating func turnOff() {
+        isOn = false
+        isAsking = false
+    }
+
+    /// The prompt was answered; a "yes" counts only if the user hasn't switched it off again while it was open.
+    public mutating func answered(granted: Bool) {
+        isOn = granted && isAsking
+        isAsking = false
     }
 }

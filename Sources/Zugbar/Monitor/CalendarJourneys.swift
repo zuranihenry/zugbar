@@ -13,8 +13,14 @@ final class CalendarJourneys {
 
     /// Connections found in the next few hours' events; everything else in the calendar is dropped right away.
     private(set) var journeys: [CalendarJourney] = []
-    /// The switch as the settings show it: on only with the system's permission.
-    private(set) var isOn = false
+    /// The switch as the settings show it: on only with the system's permission. Saved as it changes.
+    private var state: CalendarSwitch {
+        didSet {
+            UserDefaults.standard.set(state.isOn, forKey: Self.settingKey)
+            if !state.isOn { forget() }
+        }
+    }
+    var isOn: Bool { state.isOn }
     /// Suggestions the user waved off, until the app quits.
     private var dismissed: [CalendarJourney.Suggestion] = []
 
@@ -26,38 +32,43 @@ final class CalendarJourneys {
     let isAvailable = Bundle.main.object(forInfoDictionaryKey: "NSCalendarsFullAccessUsageDescription") != nil
 
     init() {
-        isOn = isAvailable && UserDefaults.standard.bool(forKey: Self.settingKey)
-            && EKEventStore.authorizationStatus(for: .event) == .fullAccess
+        let saved = UserDefaults.standard.bool(forKey: Self.settingKey)
+        state = CalendarSwitch(saved: saved && isAvailable, permission: Self.permission)
+        // Not through didSet, which an initializer doesn't run.
+        if saved, !state.isOn { UserDefaults.standard.set(false, forKey: Self.settingKey) }
+    }
+
+    private static var permission: CalendarSwitch.Permission {
+        switch EKEventStore.authorizationStatus(for: .event) {
+        case .fullAccess: .granted
+        case .notDetermined: .notAsked
+        default: .refused
+        }
     }
 
     /// Asks for calendar access the first time it's switched on; after a "no", only System Settings can change it.
     func set(_ on: Bool) {
-        guard on, isAvailable else { return turnOff() }
-        switch EKEventStore.authorizationStatus(for: .event) {
-        case .fullAccess:
-            turnOn()
-        case .notDetermined:
+        guard on, isAvailable else { return state.turnOff() }
+        // Already asking: the open prompt answers it.
+        guard !state.isAsking else { return }
+        switch state.turnOn(permission: Self.permission) {
+        case .none:
+            break
+        case .ask:
             let store = EKEventStore()
             Task {
                 let granted = (try? await store.requestFullAccessToEvents()) ?? false
-                if granted { turnOn() } else { turnOff() }
+                state.answered(granted: granted)
             }
-        default:
-            turnOff()
+        case .openSystemSettings:
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
                 NSWorkspace.shared.open(url)
             }
         }
     }
 
-    private func turnOn() {
-        UserDefaults.standard.set(true, forKey: Self.settingKey)
-        isOn = true
-    }
-
-    private func turnOff() {
-        UserDefaults.standard.set(false, forKey: Self.settingKey)
-        isOn = false
+    /// Lets go of the calendar and of everything read from it.
+    private func forget() {
         store = nil
         lastRead = nil
         journeys = []
@@ -68,7 +79,7 @@ final class CalendarJourneys {
     func refresh(now: Date) {
         guard isOn else { return }
         // Taken away in System Settings since.
-        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return turnOff() }
+        guard Self.permission == .granted else { return state.turnOff() }
         if let lastRead, now.timeIntervalSince(lastRead) < 60 { return }
         lastRead = now
         let store = store ?? EKEventStore()
