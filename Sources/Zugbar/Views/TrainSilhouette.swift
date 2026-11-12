@@ -7,6 +7,8 @@ struct TrainSilhouette: View {
     let family: TrainFamily
     var height: CGFloat = 13
 
+    static let aspectRatio = TrainArt.size.width / TrainArt.size.height
+
     var body: some View {
         let art = TrainArt(family)
         Rectangle()
@@ -21,7 +23,7 @@ struct TrainSilhouette: View {
                 stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.3)],
                 startPoint: .leading, endPoint: .trailing
             ))
-            .frame(width: height * TrainArt.size.width / TrainArt.size.height, height: height)
+            .frame(width: height * Self.aspectRatio, height: height)
             .accessibilityHidden(true)
     }
 

@@ -147,25 +147,36 @@ private struct TripHeader: View {
                     }
                 }
                 Spacer()
-                // The drawing sits under the badge, next to the destination, so the header keeps its height;
-                // the pop-out button is taller than it looks, hence the overlap.
-                VStack(alignment: .trailing, spacing: showsPopOut ? -3 : 2) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(status.provider)
-                            .font(.caption.weight(.medium))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .badgeStyle()
-                        if showsPopOut { PopOutButton() }
-                    }
-                    if let family = status.family, status.destination != nil {
-                        TrainSilhouette(family: family)
-                    }
-                }
+                Text(status.provider)
+                    .font(.caption.weight(.medium))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .badgeStyle()
+                if showsPopOut { PopOutButton() }
             }
             if let vehicle = status.vehicle {
                 Text(vehicle).font(.caption).foregroundStyle(.secondary)
             }
+        }
+        .background {
+            if let family = status.family {
+                watermark(family).transition(.opacity)
+            }
+        }
+        .animation(.easeIn(duration: 0.8), value: status.family)
+    }
+
+    /// The train as a faint backdrop: as tall as the header, nose at the right edge, dissolving towards the text.
+    /// A background, so it takes no room and the text stays on top.
+    private func watermark(_ family: TrainFamily) -> some View {
+        GeometryReader { proxy in
+            TrainSilhouette(family: family, height: min(proxy.size.height, 56))
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .trailing)
+                .mask(LinearGradient(
+                    stops: [.init(color: .clear, location: 0.3), .init(color: .black, location: 1)],
+                    startPoint: .leading, endPoint: .trailing
+                ))
+                .opacity(0.3)
         }
     }
 }
