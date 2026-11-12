@@ -2,7 +2,12 @@
 
 Live train info in your Mac's menu bar.
 
-<img src="docs/screenshots/window.png" alt="Following an ICE online, with the route on the map">
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/window-dark.png">
+    <img src="docs/screenshots/window.png" width="760" alt="On an ICE: speed, destination and connection, with the route on the map">
+  </picture>
+</p>
 
 - **On board:** speed, next stop, delays and tracks from the train's Wi-Fi (DB ICE, ÖBB Railjet, SNCF TGV INOUI;
   DB Regio and ČD too, written from the portals' known formats and not yet tried on a real train), how
@@ -22,15 +27,15 @@ Live train info in your Mac's menu bar.
   on your Mac, with CSV export; a ride stays one trip when the lid closes or the app restarts
 - English and German
 
-<table>
-  <tr>
-    <td valign="top"><img src="docs/screenshots/panel-ice.png" width="230" alt="On an ICE, with destination and connection"></td>
-    <td valign="top"><img src="docs/screenshots/panel-discover.png" width="230" alt="Suggestions and live trains"></td>
-    <td valign="top"><img src="docs/screenshots/panel-regional.png" width="230" alt="Picking a regional train at a station"></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/screenshots/panel-ice.png" width="32%" alt="On an ICE, with destination and connection">
+  <img src="docs/screenshots/panel-discover.png" width="32%" alt="Suggestions and live trains">
+  <img src="docs/screenshots/panel-regional.png" width="32%" alt="Picking a regional train at a station">
+</p>
 
-<img src="docs/screenshots/trips.png" width="340" alt="The trip log: a year in figures and the lines ridden">
+<p align="center">
+  <img src="docs/screenshots/trips.png" width="44%" alt="The trip log: a year in figures and the lines ridden">
+</p>
 
 > [!NOTE]
 > Vibe-coded hobby project, mostly written by Claude and built on
