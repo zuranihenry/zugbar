@@ -33,7 +33,7 @@ final class MapState {
     /// Keeps the map centered on the train as it moves.
     var followsTrain = false {
         didSet {
-            if !followsTrain { (shownDistance, shownDistanceAt, closeInOverride, zooming) = (nil, nil, nil, false) }
+            if !followsTrain { (shownDistance, shownDistanceAt, closeInOverride) = (nil, nil, nil) }
         }
     }
     /// Zoom while following, as camera distance in meters; kept when the user zooms.
@@ -45,8 +45,6 @@ final class MapState {
     /// or leaves the stop, and their usual zoom comes back.
     @ObservationIgnored private var closingIn = false
     @ObservationIgnored private var closeInOverride: Double?
-    /// Whether following is still easing toward its zoom; that needs every frame to look smooth.
-    @ObservationIgnored private(set) var zooming = false
     /// Last time the user moved or zoomed the map; following pauses briefly after that.
     @ObservationIgnored var touchedAt: Date = .distantPast
     /// Counts camera moves the app itself started, so those changes don't count as user input.
@@ -56,8 +54,11 @@ final class MapState {
     /// Where the map is currently centered, and how far out, as reported by the map itself.
     @ObservationIgnored var center: Coordinate?
     @ObservationIgnored var cameraDistance: Double?
-    /// The map's scale at its center, as reported by the map itself.
+    /// The map's scale at its center, and how far its corners are from there in points, as reported by the map itself.
     @ObservationIgnored var metersPerPoint: Double?
+    @ObservationIgnored var edgeRadius: Double?
+    /// How fast the train, and the camera while following, move what the map shows.
+    @ObservationIgnored private var motion = MapMotion()
     /// Which way up the map is, in degrees, as reported by the map itself.
     @ObservationIgnored var shownCameraHeading: Double?
     /// Where following last put the camera; the user panning shows up as a difference to this.
@@ -74,6 +75,17 @@ final class MapState {
 
     func trainMoved(to position: Coordinate, at date: Date) {
         heading.update(position, at: date)
+        motion.trainMoved(to: position, at: date)
+    }
+
+    /// Following put the camera here; its zooming and turning count as movement on screen.
+    func followed(distance: Double, heading: Double, at date: Date) {
+        motion.cameraMoved(distance: distance, heading: heading, at: date)
+    }
+
+    /// Points a second the fastest part of the map moves on screen; nil while that isn't known.
+    func pointsPerSecond(at date: Date) -> Double? {
+        motion.pointsPerSecond(metersPerPoint: metersPerPoint, radius: edgeRadius, at: date)
     }
 
     /// The camera distance following currently puts the map at.
@@ -95,13 +107,12 @@ final class MapState {
         closingIn = closeIn.map { $0 < followDistance } ?? false
         if !closingIn { closeInOverride = nil }
         let wanted = closeInOverride ?? (closingIn ? closeIn ?? followDistance : followDistance)
-        // At most a frame or so at once: after a pause the map eases on instead of jumping, which would also
-        // look like the user zooming.
-        let elapsed = shownDistanceAt.map { min(max(date.timeIntervalSince($0), 0), 0.05) } ?? 0
+        // At most a frame or so at once, also at the 10 frames a second on battery: after a pause the map eases
+        // on instead of jumping, which would also look like the user zooming.
+        let elapsed = shownDistanceAt.map { min(max(date.timeIntervalSince($0), 0), 0.15) } ?? 0
         shownDistanceAt = date
         let shown = MapZoom.eased(from: followingDistance, to: wanted, elapsed: elapsed)
         shownDistance = shown
-        zooming = abs(log(wanted / shown)) > 0.005
         return shown
     }
 

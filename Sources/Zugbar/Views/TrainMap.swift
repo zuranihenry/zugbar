@@ -187,9 +187,11 @@ struct TrainMap: View {
     private func camera(at position: Coordinate) -> MapState.CameraMove.Target {
         let toStop = status.nextStop?.coordinate.map { position.distance(to: $0) * 1000 }
         let closeIn = MapZoom.closeIn(speed: monitor.displaySpeed, toNextStop: toStop, savingData: DataSaver.shared.isOn)
-        let distance = monitor.map.cameraDistance(closeIn: closeIn, at: Date())
-        return .camera(center: position, distance: distance,
-                       heading: monitor.map.cameraHeading(toward: headingUp ? monitor.map.heading.degrees ?? 0 : 0, at: Date()))
+        let now = Date()
+        let distance = monitor.map.cameraDistance(closeIn: closeIn, at: now)
+        let heading = monitor.map.cameraHeading(toward: headingUp ? monitor.map.heading.degrees ?? 0 : 0, at: now)
+        monitor.map.followed(distance: distance, heading: heading, at: now)
+        return .camera(center: position, distance: distance, heading: heading)
     }
 
     /// Zooms around the train when following, else around the map's center. Works from the remembered zoom,
@@ -433,6 +435,7 @@ private struct RouteMap: NSViewRepresentable {
             let left = mapView.convert(CGPoint(x: middle.x - 50, y: middle.y), toCoordinateFrom: mapView)
             let right = mapView.convert(CGPoint(x: middle.x + 50, y: middle.y), toCoordinateFrom: mapView)
             map.metersPerPoint = MKMapPoint(left).distance(to: MKMapPoint(right)) / 100
+            map.edgeRadius = hypot(mapView.bounds.width, mapView.bounds.height) / 2
             guard !map.movingProgrammatically else { return }
             let expected = map.followsTrain ? map.followingDistance : map.followDistance
             if abs(distance - expected) > expected * 0.03 {
