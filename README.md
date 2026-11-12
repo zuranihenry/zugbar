@@ -30,6 +30,8 @@ Live train info in your Mac's menu bar.
   </tr>
 </table>
 
+<img src="docs/screenshots/trips.png" width="340" alt="The trip log: a year in figures and the lines ridden">
+
 > [!NOTE]
 > Vibe-coded hobby project, mostly written by Claude and built on
 > [TrainStatusInfo](https://github.com/niklaswa/TrainStatusInfo), [onboardapis](https://github.com/felix-zenk/onboardapis),

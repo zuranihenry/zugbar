@@ -136,6 +136,12 @@ struct TripsView: View {
     private var chosenYear = State<Int?>(initialValue: nil)
     @Environment(\.strings) private var strings
 
+    /// Spelled out: older compilers make the memberwise one private because of `chosenYear`.
+    init(monitor: TrainMonitor, madeUp: TripLog? = nil) {
+        self.monitor = monitor
+        self.madeUp = madeUp
+    }
+
     var body: some View {
         // Demo mode shows made-up trips, so the tab has something on it without a ride.
         let log = madeUp ?? (monitor.demoMode ? DemoTrips.log : monitor.trips.log)
