@@ -30,6 +30,19 @@ enum Screenshots {
         let plan = JourneyPlan(trainName: ice.trainName!, destinationStopID: nuremberg.id, connection: connection)
         save(TrainMonitor(snapshot: ice, topSpeed: 300, now: iceNow, plan: plan), .english, dark: false, "panel-ice", in: directory, defaults: defaults)
 
+        // The window with the map beside the panel, for the top of the README in GitHub's light and dark themes.
+        for dark in [false, true] {
+            let window = StatusPanel(monitor: TrainMonitor(snapshot: ice, topSpeed: 300, now: iceNow, plan: plan), layout: .split)
+                .frame(width: 820, height: 540)
+            save(window, .english, dark: dark, dark ? "window-dark" : "window", in: directory, defaults: defaults)
+        }
+        // The newest few trips: the whole list would make the picture twice as tall.
+        let trips = TripLog(trips: Array(DemoTrips.log.trips.prefix(4)))
+        for dark in [false, true] {
+            save(TripsView(monitor: TrainMonitor(snapshot: nil), madeUp: trips), .english, dark: dark, dark ? "trips-dark" : "trips",
+                 in: directory, defaults: defaults)
+        }
+
         var history = TrainHistory()
         for day in 1...4 {
             let date = Date().addingTimeInterval(Double(-day) * 86_400)
