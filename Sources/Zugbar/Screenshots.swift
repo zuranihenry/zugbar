@@ -36,7 +36,12 @@ enum Screenshots {
                 .frame(width: 820, height: 540)
             save(window, .english, dark: dark, dark ? "window-dark" : "window", in: directory, defaults: defaults)
         }
-        save(TripsView(monitor: TrainMonitor(snapshot: nil), madeUp: DemoTrips.log), .english, dark: false, "trips", in: directory, defaults: defaults)
+        // The newest few trips: the whole list would make the picture twice as tall.
+        let trips = TripLog(trips: Array(DemoTrips.log.trips.prefix(4)))
+        for dark in [false, true] {
+            save(TripsView(monitor: TrainMonitor(snapshot: nil), madeUp: trips), .english, dark: dark, dark ? "trips-dark" : "trips",
+                 in: directory, defaults: defaults)
+        }
 
         var history = TrainHistory()
         for day in 1...4 {

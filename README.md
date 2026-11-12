@@ -28,13 +28,16 @@ Live train info in your Mac's menu bar.
 - English and German
 
 <p align="center">
-  <img src="docs/screenshots/panel-ice.png" width="32%" alt="On an ICE, with destination and connection">
-  <img src="docs/screenshots/panel-discover.png" width="32%" alt="Suggestions and live trains">
-  <img src="docs/screenshots/panel-regional.png" width="32%" alt="Picking a regional train at a station">
+  <img src="docs/screenshots/panel-ice.png" width="32%" align="top" alt="On an ICE, with destination and connection">
+  <img src="docs/screenshots/panel-discover.png" width="32%" align="top" alt="Suggestions and live trains">
+  <img src="docs/screenshots/panel-regional.png" width="32%" align="top" alt="Picking a regional train at a station">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/trips.png" width="44%" alt="The trip log: a year in figures and the lines ridden">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/trips-dark.png">
+    <img src="docs/screenshots/trips.png" width="420" alt="The trip log: a year in figures and the lines ridden">
+  </picture>
 </p>
 
 > [!NOTE]
