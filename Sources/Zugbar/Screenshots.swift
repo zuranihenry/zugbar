@@ -85,6 +85,7 @@ enum Screenshots {
     static func renderSettings(to directory: URL) {
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let monitor = TrainMonitor(snapshot: nil)
         let defaults = settings(regional: false)
         save(GeneralSettings(monitor: monitor), .german, dark: true, "settings-general", in: directory, defaults: defaults)
@@ -98,6 +99,23 @@ enum Screenshots {
         save(window, .german, dark: true, "window", in: directory, defaults: defaults)
         let split = StatusPanel(monitor: TrainMonitor(snapshot: ice, now: iceNow), layout: .split).frame(width: 820, height: 620)
         save(split, .german, dark: true, "window-split", in: directory, defaults: defaults)
+        // Every train drawing at panel size and enlarged, and a header where a long destination meets one.
+        for dark in [false, true] {
+            let sheet = VStack(alignment: .leading, spacing: 10) {
+                ForEach(TrainFamily.allCases, id: \.self) { family in
+                    HStack(spacing: 16) {
+                        Text(family.rawValue).font(.caption).frame(width: 50, alignment: .leading)
+                        TrainSilhouette(family: family)
+                        TrainSilhouette(family: family, height: 40)
+                    }
+                }
+            }
+            .padding(14)
+            save(sheet, .german, dark: dark, dark ? "silhouettes-dark" : "silhouettes", in: directory, defaults: defaults)
+        }
+        var railjet = try! OEBBRailnet.parse(combined: DemoProvider.resource("demo_oebb"), now: iceNow)
+        railjet.destination = "Bregenz über einen sehr langen Zielbahnhofsnamen"
+        save(TrainMonitor(snapshot: railjet, now: iceNow), .german, dark: true, "panel-railjet", in: directory, defaults: defaults)
         let ride = madeUpRide(start: iceNow)
         save(RideCharts(trip: ride).frame(width: 312).padding(14), .english, dark: false, "ride-charts", in: directory, defaults: defaults)
         save(RideCharts(trip: ride).frame(width: 440).padding(14), .german, dark: true, "ride-charts-history", in: directory, defaults: defaults)

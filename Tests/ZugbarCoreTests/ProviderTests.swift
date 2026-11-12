@@ -150,6 +150,33 @@ struct ICEPortalTests {
         #expect(ICEVehicle.describe(tzn: nil) == nil)
     }
 
+    @Test func vehicleFamilies() {
+        #expect(ICEVehicle.family(series: "412", tzn: "Tz9018") == .ice4)
+        #expect(ICEVehicle.family(series: "401", tzn: nil) == .ice1)
+        #expect(ICEVehicle.family(series: "402", tzn: "Tz 215") == .ice1)
+        #expect(ICEVehicle.family(series: "403", tzn: "Tz304") == .ice3)
+        #expect(ICEVehicle.family(series: "406", tzn: "Tz4651") == .ice3)
+        #expect(ICEVehicle.family(series: "411", tzn: "Tz1523") == .iceT)
+        // Velaro D and ICE 3neo share a body that differs from the first ICE 3.
+        #expect(ICEVehicle.family(series: "407", tzn: "Tz712") == .velaro)
+        #expect(ICEVehicle.family(series: "408", tzn: "Tz8012") == .velaro)
+        // The trainset number alone is enough.
+        #expect(ICEVehicle.family(series: nil, tzn: "Tz9018") == .ice4)
+        #expect(ICEVehicle.family(series: " ", tzn: "Tz4712") == .velaro)
+        // Nothing rather than a guess: unknown series, unknown number, or the two disagreeing.
+        #expect(ICEVehicle.family(series: nil, tzn: nil) == nil)
+        #expect(ICEVehicle.family(series: "147", tzn: nil) == nil)
+        #expect(ICEVehicle.family(series: "147", tzn: "Tz9018") == nil)
+        #expect(ICEVehicle.family(series: nil, tzn: "Tz42") == nil)
+        #expect(ICEVehicle.family(series: "412", tzn: "Tz304") == nil)
+    }
+
+    @Test func familiesFromPortals() throws {
+        let ice = try ICEPortal.parse(status: DemoProvider.resource("demo_db_status"), trip: DemoProvider.resource("demo_db_trip"))
+        #expect(ice.family == .ice4)
+        #expect(try OEBBRailnet.parse(combined: DemoProvider.resource("demo_oebb"), now: Date()).family == .railjet)
+    }
+
     /// Like the portals: 1:58 late is +1, 0:43 late is on time.
     @Test func delaysCutOffToWholeMinutes() {
         let scheduled = utc("2026-06-12T16:00:00Z")

@@ -52,6 +52,7 @@ public struct SNCFInoui: TrainProvider {
             stops: stops,
             nextStopID: stops.first { !$0.passed && !$0.cancelled }?.id,
             progress: traveled + remaining > 0 ? traveled / (traveled + remaining) : nil,
+            family: .tgv,
             portal: .portal("SNCF Wi-Fi", "https://wifi.sncf"),
             position: Coordinate(gps?.latitude, gps?.longitude)
         )
