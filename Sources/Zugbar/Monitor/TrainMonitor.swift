@@ -332,9 +332,8 @@ final class TrainMonitor {
     private var frameInterval: Duration {
         guard mapsShown > 0, status != nil else { return .seconds(1) }
         let power = PowerState.shared
-        let onScreen = MapFrames.pointsPerSecond(speed: displaySpeed, metersPerPoint: map.metersPerPoint)
         let frames = MapFrames.perSecond(onBattery: power.onBattery, lowPowerMode: power.lowPowerMode,
-                                         pointsPerSecond: onScreen, zooming: map.zooming)
+                                         pointsPerSecond: map.pointsPerSecond(at: Date()))
         return .milliseconds(1000 / frames)
     }
 
