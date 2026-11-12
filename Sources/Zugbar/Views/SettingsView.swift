@@ -119,10 +119,14 @@ struct GeneralSettings: View {
 /// Trips recorded on board, with totals and CSV export.
 struct TripsView: View {
     let monitor: TrainMonitor
+    /// Made-up trips to show instead of the user's own, for screenshots.
+    var madeUp: TripLog?
     @Environment(\.strings) private var strings
 
     var body: some View {
-        let log = monitor.trips.log
+        // Demo mode shows made-up trips, so the tab has something on it without a ride.
+        let log = madeUp ?? (monitor.demoMode ? DemoTrips.log : monitor.trips.log)
+        let network = TravelledNetwork(trips: log.trips)
         SettingsPane {
             if log.trips.isEmpty {
                 Text(strings.noTrips).foregroundStyle(.secondary)
@@ -133,6 +137,26 @@ struct TripsView: View {
                         Text(strings.fastestTrip(fastest.topSpeed, train: fastest.train))
                     }
                     Button(strings.exportCSV) { export(log) }
+                }
+                Section {
+                    if network.isEmpty {
+                        // Trips from before paths were kept: nothing to draw yet.
+                        Text(strings.travelledMapEmpty).font(.caption).foregroundStyle(.secondary)
+                    } else if DataSaver.shared.isOn {
+                        Text(strings.travelledMapSavingData).font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        TravelledMap(network: network)
+                            .frame(height: 240)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .accessibilityLabel(strings.travelledMap)
+                    }
+                } footer: {
+                    if !network.isEmpty, !DataSaver.shared.isOn {
+                        Text(strings.travelledMapHint(missing: log.trips.count - network.tripCount))
+                            .font(.caption).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
                 Section {
                     ForEach(log.trips) { trip in
@@ -146,6 +170,7 @@ struct TripsView: View {
                         }
                         .contextMenu {
                             Button(strings.deleteTrip, role: .destructive) { monitor.trips.delete(trip.id) }
+                                .disabled(madeUp != nil || monitor.demoMode)
                         }
                     }
                 }
