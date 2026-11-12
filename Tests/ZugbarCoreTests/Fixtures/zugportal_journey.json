@@ -1,0 +1,183 @@
+{
+  "journeyId": "00000000-0000-4000-8000-000000000001",
+  "no": 4711,
+  "category": "RE",
+  "name": "RE 80",
+  "type": "REGIONAL_TRAIN",
+  "date": "2099-01-01",
+  "tenantId": "example",
+  "administrationId": "800000",
+  "operatorName": "Example Regio",
+  "operatorCode": "EX",
+  "uic": "000000000000",
+  "trainId": "4711 2099-01-01",
+  "validFrom": "2099-01-01T08:00:00.000Z",
+  "validUntil": "2099-01-01T12:00:00.000Z",
+  "started": true,
+  "finished": false,
+  "hims": [],
+  "stops": [
+    {
+      "status": "Normal",
+      "station": {
+        "evaNo": "9000001",
+        "name": "Altstadt Hbf",
+        "position": {
+          "latitude": 50.0,
+          "longitude": 8.0
+        }
+      },
+      "track": {
+        "target": "3",
+        "prediction": "3"
+      },
+      "messages": [],
+      "departureTime": {
+        "target": "2099-01-01T10:00:00+01:00",
+        "predicted": "2099-01-01T10:01:00+01:00",
+        "targetTimeInMs": 4070941200000,
+        "predictedTimeInMs": 4070941260000,
+        "timeType": "REAL",
+        "diff": 1
+      }
+    },
+    {
+      "status": "Normal",
+      "station": {
+        "evaNo": "9000002",
+        "name": "Altstadt Nord",
+        "position": {
+          "latitude": 50.05,
+          "longitude": 8.05
+        }
+      },
+      "track": {
+        "target": "1",
+        "prediction": "1"
+      },
+      "messages": [],
+      "arrivalTime": {
+        "target": "2099-01-01T10:06:00+01:00",
+        "predicted": "2099-01-01T10:07:30+01:00",
+        "targetTimeInMs": 4070941560000,
+        "predictedTimeInMs": 4070941650000,
+        "timeType": "REAL",
+        "diff": 2
+      },
+      "departureTime": {
+        "target": "2099-01-01T10:07:00+01:00",
+        "predicted": "2099-01-01T10:09:00+01:00",
+        "targetTimeInMs": 4070941620000,
+        "predictedTimeInMs": 4070941740000,
+        "timeType": "REAL",
+        "diff": 2
+      }
+    },
+    {
+      "status": "Normal",
+      "station": {
+        "evaNo": "9000003",
+        "name": "Mittelfeld",
+        "position": {
+          "latitude": 50.1,
+          "longitude": 8.1
+        }
+      },
+      "track": {
+        "target": "2",
+        "prediction": "4"
+      },
+      "messages": [
+        {
+          "code": "1",
+          "type": "CUSTOMER_REASON",
+          "text": "Verzögerungen im Betriebsablauf",
+          "textShort": null,
+          "displayPriority": null,
+          "category": null
+        },
+        {
+          "code": "2",
+          "type": "QUALITY_CHANGE",
+          "text": "Kein Bordbistro",
+          "textShort": null,
+          "displayPriority": null,
+          "category": null
+        }
+      ],
+      "arrivalTime": {
+        "target": "2099-01-01T10:15:00+01:00",
+        "predicted": "2099-01-01T10:17:30+01:00",
+        "targetTimeInMs": 4070942100000,
+        "predictedTimeInMs": 4070942250000,
+        "timeType": "PREVIEW",
+        "diff": 2
+      },
+      "departureTime": {
+        "target": "2099-01-01T10:16:00+01:00",
+        "predicted": "2099-01-01T10:18:00+01:00",
+        "targetTimeInMs": 4070942160000,
+        "predictedTimeInMs": 4070942280000,
+        "timeType": "PREVIEW",
+        "diff": 2
+      }
+    },
+    {
+      "status": "Canceled",
+      "station": {
+        "evaNo": "9000004",
+        "name": "Wiesengrund",
+        "position": {
+          "latitude": 50.15,
+          "longitude": 8.15
+        }
+      },
+      "track": {
+        "target": "1",
+        "prediction": "1"
+      },
+      "messages": [],
+      "canceled": true,
+      "arrivalTime": {
+        "target": "2099-01-01T10:22:00+01:00",
+        "predicted": "2099-01-01T10:22:00+01:00",
+        "targetTimeInMs": 4070942520000,
+        "predictedTimeInMs": 4070942520000,
+        "timeType": "SCHEDULE",
+        "diff": 0
+      },
+      "departureTime": {
+        "target": "2099-01-01T10:23:00+01:00",
+        "predicted": "2099-01-01T10:23:00+01:00",
+        "targetTimeInMs": 4070942580000,
+        "predictedTimeInMs": 4070942580000,
+        "timeType": "SCHEDULE",
+        "diff": 0
+      }
+    },
+    {
+      "status": "Normal",
+      "station": {
+        "evaNo": "9000005",
+        "name": "Neustadt (Beispiel) Hbf",
+        "position": {
+          "latitude": 50.2,
+          "longitude": 8.2
+        }
+      },
+      "track": {
+        "target": "5",
+        "prediction": "5"
+      },
+      "messages": [],
+      "arrivalTime": {
+        "target": "2099-01-01T09:30:00.000Z",
+        "predicted": "2099-01-01T09:30:00.000Z",
+        "targetTimeInMs": 4070943000000,
+        "predictedTimeInMs": 4070943000000,
+        "timeType": "SCHEDULE",
+        "diff": 0
+      }
+    }
+  ]
+}

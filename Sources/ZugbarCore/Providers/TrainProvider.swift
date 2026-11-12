@@ -15,8 +15,32 @@ public typealias DataLoader = @Sendable (URL) async throws -> Data
 public enum Providers {
     /// On-board Wi-Fi portals, probed in parallel.
     public static func onBoard(loader: @escaping DataLoader = URLSession.portal.loader) -> [any TrainProvider] {
-        [ICEPortal(loader: loader), OEBBRailnet(loader: loader), SNCFInoui(loader: loader)]
+        [ICEPortal(loader: loader), OEBBRailnet(loader: loader), SNCFInoui(loader: loader),
+         Zugportal(loader: loader), CDWiFi(loader: loader)]
     }
+}
+
+/// What a portal last sent, so a timetable that changes once a minute isn't fetched again on every poll, and a
+/// portal that said "not on a train" is left alone for a while.
+final class PortalMemory: @unchecked Sendable {
+    private let lock = NSLock()
+    private var answers: [URL: (data: Data, at: Date)] = [:]
+    private var pauses: [String: Date] = [:]
+    private var marks: [String: Date] = [:]
+
+    /// The answer from under `maxAge` seconds ago, or else a new one.
+    func load(_ url: URL, maxAge: TimeInterval, now: Date, loader: DataLoader) async throws -> Data {
+        if let kept = lock.withLock({ answers[url] }), now.timeIntervalSince(kept.at) < maxAge, now >= kept.at { return kept.data }
+        let data = try await loader(url)
+        lock.withLock { answers[url] = (data, now) }
+        return data
+    }
+
+    func pause(_ key: String, until: Date) { lock.withLock { pauses[key] = until } }
+    func isPaused(_ key: String, at now: Date) -> Bool { lock.withLock { pauses[key].map { now < $0 } ?? false } }
+    func mark(_ key: String, at now: Date) { lock.withLock { marks[key] = now } }
+    func marked(_ key: String) -> Date? { lock.withLock { marks[key] } }
+    func forget() { lock.withLock { answers = [:]; pauses = [:]; marks = [:] } }
 }
 
 extension URLSession {
@@ -92,12 +116,27 @@ extension JSONDecoder {
     static var portal: JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
-            let text = try decoder.singleValueContainer().decode(String.self)
-            if let date = try? Date(text, strategy: .iso8601.year().month().day().time(includingFractionalSeconds: true)) {
-                return date
+            let container = try decoder.singleValueContainer()
+            guard let date = Date(portal: try container.decode(String.self)) else {
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: "Not an ISO 8601 date")
             }
-            return try Date(text, strategy: .iso8601)
+            return date
         }
         return decoder
+    }
+}
+
+extension Date {
+    /// ISO 8601 with or without fractional seconds, in UTC or with an offset, "+01:00" or "+0100".
+    init?(portal text: String) {
+        // The strategy that keeps fractions of a second takes no offset: it would read local time as UTC.
+        if text.hasSuffix("Z"),
+           let date = try? Date(text, strategy: .iso8601.year().month().day().time(includingFractionalSeconds: true)) {
+            self = date
+        } else if let date = try? Date(text, strategy: .iso8601) {
+            self = date
+        } else {
+            return nil
+        }
     }
 }
