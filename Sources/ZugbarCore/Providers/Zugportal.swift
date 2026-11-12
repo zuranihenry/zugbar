@@ -17,49 +17,55 @@ public struct Zugportal: TrainProvider {
     let router: Icomera
     let memory: PortalMemory
 
-    public init(loader: @escaping DataLoader = URLSession.portal.loader) {
-        self.init(loader: loader, memory: Self.shared)
+    public init(loader: @escaping DataLoader = URLSession.portal.jsonLoader, router: @escaping DataLoader = URLSession.portal.loader) {
+        self.init(loader: loader, router: router, memory: Self.shared)
     }
 
-    init(loader: @escaping DataLoader, memory: PortalMemory) {
+    init(loader: @escaping DataLoader, router: @escaping DataLoader, memory: PortalMemory) {
         self.loader = loader
-        self.router = Icomera(loader: loader)
+        self.router = Icomera(loader: router)
         self.memory = memory
     }
-
-    /// A new network may be a train: ask again right away.
-    public static func joinedNetwork() { shared.forget() }
 
     public func fetch() async throws -> TrainStatus {
         try await fetch(now: Date())
     }
 
-    /// The portal's site is on the internet too, so asking costs data on every network. Off a train it answers with
-    /// nothing, and is then left alone for five minutes or until another network is joined. On board the trip is
-    /// asked for twice a minute; only the router, which is on the train, on every poll.
+    /// The portal's site is on the internet too, so asking costs data on every network, also on a regional train
+    /// with a data limit and no portal. Whatever comes back that isn't a trip, the portal is then left alone, for
+    /// longer each time, until another network is joined. On board the trip is asked for twice a minute; only the
+    /// router, which is on the train, on every poll.
     func fetch(now: Date) async throws -> TrainStatus {
-        guard !memory.isPaused("journey", at: now) else { throw ProviderError.missingResource("journey") }
-        var lastError: Error = ProviderError.missingResource("journey")
-        for host in Self.hosts {
-            let journey: Data
-            do {
-                journey = try await memory.load(URL(string: "https://\(host)\(Self.path)")!, maxAge: 30, now: now, loader: loader)
-            } catch {
-                lastError = error
-                continue
-            }
-            guard !journey.isEmpty else {
-                // A gap in a trip that just answered isn't the end of it.
-                if memory.marked("journey").map({ now.timeIntervalSince($0) > 10 * 60 }) ?? true {
-                    memory.pause("journey", until: now.addingTimeInterval(5 * 60))
+        guard !memory.isPaused(at: now) else { throw ProviderError.missingResource("journey") }
+        // Both hosts at once until one has answered, so a network that's stuck doesn't take twice as long.
+        let hosts = memory["host"].map { [$0] } ?? Self.hosts
+        let found = await withTaskGroup(of: (host: String, status: TrainStatus)?.self) { group in
+            for host in hosts {
+                group.addTask {
+                    let url = URL(string: "https://\(host)\(Self.path)")!
+                    guard let journey = try? await memory.load(url, maxAge: 30, now: now, loader: loader),
+                          let status = try? Self.parse(journey: journey)
+                    else { return nil }
+                    return (host, status)
                 }
-                throw ProviderError.missingResource("journey")
             }
-            let status = try Self.parse(journey: journey, fix: await fix(now: now))
-            memory.mark("journey", at: now)
-            return status
+            for await result in group {
+                guard let result else { continue }
+                group.cancelAll()
+                return result as (host: String, status: TrainStatus)?
+            }
+            return nil
         }
-        throw lastError
+        // Another portal answered first and ended this probe: that says nothing about this one.
+        try Task.checkCancellation()
+        guard let found else {
+            memory["host"] = nil
+            memory.failed(at: now)
+            throw ProviderError.missingResource("journey")
+        }
+        memory["host"] = found.host
+        memory.succeeded(at: now)
+        return Self.adding(await fix(now: now), to: found.status)
     }
 
     /// A train without an Icomera router is asked again once a minute, not on every poll.
@@ -77,113 +83,119 @@ public struct Zugportal: TrainProvider {
 
     public static func parse(journey data: Data, fix: Icomera.Fix? = nil) throws -> TrainStatus {
         let journey = try JSONDecoder().decode(Journey.self, from: data)
-        let listed = (journey.stops ?? []).filter { $0.station?.name?.nilIfEmpty != nil }
+        let listed = (journey.stops?.value ?? []).compactMap(\.value).filter { $0.station?.value?.name?.value != nil }
         guard !listed.isEmpty else { throw ProviderError.missingResource("stops") }
 
         // "REAL" marks a time that has happened: every stop up to the last one left is behind the train, and so is
         // every stop before one it has arrived at.
-        let left = listed.lastIndex { $0.departureTime?.timeType == "REAL" }.map { $0 + 1 } ?? 0
-        let reached = listed.lastIndex { $0.arrivalTime?.timeType == "REAL" } ?? 0
+        let left = listed.lastIndex { $0.departureTime?.value?.timeType?.value == "REAL" }.map { $0 + 1 } ?? 0
+        let reached = listed.lastIndex { $0.arrivalTime?.value?.timeType?.value == "REAL" } ?? 0
         let behind = max(left, reached)
 
         let stops = listed.enumerated().map { index, stop in
-            Stop(
-                id: stop.station?.evaNo?.nilIfEmpty ?? stop.station?.name ?? "",
-                name: stop.station?.name ?? "",
-                scheduledArrival: stop.arrivalTime?.scheduled,
-                expectedArrival: stop.arrivalTime?.expected,
-                scheduledDeparture: stop.departureTime?.scheduled,
-                expectedDeparture: stop.departureTime?.expected,
-                track: stop.track?.prediction?.nilIfEmpty ?? stop.track?.target?.nilIfEmpty,
-                scheduledTrack: stop.track?.target?.nilIfEmpty,
+            let station = stop.station?.value, track = stop.track?.value
+            return Stop(
+                id: station?.evaNo?.value ?? station?.name?.value ?? "",
+                name: station?.name?.value ?? "",
+                scheduledArrival: stop.arrivalTime?.value?.scheduled,
+                expectedArrival: stop.arrivalTime?.value?.expected,
+                scheduledDeparture: stop.departureTime?.value?.scheduled,
+                expectedDeparture: stop.departureTime?.value?.expected,
+                track: track?.prediction?.value ?? track?.target?.value,
+                scheduledTrack: track?.target?.value,
                 passed: index < behind,
-                delayReasons: (stop.messages ?? []).filter { $0.type == "CUSTOMER_REASON" }
-                    .compactMap { $0.textShort?.nilIfEmpty ?? $0.text?.nilIfEmpty },
-                coordinate: Coordinate(stop.station?.position?.latitude, stop.station?.position?.longitude),
-                cancelled: stop.canceled == true || stop.status == "Canceled"
+                delayReasons: (stop.messages?.value ?? []).compactMap(\.value).filter { $0.type?.value == "CUSTOMER_REASON" }
+                    .compactMap { $0.textShort?.value ?? $0.text?.value },
+                coordinate: Coordinate(station?.position?.value?.latitude?.value, station?.position?.value?.longitude?.value),
+                cancelled: stop.canceled?.value == true || stop.status?.value == "Canceled"
             )
         }
 
         // "RE 80 (4711)": the line, which is what the train is called, and the number that tells it apart.
-        let number = journey.no?.value.map { String(Int($0)) }
-        let line = journey.name?.nilIfEmpty ?? journey.category?.nilIfEmpty
+        let number = journey.no?.value.flatMap { $0.isFinite && (1..<1e9).contains($0) ? String(Int($0)) : nil }
+        let line = journey.name?.value ?? journey.category?.value
         let trainName = switch (line, number) {
         case (let line?, let number?): line.hasSuffix(number) ? line : "\(line) (\(number))"
         case (let line?, nil): line
         default: nil as String?
         }
-        // A fix the router has had for a while says where the train was.
-        let fresh = fix.flatMap { $0.age < 30 ? $0 : nil }
 
-        return TrainStatus(
+        return adding(fix, to: TrainStatus(
             provider: "DB Regio",
             trainName: trainName,
             destination: stops.last { !$0.cancelled }?.name,
-            speed: fresh?.speed,
             stops: stops,
             nextStopID: stops.first { !$0.passed && !$0.cancelled }?.id,
-            portal: .portal("Regio Guide", "https://regio-guide.de"),
-            position: fresh?.coordinate
-        )
+            portal: .portal("Regio Guide", "https://regio-guide.de")
+        ))
+    }
+
+    /// A fix the router has had for a while says where the train was.
+    static func adding(_ fix: Icomera.Fix?, to status: TrainStatus) -> TrainStatus {
+        guard let fix, fix.age < 30 else { return status }
+        var status = status
+        status.speed = fix.speed
+        status.position = fix.coordinate
+        return status
     }
 
     struct Journey: Decodable {
         /// e.g. "RE 80"
-        let name: String?
-        let category: String?
+        let name: LenientString?
+        let category: LenientString?
         /// The train number.
         let no: OEBBRailnet.LenientDouble?
-        let stops: [Stop]?
+        let stops: Lossy<[Lossy<Stop>]>?
 
         struct Stop: Decodable {
-            let status: String?
-            let canceled: Bool?
-            let station: Station?
-            let track: Track?
-            let arrivalTime: Time?
-            let departureTime: Time?
-            let messages: [Message]?
+            let status: LenientString?
+            let canceled: LenientBool?
+            let station: Lossy<Station>?
+            let track: Lossy<Track>?
+            let arrivalTime: Lossy<Time>?
+            let departureTime: Lossy<Time>?
+            let messages: Lossy<[Lossy<Message>]>?
         }
 
         struct Station: Decodable {
-            let evaNo: String?
-            let name: String?
-            let position: Position?
+            let evaNo: LenientString?
+            let name: LenientString?
+            let position: Lossy<Position>?
         }
 
         struct Position: Decodable {
-            let latitude: Double?
-            let longitude: Double?
+            let latitude: OEBBRailnet.LenientDouble?
+            let longitude: OEBBRailnet.LenientDouble?
         }
 
         struct Track: Decodable {
-            let target: String?
-            let prediction: String?
+            let target: LenientString?
+            let prediction: LenientString?
         }
 
         struct Time: Decodable {
             /// ISO 8601, with an offset or in UTC with milliseconds, depending on the train.
-            let target: String?
-            let predicted: String?
-            let targetTimeInMs: Double?
-            let predictedTimeInMs: Double?
+            let target: LenientString?
+            let predicted: LenientString?
+            let targetTimeInMs: OEBBRailnet.LenientDouble?
+            let predictedTimeInMs: OEBBRailnet.LenientDouble?
             /// "SCHEDULE": timetable only, "PREVIEW": forecast, "REAL": happened.
-            let timeType: String?
+            let timeType: LenientString?
 
-            var scheduled: Date? { date(targetTimeInMs, target) }
+            var scheduled: Date? { date(targetTimeInMs?.value, target?.value) }
             /// Nothing for a time that's only the timetable's again.
-            var expected: Date? { timeType == "SCHEDULE" ? nil : date(predictedTimeInMs, predicted) }
+            var expected: Date? { timeType?.value == "SCHEDULE" ? nil : date(predictedTimeInMs?.value, predicted?.value) }
 
             private func date(_ milliseconds: Double?, _ text: String?) -> Date? {
-                if let milliseconds, milliseconds > 0 { return Date(timeIntervalSince1970: milliseconds / 1000) }
+                if let milliseconds, milliseconds.isFinite, milliseconds > 0 { return Date(timeIntervalSince1970: milliseconds / 1000) }
                 return text.flatMap(Date.init(portal:))
             }
         }
 
         struct Message: Decodable {
-            let type: String?
-            let text: String?
-            let textShort: String?
+            let type: LenientString?
+            let text: LenientString?
+            let textShort: LenientString?
         }
     }
 }

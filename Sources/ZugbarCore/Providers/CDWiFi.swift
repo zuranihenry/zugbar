@@ -8,16 +8,21 @@ import Foundation
 public struct CDWiFi: TrainProvider {
     public let name = "ČD"
 
-    /// The portal has no HTTPS; the app's Info.plist allows plain HTTP for this host alone. Off the train the name
-    /// doesn't resolve, so looking for it costs no data.
+    /// The portal has no HTTPS; the app's Info.plist allows plain HTTP for this host alone.
     static let tripURL = URL(string: "http://cdwifi.cz/portal/api/timetable/connexion/current")!
     static let realtimeURL = URL(string: "http://cdwifi.cz/portal/api/vehicle/realtime")!
+    static let shared = PortalMemory()
 
     let loader: DataLoader
-    let memory = PortalMemory()
+    let memory: PortalMemory
 
-    public init(loader: @escaping DataLoader = URLSession.portal.loader) {
+    public init(loader: @escaping DataLoader = URLSession.portal.jsonLoader) {
+        self.init(loader: loader, memory: Self.shared)
+    }
+
+    init(loader: @escaping DataLoader, memory: PortalMemory) {
         self.loader = loader
+        self.memory = memory
     }
 
     public func fetch() async throws -> TrainStatus {
@@ -25,30 +30,41 @@ public struct CDWiFi: TrainProvider {
     }
 
     /// The timetable, with a weather forecast for every stop in it, is asked for once a minute; the position as
-    /// often as the portal renews it, every ten seconds.
+    /// often as the portal renews it, every ten seconds. Without a trip in the answer the portal is left alone,
+    /// for longer each time, until another network is joined.
     func fetch(now: Date) async throws -> TrainStatus {
-        let trip = try await memory.load(Self.tripURL, maxAge: 60, now: now, loader: loader)
-        let realtime = try? await memory.load(Self.realtimeURL, maxAge: 9, now: now, loader: loader)
-        return try Self.parse(trip: trip, realtime: realtime)
+        guard !memory.isPaused(at: now) else { throw ProviderError.missingResource("trip") }
+        do {
+            let trip = try await memory.load(Self.tripURL, maxAge: 60, now: now, loader: loader)
+            let realtime = try? await memory.load(Self.realtimeURL, maxAge: 9, now: now, loader: loader)
+            let status = try Self.parse(trip: trip, realtime: realtime)
+            memory.succeeded(at: now)
+            return status
+        } catch {
+            // Another portal answered first and ended this probe: that says nothing about this one.
+            if !Task.isCancelled { memory.failed(at: now) }
+            throw error
+        }
     }
 
     public static func parse(trip tripData: Data, realtime realtimeData: Data?) throws -> TrainStatus {
         let decoder = JSONDecoder()
         let trip = try decoder.decode(Trip.self, from: tripData)
         let realtime = realtimeData.flatMap { try? decoder.decode(Realtime.self, from: $0) }
-        let listed = (trip.connexionTimes ?? []).filter { $0.station?.name?.nilIfEmpty != nil }
+        let listed = (trip.connexionTimes?.value ?? []).compactMap(\.value).filter { $0.station?.value?.name?.value != nil }
         guard !listed.isEmpty else { throw ProviderError.missingResource("stops") }
 
         // State 4 is a stop the train has been to; the ones before the last of them are behind it too.
-        let behind = listed.lastIndex { $0.state == 4 }.map { $0 + 1 } ?? 0
+        let behind = listed.lastIndex { $0.state?.value == 4 }.map { $0 + 1 } ?? 0
         let stops = listed.enumerated().map { index, time in
-            Stop(
-                id: time.station?.id?.text ?? time.station?.name ?? "",
-                name: time.station?.name ?? "",
-                scheduledArrival: time.timeArrival.flatMap(Date.init(portal:)),
-                scheduledDeparture: time.timeDeparture.flatMap(Date.init(portal:)),
+            let station = time.station?.value
+            return Stop(
+                id: station?.id?.value ?? station?.name?.value ?? "",
+                name: station?.name?.value ?? "",
+                scheduledArrival: time.timeArrival?.value.flatMap(Date.init(portal:)),
+                scheduledDeparture: time.timeDeparture?.value.flatMap(Date.init(portal:)),
                 passed: index < behind,
-                coordinate: Coordinate(time.station?.gpsLat?.value, time.station?.gpsLng?.value)
+                coordinate: Coordinate(station?.gpsLat?.value, station?.gpsLng?.value)
             )
         }
 
@@ -58,7 +74,7 @@ public struct CDWiFi: TrainProvider {
 
         return TrainStatus(
             provider: "ČD",
-            trainName: trip.name.flatMap(trainName),
+            trainName: trip.name?.value.flatMap(trainName),
             destination: stops.last?.name,
             speed: position == nil ? nil : speed,
             stops: stops,
@@ -78,32 +94,23 @@ public struct CDWiFi: TrainProvider {
     }
 
     struct Trip: Decodable {
-        let name: String?
-        let connexionTimes: [Time]?
+        let name: LenientString?
+        let connexionTimes: Lossy<[Lossy<Time>]>?
 
         struct Time: Decodable {
             /// Local time with an offset, written "+01:00" or "+0100" depending on the portal's version.
-            let timeArrival: String?
-            let timeDeparture: String?
-            let state: Int?
-            let station: Station?
+            let timeArrival: LenientString?
+            let timeDeparture: LenientString?
+            let state: OEBBRailnet.LenientDouble?
+            let station: Lossy<Station>?
         }
 
         struct Station: Decodable {
-            let id: ID?
-            let name: String?
+            /// A number in every answer seen so far.
+            let id: LenientString?
+            let name: LenientString?
             let gpsLat: OEBBRailnet.LenientDouble?
             let gpsLng: OEBBRailnet.LenientDouble?
-        }
-
-        /// A number in every answer seen so far.
-        struct ID: Decodable {
-            let text: String?
-
-            init(from decoder: Decoder) throws {
-                let container = try decoder.singleValueContainer()
-                text = (try? container.decode(Int.self)).map(String.init) ?? (try? container.decode(String.self))?.nilIfEmpty
-            }
         }
     }
 
