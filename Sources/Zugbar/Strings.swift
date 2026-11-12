@@ -503,6 +503,25 @@ struct Strings {
         t("Trips are recorded while you're on a train with on-board Wi-Fi, and stay on this Mac.",
           "Fahrten werden aufgezeichnet, solange du in einem Zug mit Zug-WLAN bist, und bleiben auf diesem Mac.")
     }
+    var travelledMap: String { t("Map of your trips", "Karte deiner Fahrten") }
+    func travelledMapHint(missing: Int) -> String {
+        let hint = t("Where you've ridden so far. Thicker lines: ridden more often.",
+                     "Wo du bisher gefahren bist. Dickere Linien: öfter gefahren.")
+        switch missing {
+        case ...0: return hint
+        case 1: return hint + t(" One earlier trip has no recorded route and isn't on the map.",
+                                " Eine frühere Fahrt hat keinen aufgezeichneten Verlauf und fehlt auf der Karte.")
+        default: return hint + t(" \(missing) earlier trips have no recorded route and aren't on the map.",
+                                 " \(missing) frühere Fahrten haben keinen aufgezeichneten Verlauf und fehlen auf der Karte.")
+        }
+    }
+    var travelledMapEmpty: String {
+        t("From your next trip on, the lines you've ridden appear on a map here.",
+          "Ab deiner nächsten Fahrt erscheinen hier die gefahrenen Strecken auf einer Karte.")
+    }
+    var travelledMapSavingData: String {
+        t("The map of your trips is hidden while saving data.", "Die Karte deiner Fahrten ist ausgeblendet, solange Daten gespart werden.")
+    }
     var exportCSV: String { t("Export as CSV…", "Als CSV exportieren…") }
     var deleteTrip: String { t("Delete trip", "Fahrt löschen") }
     var testNotifications: String { t("Test notifications", "Testbenachrichtigungen") }

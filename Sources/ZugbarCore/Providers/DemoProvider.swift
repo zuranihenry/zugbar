@@ -56,7 +56,7 @@ public struct DemoProvider: TrainProvider {
     }
 
     /// The demo ICE's track, Berlin Hbf – München Hbf, from Transitous.
-    static let route: Route? = (try? resource("demo_route")).flatMap { data in
+    public static let route: Route? = (try? resource("demo_route")).flatMap { data in
         struct File: Decodable { let polyline: String }
         return (try? JSONDecoder().decode(File.self, from: data)).map { Route(points: Route.decode($0.polyline)) }
     }

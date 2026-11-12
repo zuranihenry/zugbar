@@ -142,6 +142,30 @@ public struct Route: Sendable, Equatable {
         }
         return coordinates
     }
+
+    /// Encodes a Google encoded polyline.
+    public static func encode(_ points: [Coordinate], precision: Int = 5) -> String {
+        let factor = pow(10, Double(precision))
+        var encoded = String.UnicodeScalarView()
+        var latitude = 0, longitude = 0
+
+        func add(_ delta: Int) {
+            var value = delta < 0 ? ~(delta << 1) : delta << 1
+            while value >= 0x20 {
+                encoded.append(Unicode.Scalar(UInt8((0x20 | (value & 0x1F)) + 63)))
+                value >>= 5
+            }
+            encoded.append(Unicode.Scalar(UInt8(value + 63)))
+        }
+
+        for point in points {
+            let (newLatitude, newLongitude) = (Int((point.latitude * factor).rounded()), Int((point.longitude * factor).rounded()))
+            add(newLatitude - latitude)
+            add(newLongitude - longitude)
+            (latitude, longitude) = (newLatitude, newLongitude)
+        }
+        return String(encoded)
+    }
 }
 
 /// Where a train is between two stops along its route, estimated from the timetable.
