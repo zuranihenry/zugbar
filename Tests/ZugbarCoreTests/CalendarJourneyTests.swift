@@ -4,7 +4,7 @@ import Testing
 
 /// Made-up events in the shapes bahn.de writes; no real trips.
 struct CalendarJourneyTests {
-    let start = local(10, 0)
+    let start: Date = CalendarJourneyTests.local(10, 0)
     let twoLegs = """
         Astadt Hbf ➞ Cstadt
         Datum: 01.02.2026
