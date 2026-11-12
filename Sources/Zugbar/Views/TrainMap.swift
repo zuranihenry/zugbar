@@ -67,8 +67,8 @@ struct TrainMap: View {
         let routeLine = lines.wrappedValue.route(routePoints)
         let highlighted = [monitor.journey.plan?.destinationStopID, monitor.journey.plan?.boardingStopID].compactMap { $0 }
 
-        // Neither the train's position nor the camera is read here: both change 30 times a second while following,
-        // and the map takes them straight from the monitor instead of through a new view each time.
+        // Neither the train's position nor the camera is read here: both change up to 30 times a second while
+        // following, and the map takes them straight from the monitor instead of through a new view each time.
         RouteMap(monitor: monitor, stops: status.stops, highlighted: highlighted, routeLine: routeLine,
                  stretches: showsTrackSpeeds ? stretches : [], trainName: status.trainName, follow: follow)
         .overlay(alignment: .topTrailing) {
@@ -428,6 +428,11 @@ private struct RouteMap: NSViewRepresentable {
             map.center = center
             map.cameraDistance = distance
             map.shownCameraHeading = camera.heading
+            // Measured across the middle, which holds when the map is turned.
+            let middle = CGPoint(x: mapView.bounds.midX, y: mapView.bounds.midY)
+            let left = mapView.convert(CGPoint(x: middle.x - 50, y: middle.y), toCoordinateFrom: mapView)
+            let right = mapView.convert(CGPoint(x: middle.x + 50, y: middle.y), toCoordinateFrom: mapView)
+            map.metersPerPoint = MKMapPoint(left).distance(to: MKMapPoint(right)) / 100
             guard !map.movingProgrammatically else { return }
             let expected = map.followsTrain ? map.followingDistance : map.followDistance
             if abs(distance - expected) > expected * 0.03 {
@@ -462,7 +467,7 @@ private struct RouteMap: NSViewRepresentable {
     }
 }
 
-/// The train. Its coordinate is set 30 times a second; the map moves the marker and leaves the rest alone.
+/// The train. Its coordinate is set up to 30 times a second; the map moves the marker and leaves the rest alone.
 private final class TrainAnnotation: NSObject, MKAnnotation {
     @objc dynamic var coordinate = CLLocationCoordinate2D()
     var title: String?

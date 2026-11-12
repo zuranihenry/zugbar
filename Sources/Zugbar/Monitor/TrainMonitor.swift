@@ -317,16 +317,25 @@ final class TrainMonitor {
     @ObservationIgnored var mapsShown = 0
 
     /// Recomputes the marker about 30 times a second from the clock, so it moves at a constant pace, while a map
-    /// shows it; once a second otherwise, so the heading stays fresh for when one opens.
+    /// shows it; once a second otherwise, so the heading stays fresh for when one opens. On battery or in Low
+    /// Power Mode fewer frames, as few as still look the same: each one makes the map draw itself again.
     private func startFrames() {
         frameTask?.cancel()
         frameTask = Task { [weak self] in
             while !Task.isCancelled {
                 self?.moveTrain()
-                let smooth = (self?.mapsShown ?? 0) > 0 && self?.status != nil
-                try? await Task.sleep(for: smooth ? .milliseconds(33) : .seconds(1))
+                try? await Task.sleep(for: self?.frameInterval ?? .seconds(1))
             }
         }
+    }
+
+    private var frameInterval: Duration {
+        guard mapsShown > 0, status != nil else { return .seconds(1) }
+        let power = PowerState.shared
+        let onScreen = MapFrames.pointsPerSecond(speed: displaySpeed, metersPerPoint: map.metersPerPoint)
+        let frames = MapFrames.perSecond(onBattery: power.onBattery, lowPowerMode: power.lowPowerMode,
+                                         pointsPerSecond: onScreen, zooming: map.zooming)
+        return .milliseconds(1000 / frames)
     }
 
     private func moveTrain() {
