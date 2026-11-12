@@ -165,7 +165,7 @@ final class TrainMonitor {
                     self.sbbSettled = false
                     self.sbbTried = nil
                     self.ride.joinedNetwork()
-                    Zugportal.joinedNetwork()
+                    Providers.joinedNetwork()
                 }
                 self.restart()
             }
@@ -519,7 +519,9 @@ final class TrainMonitor {
 
     /// Switches to an on-board portal if one answers, other than the train the user changed from.
     private func takeOverFromPortal() async -> Bool {
-        guard let (found, first) = await Self.firstResponding(Providers.onBoard(loader: PortalRecorder.wrap(URLSession.portal.loader))),
+        let portals = Providers.onBoard(loader: PortalRecorder.wrap(URLSession.portal.loader),
+                                        json: PortalRecorder.wrap(URLSession.portal.jsonLoader))
+        guard let (found, first) = await Self.firstResponding(portals),
               !Task.isCancelled, !isLeftBehind(first)
         else { return false }
         provider = found

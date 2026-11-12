@@ -313,39 +313,128 @@ struct ZugportalTests {
         #expect(throws: (any Error).self) { try Zugportal.parse(journey: Data()) }
     }
 
-    /// Off a train the site answers with nothing: it's then left alone, until another network is joined.
-    @Test func leftAloneOffTheTrain() async {
-        let asked = Tally()
-        let memory = PortalMemory()
-        let portal = Zugportal(loader: { _ in asked.add(); return Data() }, memory: memory)
-        let start = utc("2099-01-01T09:00:00Z")
-        for seconds in [0, 15, 30, 290] {
-            await #expect(throws: ProviderError.self) { try await portal.fetch(now: start.addingTimeInterval(Double(seconds))) }
+    /// A number no train has, as text or too large for an Int, is left out instead of trapping.
+    @Test func trainNumberOutOfRange() throws {
+        for number in [#""1e999""#, "1e30", #""nan""#, "-5", "0", #""x""#, "null"] {
+            let json = Data(#"{"name": "RE 80", "no": \#(number), "stops": [{"station": {"name": "A"}}]}"#.utf8)
+            #expect(try Zugportal.parse(journey: json).trainName == "RE 80")
         }
-        #expect(asked.count == 1)
-        await #expect(throws: ProviderError.self) { try await portal.fetch(now: start.addingTimeInterval(301)) }
-        #expect(asked.count == 2)
-        memory.forget()
-        await #expect(throws: ProviderError.self) { try await portal.fetch(now: start.addingTimeInterval(302)) }
-        #expect(asked.count == 3)
+        let text = Data(#"{"name": "RE 80", "no": "4711", "stops": [{"station": {"name": "A"}}]}"#.utf8)
+        #expect(try Zugportal.parse(journey: text).trainName == "RE 80 (4711)")
     }
 
-    /// On board the trip is asked for twice a minute, and a train without a router for its GPS once a minute.
+    /// One field of another type than expected only costs that field.
+    @Test func otherTypes() throws {
+        let json = Data(#"""
+        {"name": 80, "category": "RE", "no": "4711", "hims": "none", "stops": [
+            {"status": 1, "canceled": "true", "station": {"evaNo": 9000001, "name": "A", "position": "here"},
+             "track": {"target": 3, "prediction": 4}, "messages": {"text": "x"},
+             "departureTime": {"target": 12, "targetTimeInMs": "4070941200000", "timeType": 7}},
+            "not a stop",
+            {"canceled": 0, "station": {"evaNo": "9000002", "name": "B", "position": {"latitude": "50.1", "longitude": 8.1}},
+             "track": 5, "arrivalTime": "soon", "messages": [3, {"type": "CUSTOMER_REASON", "text": "Bauarbeiten", "textShort": []}]}
+        ]}
+        """#.utf8)
+        let status = try Zugportal.parse(journey: json)
+        #expect(status.trainName == "80 (4711)")
+        #expect(status.stops.map(\.id) == ["9000001", "9000002"])
+        #expect(status.stops[0].cancelled)
+        #expect(status.stops[0].track == "4")
+        #expect(status.stops[0].scheduledTrack == "3")
+        #expect(status.stops[0].coordinate == nil)
+        #expect(status.stops[0].scheduledDeparture == utc("2099-01-01T09:00:00Z"))
+        #expect(!status.stops[1].cancelled)
+        #expect(status.stops[1].track == nil)
+        #expect(status.stops[1].arrival == nil)
+        #expect(status.stops[1].coordinate == Coordinate(latitude: 50.1, longitude: 8.1))
+        #expect(status.stops[1].delayReasons == ["Bauarbeiten"])
+        #expect(throws: (any Error).self) { try Zugportal.parse(journey: Data(#"{"stops": "none"}"#.utf8)) }
+    }
+
+    /// Whatever comes back that isn't a trip, the site is left alone: for a minute, then two, four, up to half an
+    /// hour, or until another network is joined.
+    @Test(arguments: ["nothing", "page", "other JSON", "404", "timeout"])
+    func leftAloneOffTheTrain(answer: String) async {
+        let asked = Tally()
+        let memory = PortalMemory()
+        let portal = Zugportal(loader: { _ in
+            asked.add()
+            switch answer {
+            case "nothing": return Data()
+            case "page": return Data("<!doctype html><html></html>".utf8)
+            case "other JSON": return Data(#"{"error": "no journey"}"#.utf8)
+            case "404": throw ProviderError.badStatus(404)
+            default: throw URLError(.timedOut)
+            }
+        }, router: { _ in throw URLError(.cannotFindHost) }, memory: memory)
+        let start = utc("2099-01-01T09:00:00Z")
+        func probe(_ seconds: Double) async {
+            await #expect(throws: ProviderError.self) { try await portal.fetch(now: start.addingTimeInterval(seconds)) }
+        }
+        // Both hosts once, then nothing while paused.
+        for seconds in [0.0, 15, 30, 59] { await probe(seconds) }
+        #expect(asked.count == 2)
+        await probe(61)
+        #expect(asked.count == 4)
+        // The second pause is twice as long.
+        await probe(61 + 119)
+        #expect(asked.count == 4)
+        await probe(61 + 121)
+        #expect(asked.count == 6)
+        // Never longer than half an hour.
+        var at = 61.0 + 121
+        for _ in 0..<8 {
+            at += 30 * 60 + 1
+            await probe(at)
+        }
+        #expect(asked.count == 6 + 8 * 2)
+        await probe(at + 29 * 60)
+        #expect(asked.count == 6 + 8 * 2)
+        memory.forget()
+        await probe(at + 29 * 60 + 1)
+        #expect(asked.count == 6 + 8 * 2 + 2)
+    }
+
+    /// On board the trip is asked for twice a minute from the host that has it, and a train without a router for
+    /// its GPS once a minute.
     @Test func asksSparinglyOnBoard() async throws {
-        let journeys = Tally(), routers = Tally()
+        let journeys = Tally(), others = Tally(), routers = Tally()
         let journey = try fixture("zugportal_journey")
         let portal = Zugportal(loader: { url in
-            guard url.host == "regio-guide.de" else { routers.add(); throw URLError(.cannotFindHost) }
+            guard url.host == "regio-guide.de" else { others.add(); throw ProviderError.badStatus(301) }
             journeys.add()
             return journey
-        }, memory: PortalMemory())
+        }, router: { _ in routers.add(); throw URLError(.cannotFindHost) }, memory: PortalMemory())
         let start = utc("2099-01-01T09:00:00Z")
         for seconds in stride(from: 0, to: 60, by: 3) {
             let status = try await portal.fetch(now: start.addingTimeInterval(Double(seconds)))
             #expect(status.trainName == "RE 80 (4711)")
         }
         #expect(journeys.count == 2)
+        #expect(others.count == 1)
         #expect(routers.count == 1)
+    }
+
+    /// A gap in a trip that just answered is the Wi-Fi: asked again on the next poll. Later it's the trip's end.
+    @Test func aGapMidTripIsNotAPause() async throws {
+        let asked = Tally(), down = Tally()
+        let journey = try fixture("zugportal_journey")
+        let portal = Zugportal(loader: { _ in
+            asked.add()
+            if down.count > 0 { throw URLError(.networkConnectionLost) }
+            return journey
+        }, router: { _ in throw URLError(.cannotFindHost) }, memory: PortalMemory())
+        let start = utc("2099-01-01T09:00:00Z")
+        _ = try await portal.fetch(now: start)
+        let before = asked.count
+        down.add()
+        await #expect(throws: ProviderError.self) { try await portal.fetch(now: start.addingTimeInterval(40)) }
+        await #expect(throws: ProviderError.self) { try await portal.fetch(now: start.addingTimeInterval(43)) }
+        #expect(asked.count == before + 1 + 2)
+        await #expect(throws: ProviderError.self) { try await portal.fetch(now: start.addingTimeInterval(130)) }
+        let paused = asked.count
+        await #expect(throws: ProviderError.self) { try await portal.fetch(now: start.addingTimeInterval(140)) }
+        #expect(asked.count == paused)
     }
 }
 
@@ -401,6 +490,24 @@ struct CDWiFiTests {
         #expect(status.stops[0].scheduledDeparture == nil)
         #expect(status.stops[0].coordinate == nil)
         #expect(status.nextStop?.name == "A")
+        let typed = Data(#"""
+        {"id": "x", "name": 256, "connexionTimes": [
+            {"timeArrival": 5, "timeDeparture": "2099-01-01T10:00:00+0100", "state": "4",
+             "station": {"id": "9100001", "name": "A", "gpsLat": "49.0", "gpsLng": 16, "city": 3}},
+            7,
+            {"timeArrival": "2099-01-01T11:00:00+01:00", "state": {}, "station": {"id": 9100002, "name": "B", "gpsLat": []}}
+        ]}
+        """#.utf8)
+        let other = try CDWiFi.parse(trip: typed, realtime: Data(#"{"gpsLat": 49.5, "gpsLng": 16.2, "speed": [1]}"#.utf8))
+        #expect(other.trainName == "256")
+        #expect(other.stops.map(\.id) == ["9100001", "9100002"])
+        #expect(other.stops.map(\.passed) == [true, false])
+        #expect(other.stops[0].scheduledArrival == nil)
+        #expect(other.stops[0].scheduledDeparture == utc("2099-01-01T09:00:00Z"))
+        #expect(other.stops[0].coordinate == Coordinate(latitude: 49, longitude: 16))
+        #expect(other.stops[1].coordinate == nil)
+        #expect(other.speed == nil)
+        #expect(other.position == Coordinate(latitude: 49.5, longitude: 16.2))
         #expect(CDWiFi.trainName("Ex 143") == "Ex 143")
         #expect(CDWiFi.trainName("  ") == nil)
         // No trip loaded: nothing to show.
@@ -417,13 +524,36 @@ struct CDWiFiTests {
             if url == CDWiFi.tripURL { trips.add(); return trip }
             positions.add()
             return realtime
-        })
+        }, memory: PortalMemory())
         let start = utc("2099-01-01T09:00:00Z")
         for seconds in stride(from: 0, to: 60, by: 3) {
             #expect(try await portal.fetch(now: start.addingTimeInterval(Double(seconds))).speed == 157)
         }
         #expect(trips.count == 1)
         #expect(positions.count == 7)
+    }
+
+    /// Without a trip in the answer the portal is left alone, also by the next probe, which is a new provider.
+    @Test(arguments: ["no host", "page", "no trip"])
+    func leftAloneOffTheTrain(answer: String) async {
+        let asked = Tally()
+        let memory = PortalMemory()
+        let loader: DataLoader = { url in
+            if url == CDWiFi.tripURL { asked.add() }
+            switch answer {
+            case "no host": throw URLError(.cannotFindHost)
+            case "page": return Data("<html>Sign in</html>".utf8)
+            default: return Data(#"{"id": null, "name": null, "connexionTimes": []}"#.utf8)
+            }
+        }
+        let start = utc("2099-01-01T09:00:00Z")
+        for seconds in [0.0, 15, 45, 61, 75, 181] {
+            await #expect(throws: (any Error).self) {
+                try await CDWiFi(loader: loader, memory: memory).fetch(now: start.addingTimeInterval(seconds))
+            }
+        }
+        // At 0 s, after the first minute's pause at 61 s, and after the two minutes' at 181 s.
+        #expect(asked.count == 3)
     }
 }
 
