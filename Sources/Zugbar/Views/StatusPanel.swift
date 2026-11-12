@@ -145,12 +145,21 @@ private struct TripHeader: View {
                     }
                 }
                 Spacer()
-                Text(status.provider)
-                    .font(.caption.weight(.medium))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .badgeStyle()
-                if showsPopOut { PopOutButton() }
+                // The drawing sits under the badge, next to the destination, so the header keeps its height;
+                // the pop-out button is taller than it looks, hence the overlap.
+                VStack(alignment: .trailing, spacing: showsPopOut ? -3 : 2) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(status.provider)
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .badgeStyle()
+                        if showsPopOut { PopOutButton() }
+                    }
+                    if let family = status.family, status.destination != nil {
+                        TrainSilhouette(family: family)
+                    }
+                }
             }
             if let vehicle = status.vehicle {
                 Text(vehicle).font(.caption).foregroundStyle(.secondary)

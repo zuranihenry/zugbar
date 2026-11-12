@@ -85,6 +85,8 @@ public struct OEBBRailnet: TrainProvider {
             speed: speed.flatMap { $0.isFinite && $0 >= 0 ? Int($0.rounded()) : nil },
             stops: stops,
             nextStopID: nextID,
+            // The portal also runs on Nightjets, which look different.
+            family: ["RJ", "RJX"].contains(json.trainType ?? journey?.trainType ?? "") ? .railjet : nil,
             portal: .portal("ÖBB Railnet", "https://railnet.oebb.at"),
             position: Coordinate(latitude, longitude)
         )
