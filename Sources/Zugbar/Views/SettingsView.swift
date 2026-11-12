@@ -246,8 +246,8 @@ private struct YearReviewGrid: View {
             Figure(value: "\(Int(review.distance.rounded()).formatted()) km", label: strings.reviewDistance),
             Figure(value: Self.duration(review.duration), label: strings.reviewDuration),
         ]
-        if let share = review.onTimeShare {
-            figures.append(Figure(value: strings.reviewPercent(share), label: strings.reviewOnTime(of: review.tripsWithDelay),
+        if let percent = review.onTimePercent {
+            figures.append(Figure(value: strings.reviewPercent(percent), label: strings.reviewOnTime(of: review.tripsWithDelay),
                                   help: strings.reviewOnTimeHelp))
             figures.append(Figure(value: "\(review.delayMinutes.formatted()) min", label: strings.reviewDelay))
         }

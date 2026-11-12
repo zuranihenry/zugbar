@@ -538,16 +538,16 @@ struct Strings {
     func reviewTrips(_ count: Int) -> String { count == 1 ? t("trip", "Fahrt") : t("trips", "Fahrten") }
     var reviewDistance: String { t("travelled", "gefahren") }
     var reviewDuration: String { t("on trains", "im Zug") }
-    func reviewPercent(_ share: Double) -> String { t("\(Int((share * 100).rounded()))%", "\(Int((share * 100).rounded())) %") }
-    func reviewOnTime(of count: Int) -> String {
-        count == 1 ? t("on time, of 1 trip", "pünktlich, von 1 Fahrt") : t("on time, of \(count) trips", "pünktlich, von \(count) Fahrten")
-    }
+    /// German sets a space before the sign, one that doesn't break.
+    func reviewPercent(_ percent: Int) -> String { t("\(percent)%", "\(percent)\u{00A0}%") }
+    /// Short enough for a third of the pane at caption size, also with three-digit counts.
+    func reviewOnTime(of count: Int) -> String { t("of \(count) on time", "von \(count) pünktlich") }
     var reviewOnTimeHelp: String {
         t("Arrived less than 6 minutes late. Only trips with a known arrival delay count.",
           "Weniger als 6 Minuten zu spät angekommen. Es zählen nur Fahrten mit bekannter Ankunftsverspätung.")
     }
     var reviewDelay: String { t("delay in total", "Verspätung insgesamt") }
-    func reviewFastest(_ train: String) -> String { t("fastest · \(train)", "am schnellsten · \(train)") }
+    func reviewFastest(_ train: String) -> String { t("top speed · \(train)", "Spitze · \(train)") }
     func reviewMostRidden(_ count: Int) -> String { t("most ridden · \(count)×", "am häufigsten · \(count)×") }
     var earlierYear: String { t("Earlier year", "Früheres Jahr") }
     var laterYear: String { t("Later year", "Späteres Jahr") }

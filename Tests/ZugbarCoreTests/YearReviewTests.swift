@@ -19,7 +19,7 @@ struct YearReviewTests {
         let log = TripLog(trips: [trip("2031-03-01T10:00:00Z", delay: 2)])
         let review = log.review(year: 2030, calendar: calendar)
         #expect(review == YearReview(year: 2030))
-        #expect(review.onTimeShare == nil)
+        #expect(review.onTimePercent == nil)
         #expect(TripLog().years(calendar: calendar).isEmpty)
         #expect(TripLog().review(year: 2030, calendar: calendar).trips == 0)
     }
@@ -37,7 +37,7 @@ struct YearReviewTests {
         #expect(review.tripsWithDelay == 3)
         // 5 minutes late is still on time, 6 isn't; early arrivals don't lower the total.
         #expect(review.onTime == 2)
-        #expect(review.onTimeShare == 2.0 / 3)
+        #expect(review.onTimePercent == 66)
         #expect(review.delayMinutes == 11)
         #expect(review.fastest?.train == "ICE 1")
         #expect(review.mostRidden == nil)
@@ -52,12 +52,12 @@ struct YearReviewTests {
         let review = log.review(year: 2031, calendar: calendar)
         #expect(review.trips == 3)
         #expect(review.tripsWithDelay == 1)
-        #expect(review.onTimeShare == 0)
+        #expect(review.onTimePercent == 0)
         #expect(review.delayMinutes == 10)
 
         let unknown = TripLog(trips: [trip("2031-05-02T10:00:00Z")]).review(year: 2031, calendar: calendar)
         #expect(unknown.tripsWithDelay == 0)
-        #expect(unknown.onTimeShare == nil)
+        #expect(unknown.onTimePercent == nil)
         #expect(unknown.delayMinutes == 0)
     }
 
@@ -102,5 +102,21 @@ struct YearReviewTests {
     @Test func noFastestTripWithoutASpeed() {
         let log = TripLog(trips: [trip("2031-05-01T10:00:00Z", top: 0)])
         #expect(log.review(year: 2031, calendar: calendar).fastest == nil)
+    }
+
+    @Test func onTimeIsOnlyAHundredPercentWhenEveryTripWas() {
+        let late = trip("2031-05-01T10:00:00Z", delay: 6)
+        let punctual = (0..<199).map { trip("2031-06-01T10:00:00Z", delay: $0 % 6) }
+        #expect(TripLog(trips: punctual + [late]).review(year: 2031, calendar: calendar).onTimePercent == 99)
+        #expect(TripLog(trips: punctual).review(year: 2031, calendar: calendar).onTimePercent == 100)
+    }
+
+    @Test func yearsAreGregorianWhateverTheUsersCalendar() {
+        #expect(YearReview.calendar.identifier == .gregorian)
+        #expect(YearReview.calendar.timeZone == .current)
+        // Mid-year, so the time zone can't move it; an era calendar would call both years by a small number.
+        let log = TripLog(trips: [trip("2031-06-15T12:00:00Z"), trip("1988-06-15T12:00:00Z")])
+        #expect(log.years() == [2031, 1988])
+        #expect(log.review(year: 2031).trips == 1)
     }
 }

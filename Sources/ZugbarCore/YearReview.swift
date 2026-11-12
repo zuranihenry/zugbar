@@ -28,19 +28,27 @@ public struct YearReview: Sendable, Equatable {
     /// The pair ridden most, when one was ridden more than once.
     public var mostRidden: Pair?
 
-    /// Share of trips on time, 0...1; `nil` when no trip's delay is known.
-    public var onTimeShare: Double? {
-        tripsWithDelay > 0 ? Double(onTime) / Double(tripsWithDelay) : nil
+    /// Percent of trips on time, rounded down so that 100 means every one of them; `nil` when no trip's delay is known.
+    public var onTimePercent: Int? {
+        tripsWithDelay > 0 ? onTime * 100 / tripsWithDelay : nil
+    }
+
+    /// Gregorian in the current time zone: the user's own calendar may count years by era, where two years
+    /// decades apart share a number.
+    public static var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar
     }
 }
 
 extension TripLog {
     /// The years with trips, latest first. A trip counts for the year it started in.
-    public func years(calendar: Calendar = .current) -> [Int] {
+    public func years(calendar: Calendar = YearReview.calendar) -> [Int] {
         Set(trips.map { calendar.component(.year, from: $0.start) }).sorted(by: >)
     }
 
-    public func review(year: Int, calendar: Calendar = .current) -> YearReview {
+    public func review(year: Int, calendar: Calendar = YearReview.calendar) -> YearReview {
         let trips = trips.filter { calendar.component(.year, from: $0.start) == year }
         var review = YearReview(year: year)
         review.trips = trips.count
