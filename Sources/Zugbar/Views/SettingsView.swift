@@ -57,6 +57,7 @@ struct GeneralSettings: View {
     @AppStorage("estimatedSpeed") private var estimatedSpeed = true
     @AppStorage("trackProfiles") private var trackProfiles = false
     @AppStorage("learnSpeeds") private var learnSpeeds = true
+    @AppStorage("showLandmarks") private var showLandmarks = true
     @AppStorage(UpdateChecker.enabledKey) private var checkForUpdates = true
     @AppStorage(DataSaver.settingKey) private var dataSaving = DataSaving.automatic
 
@@ -87,6 +88,15 @@ struct GeneralSettings: View {
                 Toggle(isOn: $learnSpeeds) {
                     Text(strings.learnSpeeds)
                     Text(strings.learnHint)
+                }
+                Toggle(isOn: Binding(get: { monitor.calendar.isOn }, set: { monitor.calendar.set($0) })) {
+                    Text(strings.calendarJourney)
+                    Text(strings.calendarJourneyHint)
+                }
+                .disabled(!monitor.calendar.isAvailable)
+                Toggle(isOn: $showLandmarks) {
+                    Text(strings.landmarks)
+                    Text(strings.landmarksHint)
                 }
                 Picker(selection: $dataSaving) {
                     ForEach(DataSaving.allCases) { Text(strings.name(of: $0)).tag($0) }
@@ -119,20 +129,69 @@ struct GeneralSettings: View {
 /// Trips recorded on board, with totals and CSV export.
 struct TripsView: View {
     let monitor: TrainMonitor
+    /// Made-up trips to show instead of the user's own, for screenshots.
+    var madeUp: TripLog?
+    /// The year under review once the user stepped away from the default. A plain `State` value: the `@State`
+    /// macro needs a plugin the Command Line Tools lack.
+    private var chosenYear = State<Int?>(initialValue: nil)
     @Environment(\.strings) private var strings
 
+    /// Spelled out: older compilers make the memberwise one private because of `chosenYear`.
+    init(monitor: TrainMonitor, madeUp: TripLog? = nil) {
+        self.monitor = monitor
+        self.madeUp = madeUp
+    }
+
     var body: some View {
-        let log = monitor.trips.log
+        // Demo mode shows made-up trips, so the tab has something on it without a ride.
+        let log = madeUp ?? (monitor.demoMode ? DemoTrips.log : monitor.trips.log)
+        let network = TravelledNetwork(trips: log.trips)
+        // Latest first. This year, or the last one with trips; a chosen year stays until its trips are gone.
+        let years = log.years()
+        let year = chosenYear.wrappedValue.flatMap { years.contains($0) ? $0 : nil } ?? years.first ?? 0
+        let index = years.firstIndex(of: year) ?? 0
         SettingsPane {
             if log.trips.isEmpty {
                 Text(strings.noTrips).foregroundStyle(.secondary)
             } else {
                 Section {
-                    Text(strings.tripsThisYear(Int(log.distance(inYearOf: Date()).rounded())))
-                    if let fastest = log.fastest, fastest.topSpeed > 0 {
-                        Text(strings.fastestTrip(fastest.topSpeed, train: fastest.train))
-                    }
+                    YearReviewGrid(review: log.review(year: year))
                     Button(strings.exportCSV) { export(log) }
+                } header: {
+                    HStack(spacing: 4) {
+                        Text(String(year)).monospacedDigit()
+                        Spacer()
+                        // Only years with trips, and no arrows while there is just one.
+                        if years.count > 1 {
+                            Button { chosenYear.wrappedValue = years[index + 1] } label: { Image(systemName: "chevron.left") }
+                                .disabled(index + 1 >= years.count)
+                                .help(strings.earlierYear).accessibilityLabel(strings.earlierYear)
+                            Button { chosenYear.wrappedValue = years[index - 1] } label: { Image(systemName: "chevron.right") }
+                                .disabled(index == 0)
+                                .help(strings.laterYear).accessibilityLabel(strings.laterYear)
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                }
+                Section {
+                    if network.isEmpty {
+                        // Trips from before paths were kept: nothing to draw yet.
+                        Text(strings.travelledMapEmpty).font(.caption).foregroundStyle(.secondary)
+                    } else if DataSaver.shared.isOn {
+                        Text(strings.travelledMapSavingData).font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        TravelledMap(network: network)
+                            .frame(height: 240)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .accessibilityLabel(strings.travelledMap)
+                    }
+                } footer: {
+                    if !network.isEmpty, !DataSaver.shared.isOn {
+                        Text(strings.travelledMapHint(missing: log.trips.count - network.tripCount))
+                            .font(.caption).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
                 Section {
                     ForEach(log.trips) { trip in
@@ -146,6 +205,7 @@ struct TripsView: View {
                         }
                         .contextMenu {
                             Button(strings.deleteTrip, role: .destructive) { monitor.trips.delete(trip.id) }
+                                .disabled(madeUp != nil || monitor.demoMode)
                         }
                     }
                 }
@@ -159,6 +219,68 @@ struct TripsView: View {
         panel.allowedContentTypes = [.commaSeparatedText]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         try? log.csv().write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
+/// A year in a few figures, three to a row. A figure without data behind it is left out.
+private struct YearReviewGrid: View {
+    let review: YearReview
+    @Environment(\.strings) private var strings
+
+    private struct Figure: Identifiable {
+        let value: String
+        let label: String
+        var help: String?
+        var id: String { label }
+    }
+
+    var body: some View {
+        let figures = figures
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+            ForEach(Array(stride(from: 0, to: figures.count, by: 3)), id: \.self) { row in
+                GridRow {
+                    ForEach(figures[row..<min(row + 3, figures.count)]) { cell($0) }
+                }
+            }
+            // Two station names need the whole width.
+            if let pair = review.mostRidden {
+                cell(Figure(value: "\(pair.from) ↔ \(pair.to)", label: strings.reviewMostRidden(pair.count)))
+                    .gridCellColumns(3)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var figures: [Figure] {
+        var figures = [
+            Figure(value: review.trips.formatted(), label: strings.reviewTrips(review.trips)),
+            Figure(value: "\(Int(review.distance.rounded()).formatted()) km", label: strings.reviewDistance),
+            Figure(value: Self.duration(review.duration), label: strings.reviewDuration),
+        ]
+        if let percent = review.onTimePercent {
+            figures.append(Figure(value: strings.reviewPercent(percent), label: strings.reviewOnTime(of: review.tripsWithDelay),
+                                  help: strings.reviewOnTimeHelp))
+            figures.append(Figure(value: "\(review.delayMinutes.formatted()) min", label: strings.reviewDelay))
+        }
+        if let fastest = review.fastest {
+            figures.append(Figure(value: "\(fastest.topSpeed) km/h", label: strings.reviewFastest(fastest.train)))
+        }
+        return figures
+    }
+
+    private func cell(_ figure: Figure) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(figure.value).font(.title3).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+            Text(figure.label).font(.caption).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .help(figure.help ?? "")
+        .accessibilityElement(children: .combine)
+    }
+
+    static func duration(_ seconds: TimeInterval) -> String {
+        let hours = Int(seconds / 3600), minutes = Int(seconds / 60) % 60
+        return hours > 0 ? "\(hours.formatted()) h \(minutes) min" : "\(minutes) min"
     }
 }
 
@@ -178,6 +300,14 @@ private struct TripRow: View {
                 Text(details).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            if let refund = trip.refund, let delay = trip.arrivalDelay {
+                // An hour or more late: part of the fare may be due back.
+                Image(systemName: "eurosign.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help(strings.refundMarker(delay, percent: refund.rawValue))
+                    .accessibilityLabel(strings.refundMarker(delay, percent: refund.rawValue))
+            }
             DelayBadge(minutes: trip.arrivalDelay).font(.caption)
         }
         .help("\(trip.train) · \(trip.from) → \(trip.to)")
@@ -319,6 +449,7 @@ struct NotificationSettingsView: View {
                 }
                 Toggle(strings.trackChanges, isOn: $journey.notificationSettings.trackChanges)
                 Toggle(strings.connectionAlerts, isOn: $journey.notificationSettings.connectionAlerts)
+                Toggle(strings.passengerRightsHint, isOn: $journey.notificationSettings.passengerRights)
             }
             .disabled(!notifications)
             Section {

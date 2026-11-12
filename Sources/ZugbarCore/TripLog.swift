@@ -15,9 +15,14 @@ public struct Trip: Codable, Sendable, Equatable, Identifiable {
     public var arrivalDelay: Int?
     /// Speed and delay along the way, for the charts; `nil` for trips recorded before there were any.
     public var samples: [RideSample]?
+    /// Where the trip went, for the map of all trips; `nil` for trips recorded before paths were kept.
+    public var path: TripPath?
+    /// Whether `to` is where the EU's passenger rights apply, as far as its ID tells; `nil` for trips recorded
+    /// before this was noted.
+    public var passengerRights: Bool?
 
     public init(id: UUID = UUID(), train: String, from: String, to: String, start: Date, end: Date, distance: Double,
-                topSpeed: Int, arrivalDelay: Int? = nil, samples: [RideSample]? = nil) {
+                topSpeed: Int, arrivalDelay: Int? = nil, samples: [RideSample]? = nil, path: TripPath? = nil) {
         self.id = id
         self.train = train
         self.from = from
@@ -28,6 +33,7 @@ public struct Trip: Codable, Sendable, Equatable, Identifiable {
         self.topSpeed = topSpeed
         self.arrivalDelay = arrivalDelay
         self.samples = samples
+        self.path = path
     }
 
     public var duration: TimeInterval { end.timeIntervalSince(start) }
@@ -47,14 +53,17 @@ public struct TripRecorder: Sendable {
         var topSpeed = 0
         var status: TrainStatus
         var sampler = RideSampler()
+        var path = PathSampler()
 
         /// The trip as it would be logged now, ending at the stop closest to where the train was last seen.
         var trip: Trip {
             let stop = status.stops
                 .filter { $0.coordinate != nil }
                 .min { $0.coordinate!.distance(to: position) < $1.coordinate!.distance(to: position) }
-            return Trip(id: id, train: train, from: from, to: stop?.name ?? "?", start: start, end: last, distance: distance,
-                        topSpeed: topSpeed, arrivalDelay: stop?.delayMinutes, samples: sampler.all)
+            var trip = Trip(id: id, train: train, from: from, to: stop?.name ?? "?", start: start, end: last, distance: distance,
+                            topSpeed: topSpeed, arrivalDelay: stop?.delayMinutes, samples: sampler.all, path: path.path)
+            trip.passengerRights = stop.map { !$0.cancelled && PassengerRights.applies(at: $0) }
+            return trip
         }
     }
 
@@ -64,8 +73,8 @@ public struct TripRecorder: Sendable {
     private var paused: Ongoing?
 
     /// Shorter or briefer than this is a train passed on a platform or a portal glimpsed in a station.
-    static let minimumDistance = 5.0
-    static let minimumDuration: TimeInterval = 5 * 60
+    public static let minimumDistance = 5.0
+    public static let minimumDuration: TimeInterval = 5 * 60
     /// How long after going quiet a ride can still go on.
     static let resumeWithin: TimeInterval = 3 * 3600
 
@@ -89,11 +98,14 @@ public struct TripRecorder: Sendable {
         }
         paused = nil
         guard var current = ongoing else {
-            // Boarded at the last stop left behind, or at the next one when the train hasn't left its first stop.
-            let from = status.stops.last { $0.passed }?.name ?? status.nextStop?.name ?? "?"
+            // Boarded at the stop the train is standing at or just leaving; else at the last stop left behind, or at
+            // the next one when the train hasn't left its first stop.
+            let from = Self.stop(at: position, in: status)?.name
+                ?? status.stops.last { $0.passed }?.name ?? status.nextStop?.name ?? "?"
             var started = Ongoing(train: train, from: from, start: date, last: date, position: position,
                                   topSpeed: status.speed ?? 0, status: status)
             started.sampler.record(status, distance: 0, at: 0)
+            started.path.record(position)
             ongoing = started
             return finished
         }
@@ -112,6 +124,7 @@ public struct TripRecorder: Sendable {
         current.topSpeed = max(current.topSpeed, status.speed ?? 0)
         current.status = status
         current.sampler.record(status, distance: current.distance, at: date.timeIntervalSince(current.start))
+        current.path.record(position)
         ongoing = current
         return finished
     }
@@ -123,6 +136,33 @@ public struct TripRecorder: Sendable {
         let trip = finish()
         paused = ongoing
         return trip
+    }
+
+    /// The stop the train is at: within reach of a platform, whether or not the portal counts it as passed yet.
+    static func stop(at position: Coordinate, in status: TrainStatus) -> Stop? {
+        status.stops
+            .filter { !$0.cancelled }
+            .compactMap { stop in stop.coordinate.map { (stop, $0.distance(to: position)) } }
+            .filter { $0.1 <= 1.5 }
+            .min { $0.1 < $1.1 }?.0
+    }
+
+    /// Takes up the newest logged trip again when the app was restarted in the middle of it: the same train, heard
+    /// from within a few hours, still calling where the trip began. The trip goes on under the same ID, so the log
+    /// keeps one entry for the ride instead of one for each start of the app.
+    public mutating func resume(_ trip: Trip, with status: TrainStatus, at date: Date) -> Bool {
+        guard ongoing == nil, paused == nil, !status.isOnline, let train = status.trainName, let position = status.position,
+              TrainName.same(trip.train, train), date >= trip.end, date.timeIntervalSince(trip.end) <= Self.resumeWithin,
+              status.stops.contains(where: { $0.name == trip.from })
+        else { return false }
+        // Where the trip left off: the end of its path, else the stop it was logged to.
+        let left = trip.path?.lines.last?.last ?? status.stops.first { $0.name == trip.to }?.coordinate ?? position
+        var riding = Ongoing(id: trip.id, train: trip.train, from: trip.from, start: trip.start, last: trip.end, position: left,
+                             distance: trip.distance, topSpeed: trip.topSpeed, status: status)
+        riding.sampler = RideSampler(resuming: trip.samples ?? [])
+        riding.path = PathSampler(resuming: trip.path)
+        ongoing = riding
+        return true
     }
 
     /// Whether `status` is the ride `paused` was recording: the same train, to the same last stop, on the same
@@ -152,11 +192,15 @@ public struct TripRecorder: Sendable {
     }
 }
 
-/// All recorded trips, newest first, with the totals the History tab shows.
+/// All recorded trips, newest first. The figures the Trips tab shows are in `YearReview`.
 public struct TripLog: Codable, Sendable, Equatable {
     public private(set) var trips: [Trip] = []
 
     public init() {}
+
+    public init(trips: [Trip]) {
+        self.trips = trips
+    }
 
     /// Adds a trip, or updates it in place when an earlier part of it was logged before the ride went on.
     public mutating func add(_ trip: Trip) {
@@ -170,13 +214,6 @@ public struct TripLog: Codable, Sendable, Equatable {
     public mutating func remove(_ id: Trip.ID) {
         trips.removeAll { $0.id == id }
     }
-
-    public func distance(inYearOf date: Date, calendar: Calendar = .current) -> Double {
-        let year = calendar.component(.year, from: date)
-        return trips.filter { calendar.component(.year, from: $0.start) == year }.map(\.distance).reduce(0, +)
-    }
-
-    public var fastest: Trip? { trips.max { $0.topSpeed < $1.topSpeed } }
 
     /// One row per trip; times in ISO 8601, distance in km.
     public func csv() -> String {

@@ -67,16 +67,10 @@ struct TrainMap: View {
         let routeLine = lines.wrappedValue.route(routePoints)
         let highlighted = [monitor.journey.plan?.destinationStopID, monitor.journey.plan?.boardingStopID].compactMap { $0 }
 
-        // The train's position isn't read here but in `TrainMarker`: it changes 30 times a second, and each new map
-        // content had MapKit update and redraw the whole map, which kept half a CPU core busy.
-        MapReader { proxy in
-            // A view of its own: the reader hands out a new proxy whenever the camera moves, which would otherwise
-            // build the map's content again on every frame while following.
-            RouteMap(monitor: monitor, stops: status.stops, highlighted: highlighted, routeLine: routeLine,
-                     stretches: showsTrackSpeeds ? stretches : [])
-                .equatable()
-                .overlay { TrainMarker(monitor: monitor, proxy: proxy, name: status.trainName, follow: follow) }
-        }
+        // Neither the train's position nor the camera is read here: both change up to 30 times a second while
+        // following, and the map takes them straight from the monitor instead of through a new view each time.
+        RouteMap(monitor: monitor, stops: status.stops, highlighted: highlighted, routeLine: routeLine,
+                 stretches: showsTrackSpeeds ? stretches : [], trainName: status.trainName, follow: follow)
         .overlay(alignment: .topTrailing) {
             MapControlGroup {
                 // Like Apple Maps: free → follow the train → follow, turned with it → free.
@@ -85,7 +79,7 @@ struct TrainMap: View {
                 Divider().frame(width: 18)
                 MapControl(icon: "arrow.up.left.and.arrow.down.right", help: strings.wholeRoute) {
                     monitor.map.followsTrain = false
-                    withAnimation { fitRoute(routeAndTrain) }
+                    fitRoute(routeAndTrain)
                 }
                 Divider().frame(width: 18)
                 MapControl(icon: showsTrackSpeeds ? "gauge.with.dots.needle.67percent" : "gauge.with.dots.needle.33percent",
@@ -141,11 +135,7 @@ struct TrainMap: View {
               Date().timeIntervalSince(monitor.map.touchedAt) > 2
         else { return }
         // Without animation; the marker itself moves at a constant pace.
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            monitor.map.camera = .camera(camera(at: position))
-        }
+        monitor.map.move(to: camera(at: position))
         monitor.map.expectedCenter = position
     }
 
@@ -194,12 +184,14 @@ struct TrainMap: View {
 
     /// Following the train: north up, or turned with the train when that's switched on. Zooms in on its own while
     /// the train crawls or nears its next stop, unless saving data.
-    private func camera(at position: Coordinate) -> MapCamera {
+    private func camera(at position: Coordinate) -> MapState.CameraMove.Target {
         let toStop = status.nextStop?.coordinate.map { position.distance(to: $0) * 1000 }
         let closeIn = MapZoom.closeIn(speed: monitor.displaySpeed, toNextStop: toStop, savingData: DataSaver.shared.isOn)
-        let distance = monitor.map.cameraDistance(closeIn: closeIn, at: Date())
-        return MapCamera(centerCoordinate: CLLocationCoordinate2D(position), distance: distance,
-                         heading: monitor.map.cameraHeading(toward: headingUp ? monitor.map.heading.degrees ?? 0 : 0, at: Date()))
+        let now = Date()
+        let distance = monitor.map.cameraDistance(closeIn: closeIn, at: now)
+        let heading = monitor.map.cameraHeading(toward: headingUp ? monitor.map.heading.degrees ?? 0 : 0, at: now)
+        monitor.map.followed(distance: distance, heading: heading, at: now)
+        return .camera(center: position, distance: distance, heading: heading)
     }
 
     /// Zooms around the train when following, else around the map's center. Works from the remembered zoom,
@@ -210,13 +202,13 @@ struct TrainMap: View {
         let base = monitor.map.followsTrain ? monitor.map.followingDistance
             : monitor.map.movingProgrammatically ? monitor.map.followDistance : monitor.map.cameraDistance ?? monitor.map.followDistance
         monitor.map.userZoomed(to: min(max(base * factor, 400), 4_000_000))
-        moveCamera(to: .camera(monitor.map.followsTrain ? camera(at: center)
-            : MapCamera(centerCoordinate: CLLocationCoordinate2D(center), distance: monitor.map.followDistance)), duration: 0.25)
+        moveCamera(to: monitor.map.followsTrain ? camera(at: center)
+            : .camera(center: center, distance: monitor.map.followDistance, heading: monitor.map.shownCameraHeading ?? 0), duration: 0.25)
     }
 
-    private func moveCamera(to camera: MapCameraPosition, duration: Double = 0.6, settle: Double = 0.3) {
+    private func moveCamera(to camera: MapState.CameraMove.Target, duration: Double = 0.6, settle: Double = 0.3) {
         monitor.map.programmaticMoves += 1
-        withAnimation(.easeInOut(duration: duration)) { monitor.map.camera = camera }
+        monitor.map.move(to: camera, duration: duration)
         DispatchQueue.main.asyncAfter(deadline: .now() + duration + settle) { monitor.map.programmaticMoves -= 1 }
     }
 
@@ -231,19 +223,18 @@ struct TrainMap: View {
         guard let target = center else { return }
         monitor.map.setCameraHeading(heading, at: end)
         let distance = monitor.map.followsTrain ? monitor.map.followingDistance : monitor.map.followDistance
-        moveCamera(to: .camera(MapCamera(centerCoordinate: CLLocationCoordinate2D(target), distance: distance,
-                                         heading: heading)), duration: duration, settle: 0)
+        moveCamera(to: .camera(center: target, distance: distance, heading: heading), duration: duration, settle: 0)
     }
 
     /// Slow to fast as blue to red; gray where the bundled main lines don't reach.
-    static func color(for band: Int?) -> Color {
+    static func color(for band: Int?) -> NSColor {
         switch band {
-        case 120: .blue
-        case 160: .green
-        case 200: .yellow
-        case 250: .orange
-        case 300: .red
-        default: .secondary
+        case 120: .systemBlue
+        case 160: .systemGreen
+        case 200: .systemYellow
+        case 250: .systemOrange
+        case 300: .systemRed
+        default: .secondaryLabelColor
         }
     }
 
@@ -255,117 +246,293 @@ struct TrainMap: View {
     }
 }
 
-/// The route, its stops and the camera. Redone only when one of them changes, not as the train moves.
-private struct RouteMap: View, @MainActor Equatable {
+/// The route, its stops and the train on a map view of our own. SwiftUI's `Map` took every camera move and every
+/// step of the marker as new content and added all of its lines again: with the track colored by speed, following
+/// the train kept a whole CPU core busy. Here the lines are added once, and the train and the camera move alone.
+private struct RouteMap: NSViewRepresentable {
     let monitor: TrainMonitor
     let stops: [Stop]
     let highlighted: [String]
     let routeLine: MKPolyline?
     let stretches: [TrainMap.Lines.Stretch]
+    let trainName: String?
+    let follow: (Coordinate) -> Void
 
-    /// Spelled out, so the map reader's new proxy on each camera move doesn't redo the map: SwiftUI can't tell on its
-    /// own that these are unchanged.
-    static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.monitor === rhs.monitor && lhs.routeLine === rhs.routeLine && lhs.stops == rhs.stops
-            && lhs.highlighted == rhs.highlighted && lhs.stretches == rhs.stretches
+    func makeCoordinator() -> Coordinator { Coordinator(monitor: monitor) }
+
+    func makeNSView(context: Context) -> MKMapView {
+        let view = SizedMapView()
+        let configuration = MKStandardMapConfiguration()
+        configuration.pointOfInterestFilter = .excludingAll
+        view.preferredConfiguration = configuration
+        view.showsCompass = false
+        view.showsZoomControls = false
+        view.showsPitchControl = false
+        view.delegate = context.coordinator
+        context.coordinator.view = view
+        view.sized = { [weak coordinator = context.coordinator] in coordinator?.applyCamera() }
+        context.coordinator.show(self)
+        context.coordinator.watchTrain()
+        context.coordinator.watchCamera()
+        return view
     }
 
-    var body: some View {
-        // Not `@Bindable`'s `$map.camera`: with that, following the train took ~58 % CPU instead of ~41 %.
-        let map = monitor.map
-        Map(position: Binding(get: { map.camera }, set: { map.camera = $0 })) {
-            if !stretches.isEmpty {
-                ForEach(stretches, id: \.line) { stretch in
-                    MapPolyline(stretch.line).stroke(TrainMap.color(for: stretch.band), lineWidth: 4)
-                }
-            } else if let routeLine {
-                MapPolyline(routeLine).stroke(.secondary, lineWidth: 3)
+    func updateNSView(_ view: MKMapView, context: Context) {
+        context.coordinator.show(self)
+    }
+
+    static func dismantleNSView(_ view: MKMapView, coordinator: Coordinator) {
+        coordinator.view = nil
+    }
+
+    /// Tells when the map first has a size: a camera set before that fits nothing.
+    private final class SizedMapView: MKMapView {
+        var sized: () -> Void = {}
+        private var hadSize = false
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            guard !hadSize, newSize.width > 0, newSize.height > 0 else { return }
+            hadSize = true
+            sized()
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, MKMapViewDelegate {
+        let monitor: TrainMonitor
+        /// Gone once the map is taken down, which ends the watching below.
+        weak var view: MKMapView?
+        private var follow: (Coordinate) -> Void = { _ in }
+        private var lines: [MKPolyline] = []
+        private var colors: [ObjectIdentifier: NSColor] = [:]
+        private var dots: [StopDot] = []
+        private let train = TrainAnnotation()
+        private var trainShown = false
+        private var appliedCamera: Int?
+
+        init(monitor: TrainMonitor) {
+            self.monitor = monitor
+        }
+
+        /// Takes over what the panel shows now. Lines and stops are only touched when they changed.
+        func show(_ map: RouteMap) {
+            guard let view else { return }
+            follow = map.follow
+            train.title = map.trainName
+
+            let wanted = map.stretches.isEmpty ? [map.routeLine].compactMap { $0 } : map.stretches.map(\.line)
+            if !wanted.elementsEqual(lines, by: ===) {
+                view.removeOverlays(lines)
+                lines = wanted
+                colors = Dictionary(map.stretches.map { (ObjectIdentifier($0.line), TrainMap.color(for: $0.band)) }) { first, _ in first }
+                view.addOverlays(wanted, level: .aboveRoads)
             }
-            ForEach(stops) { stop in
-                if let coordinate = stop.coordinate {
-                    Annotation(stop.name, coordinate: CLLocationCoordinate2D(coordinate), anchor: .center) {
-                        Circle()
-                            .fill(highlighted.contains(stop.id) ? Color.accentColor : (stop.passed ? Color.gray : Color.white))
-                            .stroke(Color.black.opacity(0.4), lineWidth: 1)
-                            .frame(width: highlighted.contains(stop.id) ? 10 : 7)
-                    }
-                    .annotationTitles(highlighted.contains(stop.id) ? .visible : .hidden)
+
+            let wantedDots = map.stops.compactMap { stop in
+                stop.coordinate.map {
+                    StopDot(id: stop.id, name: stop.name, coordinate: CLLocationCoordinate2D($0), passed: stop.passed,
+                            highlighted: map.highlighted.contains(stop.id))
                 }
+            }
+            if !wantedDots.elementsEqual(dots, by: { $0.same(as: $1) }) {
+                view.removeAnnotations(dots)
+                dots = wantedDots
+                view.addAnnotations(wantedDots)
             }
         }
-        .mapStyle(.standard(pointsOfInterest: .excludingAll))
-        .mapControls {}
-        .onMapCameraChange(frequency: .continuous) { context in
-            let camera = context.camera
+
+        /// Moves the marker whenever the monitor places the train anew, without a pass through SwiftUI.
+        func watchTrain() {
+            guard let view else { return }
+            let position = withObservationTracking { monitor.trainPosition } onChange: { [weak self] in
+                DispatchQueue.main.async { self?.watchTrain() }
+            }
+            if let position {
+                train.coordinate = CLLocationCoordinate2D(position)
+                if !trainShown { view.addAnnotation(train) }
+                follow(position)
+            } else if trainShown {
+                view.removeAnnotation(train)
+            }
+            trainShown = position != nil
+        }
+
+        func watchCamera() {
+            guard view != nil else { return }
+            withObservationTracking { applyCamera() } onChange: { [weak self] in
+                DispatchQueue.main.async { self?.watchCamera() }
+            }
+        }
+
+        /// Sends the map where the app last asked for, once. A map that just appeared jumps there.
+        func applyCamera() {
+            let move = monitor.map.camera
+            guard let view, move.serial != appliedCamera, view.frame.width > 0, view.frame.height > 0 else { return }
+            let first = appliedCamera == nil
+            appliedCamera = move.serial
+            let apply: () -> Void
+            switch move.target {
+            case .automatic:
+                return
+            case let .camera(center, distance, heading):
+                // A new one each time: the map keeps the one it's given.
+                let camera = MKMapCamera(lookingAtCenter: CLLocationCoordinate2D(center), fromDistance: distance,
+                                         pitch: 0, heading: heading)
+                apply = { view.camera = camera }
+            case let .rect(rect):
+                apply = { view.visibleMapRect = rect }
+            }
+            guard move.duration > 0, !first else { return apply() }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = move.duration
+                context.allowsImplicitAnimation = true
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                apply()
+            }
+        }
+
+        func mapView(_ mapView: MKMapView, rendererFor overlay: any MKOverlay) -> MKOverlayRenderer {
+            guard let line = overlay as? MKPolyline else { return MKOverlayRenderer(overlay: overlay) }
+            let renderer = MKPolylineRenderer(polyline: line)
+            let color = colors[ObjectIdentifier(line)]
+            renderer.strokeColor = color ?? .secondaryLabelColor
+            renderer.lineWidth = color == nil ? 3 : 4
+            return renderer
+        }
+
+        func mapView(_ mapView: MKMapView, viewFor annotation: any MKAnnotation) -> MKAnnotationView? {
+            if let dot = annotation as? StopDot { return StopDotView(annotation: dot, reuseIdentifier: nil) }
+            guard annotation is TrainAnnotation else { return nil }
+            let view = MKAnnotationView(annotation: annotation, reuseIdentifier: nil)
+            // Like the panel's `.title2`.
+            let symbol = NSImage.SymbolConfiguration(pointSize: 17, weight: .regular)
+                .applying(.init(paletteColors: [.white, .controlAccentColor]))
+            view.image = NSImage(systemSymbolName: "tram.circle.fill", accessibilityDescription: annotation.title ?? nil)?
+                .withSymbolConfiguration(symbol)
+            // Standing on the track: its bottom at the train.
+            view.centerOffset = CGPoint(x: 0, y: -(view.image?.size.height ?? 0) / 2)
+            view.wantsLayer = true
+            view.shadow = NSShadow()
+            view.layer?.shadowRadius = 2
+            view.layer?.shadowOpacity = 0.33
+            view.layer?.shadowOffset = .zero
+            view.zPriority = .max
+            view.isEnabled = false
+            return view
+        }
+
+        func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
+            let map = monitor.map
+            let camera = mapView.camera
             let center = Coordinate(latitude: camera.centerCoordinate.latitude, longitude: camera.centerCoordinate.longitude)
-            monitor.map.center = center
-            monitor.map.cameraDistance = camera.distance
-            monitor.map.cameraMoves &+= 1
-            guard !monitor.map.movingProgrammatically else { return }
-            let expected = monitor.map.followsTrain ? monitor.map.followingDistance : monitor.map.followDistance
-            if abs(camera.distance - expected) > expected * 0.03 {
+            let distance = camera.centerCoordinateDistance
+            map.center = center
+            map.cameraDistance = distance
+            map.shownCameraHeading = camera.heading
+            // Measured across the middle, which holds when the map is turned.
+            let middle = CGPoint(x: mapView.bounds.midX, y: mapView.bounds.midY)
+            let left = mapView.convert(CGPoint(x: middle.x - 50, y: middle.y), toCoordinateFrom: mapView)
+            let right = mapView.convert(CGPoint(x: middle.x + 50, y: middle.y), toCoordinateFrom: mapView)
+            map.metersPerPoint = MKMapPoint(left).distance(to: MKMapPoint(right)) / 100
+            map.edgeRadius = hypot(mapView.bounds.width, mapView.bounds.height) / 2
+            guard !map.movingProgrammatically else { return }
+            let expected = map.followsTrain ? map.followingDistance : map.followDistance
+            if abs(distance - expected) > expected * 0.03 {
                 // Zoom changed, beyond following's own easing: only the user does that (pinch, scroll).
-                monitor.map.userZoomed(to: camera.distance)
-                monitor.map.gestureZoomed = true
-                monitor.map.touchedAt = Date()
-            } else if let expected = monitor.map.expectedCenter, monitor.map.followsTrain,
-                      center.distance(to: expected) * 1000 > camera.distance * 0.1 {
+                map.userZoomed(to: distance)
+                map.gestureZoomed = true
+                map.touchedAt = Date()
+            } else if let expected = map.expectedCenter, map.followsTrain,
+                      center.distance(to: expected) * 1000 > distance * 0.1 {
                 // The camera left where following put it: the user is panning.
-                monitor.map.touchedAt = Date()
-            } else if !monitor.map.followsTrain {
-                monitor.map.touchedAt = Date()
+                map.touchedAt = Date()
+            } else if !map.followsTrain {
+                map.touchedAt = Date()
             }
         }
-        // Dragging the map well away from the train ends following; a gesture that zoomed never does.
-        .onMapCameraChange(frequency: .onEnd) { context in
-            defer { monitor.map.gestureZoomed = false }
+
+        /// Dragging the map well away from the train ends following; a gesture that zoomed never does.
+        func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            let map = monitor.map
+            defer { map.gestureZoomed = false }
+            let camera = mapView.camera
             // While following, only a zooming gesture changes the zoom; following's own easing doesn't.
-            if !monitor.map.movingProgrammatically, !monitor.map.followsTrain || monitor.map.gestureZoomed {
-                monitor.map.userZoomed(to: context.camera.distance)
+            if !map.movingProgrammatically, !map.followsTrain || map.gestureZoomed {
+                map.userZoomed(to: camera.centerCoordinateDistance)
             }
-            guard monitor.map.followsTrain, !monitor.map.movingProgrammatically, !monitor.map.gestureZoomed,
+            guard map.followsTrain, !map.movingProgrammatically, !map.gestureZoomed,
                   let position = monitor.trainPosition else { return }
-            let camera = context.camera
             let offset = Coordinate(latitude: camera.centerCoordinate.latitude, longitude: camera.centerCoordinate.longitude)
                 .distance(to: position) * 1000
-            if offset > camera.distance * 0.5 { monitor.map.followsTrain = false }
+            if offset > camera.centerCoordinateDistance * 0.5 { map.followsTrain = false }
         }
     }
 }
 
-/// The train, drawn over the map instead of as one of its annotations: moving an annotation hands the map new content,
-/// and MapKit then updates and redraws all of it. This way only this view is redone on each of the 30 frames a second,
-/// and the map only when following moves its camera.
-private struct TrainMarker: View {
-    let monitor: TrainMonitor
-    let proxy: MapProxy
-    let name: String?
-    let follow: (Coordinate) -> Void
+/// The train. Its coordinate is set up to 30 times a second; the map moves the marker and leaves the rest alone.
+private final class TrainAnnotation: NSObject, MKAnnotation {
+    @objc dynamic var coordinate = CLLocationCoordinate2D()
+    var title: String?
+}
 
-    var body: some View {
-        let position = monitor.trainPosition
-        // Also redrawn when the camera moves, so the marker stays on the track while the user pans or zooms.
-        let _ = monitor.map.cameraMoves
-        Color.clear
-            .overlay {
-                if let position, let point = proxy.convert(CLLocationCoordinate2D(position), to: .local) {
-                    // Standing on the track like an annotation: its bottom at the train.
-                    Color.clear.frame(width: 0, height: 0)
-                        .overlay(alignment: .bottom) {
-                            Image(systemName: "tram.circle.fill")
-                                .font(.title2)
-                                .foregroundStyle(.white, Color.accentColor)
-                                .shadow(radius: 2)
-                                .fixedSize()
-                                .accessibilityLabel(name ?? "")
-                        }
-                        .position(point)
-                }
-            }
-            .allowsHitTesting(false)
-            .onChange(of: position) { _, newPosition in
-                if let newPosition { follow(newPosition) }
-            }
+private final class StopDot: NSObject, MKAnnotation {
+    let id: String
+    let name: String
+    let coordinate: CLLocationCoordinate2D
+    let passed: Bool
+    let highlighted: Bool
+
+    init(id: String, name: String, coordinate: CLLocationCoordinate2D, passed: Bool, highlighted: Bool) {
+        self.id = id
+        self.name = name
+        self.coordinate = coordinate
+        self.passed = passed
+        self.highlighted = highlighted
+    }
+
+    func same(as other: StopDot) -> Bool {
+        id == other.id && name == other.name && passed == other.passed && highlighted == other.highlighted
+            && coordinate.latitude == other.coordinate.latitude && coordinate.longitude == other.coordinate.longitude
+    }
+}
+
+/// A stop: a small dot, larger and named where the user gets on or off.
+private final class StopDotView: MKAnnotationView {
+    init(annotation dot: StopDot, reuseIdentifier: String?) {
+        super.init(annotation: dot, reuseIdentifier: reuseIdentifier)
+        let size: CGFloat = dot.highlighted ? 10 : 7
+        frame = CGRect(x: 0, y: 0, width: size, height: size)
+        isEnabled = false
+        setAccessibilityLabel(dot.name)
+        guard dot.highlighted else { return }
+        zPriority = .defaultSelected
+        let label = NSTextField(labelWithString: dot.name)
+        label.font = .systemFont(ofSize: 10, weight: .semibold)
+        label.textColor = .labelColor
+        // A halo in the map's own tone keeps the name readable over roads and rails.
+        let halo = NSShadow()
+        halo.shadowColor = .textBackgroundColor
+        halo.shadowBlurRadius = 2
+        halo.shadowOffset = .zero
+        label.shadow = halo
+        label.sizeToFit()
+        // Below the dot. Annotation views aren't flipped: down is negative.
+        label.setFrameOrigin(CGPoint(x: (size - label.frame.width) / 2, y: -label.frame.height - 1))
+        addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let dot = annotation as? StopDot else { return }
+        let circle = NSBezierPath(ovalIn: bounds.insetBy(dx: 0.5, dy: 0.5))
+        (dot.highlighted ? NSColor.controlAccentColor : dot.passed ? .gray : .white).setFill()
+        circle.fill()
+        NSColor.black.withAlphaComponent(0.4).setStroke()
+        circle.lineWidth = 1
+        circle.stroke()
     }
 }
 
@@ -377,7 +544,7 @@ private struct SpeedLegend: View {
         HStack(spacing: 6) {
             ForEach(TrackSpeeds.bands, id: \.self) { band in
                 HStack(spacing: 2) {
-                    Circle().fill(TrainMap.color(for: band)).frame(width: 6, height: 6)
+                    Circle().fill(Color(nsColor: TrainMap.color(for: band))).frame(width: 6, height: 6)
                     Text(band == TrackSpeeds.bands.first ? "≤\(band)" : "\(band)")
                 }
             }

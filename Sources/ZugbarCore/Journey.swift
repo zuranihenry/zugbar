@@ -19,6 +19,23 @@ public struct JourneyPlan: Codable, Sendable, Equatable {
     public var updated: Date?
     /// The user's coach on this train, for where it stops on the platform.
     public var seat: Seat?
+    /// When the journey was to end as first planned: the first connection's timetabled arrival at its final stop,
+    /// or the destination's without one. Kept across replacement connections and the change of trains, so a
+    /// missed connection counts towards the delay. Optional so plans saved by older versions still load.
+    public var plannedArrival: Date?
+    /// When the user was last seen on board on this journey, by a train's portal or its router's GPS.
+    public var boarded: Date?
+
+    /// When the journey ends by the timetable, as the plan stands: with the connection, or at the destination.
+    public func timetabledArrival(in status: TrainStatus?) -> Date? {
+        if let connection { return connection.scheduledFinalArrival }
+        return status?.stops.first { $0.id == destinationStopID }?.scheduledArrival
+    }
+
+    /// Notes the user on board, at most every ten minutes so the plan isn't saved with every update.
+    public mutating func noteOnBoard(at now: Date) {
+        if boarded.map({ now.timeIntervalSince($0) >= 10 * 60 }) ?? true { boarded = now }
+    }
 
     /// Set within the last six hours, so it's about the trip the user is on now.
     public func isRecent(at now: Date) -> Bool {
@@ -64,6 +81,8 @@ public struct Connection: Codable, Sendable, Equatable {
     /// Where the user is headed with this train, e.g. "Musterstadt".
     public var finalStop: String?
     public var finalArrival: Date?
+    /// The timetable's arrival there, for how late the journey ends up. Optional so saved plans still load.
+    public var scheduledFinalArrival: Date?
     /// Set on connections an older version took from the ICE portal, and on the demo connection:
     /// they aren't refreshed from Transitous and are followed by name after changing.
     public var portalStationID: String?
@@ -138,6 +157,8 @@ public struct NotificationSettings: Codable, Sendable, Equatable {
     public var delayThreshold = 3
     public var trackChanges = true
     public var connectionAlerts = true
+    /// A hint that part of the fare may be due back after arriving an hour or more late.
+    public var passengerRights = true
 
     public static let reminderChoices = [30, 15, 10, 5, 2]
     public static let thresholdChoices = [1, 3, 5, 10]
@@ -145,7 +166,7 @@ public struct NotificationSettings: Codable, Sendable, Equatable {
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case arrivalReminders, departureReminders, delayThreshold, trackChanges, connectionAlerts
+        case arrivalReminders, departureReminders, delayThreshold, trackChanges, connectionAlerts, passengerRights
     }
 
     /// Settings saved by older versions lack newer keys; those keep their defaults instead of failing the whole decode.
@@ -157,6 +178,7 @@ public struct NotificationSettings: Codable, Sendable, Equatable {
         delayThreshold = try container.decodeIfPresent(Int.self, forKey: .delayThreshold) ?? defaults.delayThreshold
         trackChanges = try container.decodeIfPresent(Bool.self, forKey: .trackChanges) ?? defaults.trackChanges
         connectionAlerts = try container.decodeIfPresent(Bool.self, forKey: .connectionAlerts) ?? defaults.connectionAlerts
+        passengerRights = try container.decodeIfPresent(Bool.self, forKey: .passengerRights) ?? defaults.passengerRights
     }
 }
 
@@ -352,7 +374,7 @@ extension TransitousClient {
         return try JSONDecoder.portal.decode(Plan.self, from: data).itineraries.compactMap { itinerary in
             let rides = itinerary.legs.filter { $0.mode != "WALK" }
             guard rides.count == 1, let leg = rides.first, let tripID = leg.tripId, seen.insert(tripID).inserted else { return nil }
-            return Connection(
+            var connection = Connection(
                 tripID: tripID,
                 name: leg.displayName ?? "?",
                 headsign: leg.headsign.map(StationName.tidy),
@@ -364,6 +386,8 @@ extension TransitousClient {
                 finalStop: StationName.tidy(leg.to.name),
                 finalArrival: leg.to.arrival ?? leg.to.scheduledArrival
             )
+            connection.scheduledFinalArrival = leg.to.scheduledArrival
+            return connection
         }
     }
 

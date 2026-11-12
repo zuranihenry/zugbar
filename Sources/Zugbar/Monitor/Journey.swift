@@ -70,6 +70,7 @@ final class Journey {
                 plan.destinationStopID = stop.id
                 if plan.connection?.station != stop.name { plan.connection = nil }
             }
+            plan.plannedArrival = plan.timetabledArrival(in: status())
         }
         connections.isAdding = false
     }
@@ -82,12 +83,27 @@ final class Journey {
     }
 
     func chooseConnection(_ connection: Connection) {
-        update { $0.connection = connection }
+        update { plan in
+            plan.connection = connection
+            plan.plannedArrival = plan.timetabledArrival(in: status())
+        }
         connections.isAdding = false
     }
 
+    /// Takes what the calendar suggested: the stop from the train's own list, the connection looked up the way
+    /// picking it by hand does. One that can't be told apart for sure is left to the user in the open picker.
+    func take(_ suggestion: CalendarJourney.Suggestion) {
+        guard let stop = status()?.stops.first(where: { $0.id == suggestion.stopID }) else { return }
+        if plan?.destinationStopID != stop.id { toggleDestination(stop) }
+        guard let onward = suggestion.onward, plan?.connection == nil else { return }
+        connections.find(station: onward.to, pick: onward.pick) { [weak self] in self?.chooseConnection($0) }
+    }
+
     func removeConnection() {
-        update { $0.connection = nil }
+        update { plan in
+            plan.connection = nil
+            plan.plannedArrival = plan.timetabledArrival(in: status())
+        }
     }
 
     /// The user's coach on the followed train, or with `connection` on the train they change to.
@@ -141,7 +157,8 @@ final class Journey {
 
     /// Keeps the plan in step with a new status of the followed train: dropped for another train, stops matched
     /// by name or moved between portal and online stop IDs for the same one.
-    func follow(_ newStatus: TrainStatus, previous: TrainStatus?) {
+    /// `onBoard`: the status comes from the train the user is on.
+    func follow(_ newStatus: TrainStatus, previous: TrainStatus?, onBoard: Bool) {
         // A portal briefly reporting no train name shouldn't throw away the plan, nor should
         // another spelling of the same train ("ICE1356", "ICE 1356").
         guard let plan, let name = newStatus.trainName else { return }
@@ -150,6 +167,7 @@ final class Journey {
         } else {
             var updated = plan.resolved(in: newStatus)
             if let old = previous ?? lastSnapshot?.status { updated = updated.remapped(from: old, to: newStatus) }
+            if onBoard { updated.noteOnBoard(at: now()) }
             if updated != plan { self.plan = updated }
         }
     }
@@ -186,6 +204,18 @@ final class Journey {
             }
             Notifier.post(title: title, body: body, id: event.replaceableID)
         }
+    }
+
+    /// Once the train is at the journey's last stop an hour or more late: part of the fare may be due back.
+    /// Said once per journey, also across a restart or a wake. `seen` is when `status` was fetched.
+    func notifyLateArrival(of status: TrainStatus, seen: Date, strings: Strings) {
+        guard notificationSettings.passengerRights,
+              let late = PassengerRights.arrival(plan: plan, status: status, seen: seen, now: now()),
+              UserDefaults.standard.string(forKey: "passengerRightsHinted") != late.key
+        else { return }
+        UserDefaults.standard.set(late.key, forKey: "passengerRightsHinted")
+        Notifier.post(title: strings.arrivedLate(late.delayMinutes, at: late.stop, observed: late.observed), body: strings.refundPossible(late.refund.rawValue),
+                      url: strings.passengerRightsURL, action: strings.passengerRights)
     }
 
     /// Connections come from Transitous, so check them every few minutes, and about once a minute close to the change.

@@ -33,7 +33,25 @@ final class ConnectionSearch {
         self.context = context
     }
 
-    func choose(_ target: TransitousClient.Station) {
+    /// Opens the picker on the connections to the station called `name` and takes the one `pick` settles on,
+    /// if any; otherwise they're listed for the user.
+    func find(station name: String, pick: @escaping ([Connection]) -> Connection?, chosen: @escaping (Connection) -> Void) {
+        search?.cancel()
+        isAdding = true
+        message = .loadingDepartures
+        search = Task {
+            do {
+                let target = try await client.stations(matching: name).first
+                guard !Task.isCancelled else { return }
+                guard let target else { return message = .noStation }
+                choose(target) { options in pick(options).map(chosen) }
+            } catch {
+                if !Task.isCancelled { message = .failed }
+            }
+        }
+    }
+
+    func choose(_ target: TransitousClient.Station, loaded: (([Connection]) -> Void)? = nil) {
         let context = context()
         guard let destination = context.destination else { return }
         search?.cancel()
@@ -59,6 +77,7 @@ final class ConnectionSearch {
                     return option
                 }
                 message = found.isEmpty ? (regional ? .noDirectConnection : .regionalOff) : nil
+                loaded?(options)
             } catch {
                 guard !Task.isCancelled else { return }
                 message = .failed

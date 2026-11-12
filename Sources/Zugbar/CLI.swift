@@ -7,6 +7,8 @@ enum CLI {
         case departures(station: String, line: String)
         case profile(String)
         case bundleTracks(String)
+        case rebuildTrips(recordings: String, output: String)
+        case bundleLandmarks(String)
         case help
 
         init?(arguments: [String]) {
@@ -20,6 +22,10 @@ enum CLI {
                 self = .profile(args[1])
             case "--bundle-tracks" where args.count >= 2:
                 self = .bundleTracks(args[1])
+            case "--rebuild-trips" where args.count >= 3:
+                self = .rebuildTrips(recordings: args[1], output: args[2])
+            case "--bundle-landmarks" where args.count >= 2:
+                self = .bundleLandmarks(args[1])
             case "--help", "-h":
                 self = .help
             default:
@@ -38,6 +44,10 @@ enum CLI {
                     try await profile(train)
                 case .bundleTracks(let path):
                     try await bundleTracks(to: path)
+                case .rebuildTrips(let recordings, let output):
+                    try rebuildTrips(from: recordings, to: output)
+                case .bundleLandmarks(let path):
+                    try await bundleLandmarks(to: path)
                 case .help:
                     print("""
                     Usage: Zugbar [--demo]
@@ -45,10 +55,45 @@ enum CLI {
                            Zugbar --departures "Köln Hbf" [RE5]
                            Zugbar --profile "ICE 123"
                            Zugbar --bundle-tracks Sources/ZugbarCore/Resources/main_line_tracks.lzfse
+                           Zugbar --rebuild-trips <recordings folder> <trips.json to write>
+                           Zugbar --bundle-landmarks Sources/ZugbarCore/Resources/main_line_landmarks.lzfse
                     """)
                 }
             } catch {
                 print("Error: \(error)")
+            }
+        }
+
+        /// Plays recorded ICE portal data through the trip recorder again and writes the trips it makes: rides
+        /// logged before trips were kept, or cut into pieces by restarts, come back whole.
+        private func rebuildTrips(from recordings: String, to output: String) throws {
+            let root = URL(fileURLWithPath: recordings)
+            let days = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasPrefix("20") }.sorted()
+            var recorder = TripRecorder()
+            var log = TripLog()
+            var polls = 0
+            for day in days {
+                let folder = root.appendingPathComponent(day)
+                let files = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+                for name in files where name.hasSuffix("-iceportal-de-api1-rs-status.json") {
+                    let trip = name.replacingOccurrences(of: "rs-status.json", with: "rs-tripInfo-trip.json")
+                    guard let statusData = try? Data(contentsOf: folder.appendingPathComponent(name)),
+                          let tripData = try? Data(contentsOf: folder.appendingPathComponent(trip)),
+                          let fields = try? JSONSerialization.jsonObject(with: statusData) as? [String: Any],
+                          let serverTime = fields["serverTime"] as? Double
+                    else { continue }
+                    let date = Date(timeIntervalSince1970: serverTime / 1000)
+                    guard let status = try? ICEPortal.parse(status: statusData, trip: tripData, now: date) else { continue }
+                    polls += 1
+                    if let finished = recorder.update(status, at: date) { log.add(finished) }
+                }
+            }
+            if let last = recorder.finish() { log.add(last) }
+            try JSONEncoder().encode(log).write(to: URL(fileURLWithPath: output), options: .atomic)
+            print("\(polls) polls, \(log.trips.count) trips:")
+            for trip in log.trips.reversed() {
+                let day = trip.start.formatted(date: .numeric, time: .shortened)
+                print("  \(day)  \(trip.train)  \(trip.from) → \(trip.to)  \(Int(trip.distance.rounded())) km  \(Int(trip.duration / 60)) min")
             }
         }
 
@@ -109,16 +154,7 @@ enum CLI {
         private func bundleTracks(to path: String) async throws {
             setvbuf(stdout, nil, _IOLBF, 0)
             let size = 0.5
-            // Germany and Austria by bounding box; main lines just across the border come along.
-            let boxes = [(south: 47.0, west: 5.5, north: 55.5, east: 15.5), (south: 46.0, west: 9.5, north: 49.5, east: 17.5)]
-            var tiles: [(Double, Double)] = []
-            for box in boxes {
-                for south in stride(from: box.south, to: box.north, by: size) {
-                    for west in stride(from: box.west, to: box.east, by: size) where !tiles.contains(where: { $0 == (south, west) }) {
-                        tiles.append((south, west))
-                    }
-                }
-            }
+            let tiles = Self.tiles(size: size)
             let folder = URL(fileURLWithPath: path + ".tiles", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             var ways: [Int: TrackLimit] = [:]
@@ -129,7 +165,9 @@ enum CLI {
                 if let saved = try? Data(contentsOf: file) {
                     data = saved
                 } else {
-                    data = try await overpass("[out:json][timeout:120];way(\(box))[railway=rail][usage=main][maxspeed];out tags geom qt;")
+                    data = try await overpass("[out:json][timeout:120];way(\(box))[railway=rail][usage=main][maxspeed];out tags geom qt;") {
+                        (try? OverpassClient.parseWays($0)) != nil
+                    }
                     try data.write(to: file)
                     try await Task.sleep(for: .seconds(3))
                 }
@@ -144,9 +182,64 @@ enum CLI {
             print("Wrote \(tracks.count) tracks, \(tracks.map(\.nodes.count).reduce(0, +)) nodes, \(data.count / 1024) KB to \(path)")
         }
 
+        /// Named tunnels and bridges on the same main lines, and the rivers the bridges cross, for the line under the
+        /// map. Far fewer than tracks, so the tiles are bigger; about an hour, and reruns continue too.
+        private func bundleLandmarks(to path: String) async throws {
+            setvbuf(stdout, nil, _IOLBF, 0)
+            let size = 1.0
+            let tiles = Self.tiles(size: size)
+            let folder = URL(fileURLWithPath: path + ".tiles", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            var ways: [Int: LandmarkBundle.Way] = [:]
+            var downloaded = 0
+            for (number, (south, west)) in tiles.enumerated() {
+                let box = "\(south),\(west),\(south + size),\(west + size)"
+                let file = folder.appendingPathComponent(box + ".json")
+                let data: Data
+                if let saved = try? Data(contentsOf: file) {
+                    data = saved
+                } else {
+                    data = try await overpass(LandmarkBundle.query(box: box)) {
+                        (try? LandmarkBundle.parseWays($0)) != nil && LandmarkBundle.searchedAround($0)
+                    }
+                    try data.write(to: file)
+                    try await Task.sleep(for: .seconds(3))
+                }
+                downloaded += data.count
+                let found = try LandmarkBundle.parseWays(data)
+                ways.merge(found) { first, _ in first }
+                print("\(number + 1)/\(tiles.count) \(box): \(found.count) ways, \(ways.count) in all")
+            }
+            let landmarks = LandmarkBundle.landmarks(from: ways.keys.sorted().compactMap { ways[$0] })
+            let date = Date().formatted(.iso8601.year().month().day())
+            let data = try LandmarkBundle(date: date, landmarks: landmarks).compressed()
+            try data.write(to: URL(fileURLWithPath: path))
+            let tunnels = landmarks.filter { $0.kind == .tunnel }, bridges = landmarks.filter { $0.kind == .bridge }
+            print("""
+            Read \(downloaded / 1024) KB of OpenStreetMap data (uncompressed).
+            Wrote \(Set(tunnels.compactMap(\.name)).count) tunnels on \(tunnels.count) tracks, \(Set(bridges.compactMap(\.name)).count) named \
+            bridges and \(Set(bridges.compactMap(\.river)).count) rivers on \(bridges.count) tracks, \
+            \(landmarks.map(\.nodes.count).reduce(0, +)) nodes, \(data.count / 1024) KB to \(path)
+            """)
+        }
+
+        /// Germany and Austria by bounding box, in tiles of `size` degrees; main lines just across the border come along.
+        private static func tiles(size: Double) -> [(Double, Double)] {
+            let boxes = [(south: 47.0, west: 5.5, north: 55.5, east: 15.5), (south: 46.0, west: 9.5, north: 49.5, east: 17.5)]
+            var tiles: [(Double, Double)] = []
+            for box in boxes {
+                for south in stride(from: box.south, to: box.north, by: size) {
+                    for west in stride(from: box.west, to: box.east, by: size) where !tiles.contains(where: { $0 == (south, west) }) {
+                        tiles.append((south, west))
+                    }
+                }
+            }
+            return tiles
+        }
+
         /// One query, trying each public server in turn and waiting longer after every round of failures.
-        private func overpass(_ query: String) async throws -> Data {
-            let servers = ["https://overpass-api.de/api/interpreter", "https://overpass.openstreetmap.fr/api/interpreter",
+        private func overpass(_ query: String, valid: (Data) -> Bool) async throws -> Data {
+            let servers = ["https://overpass.openstreetmap.fr/api/interpreter", "https://overpass-api.de/api/interpreter",
                            "https://overpass.private.coffee/api/interpreter"]
             var body = URLComponents()
             body.queryItems = [URLQueryItem(name: "data", value: query)]
@@ -159,7 +252,7 @@ enum CLI {
                     guard let (data, response) = try? await URLSession.shared.data(for: request),
                           (response as? HTTPURLResponse)?.statusCode == 200,
                           // An overloaded server answers 200 with a "runtime error" remark.
-                          (try? OverpassClient.parseWays(data)) != nil
+                          valid(data)
                     else { continue }
                     return data
                 }

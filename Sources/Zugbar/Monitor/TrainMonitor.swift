@@ -42,12 +42,16 @@ final class TrainMonitor {
     }
     /// Whether the map has a train to show, for views that only need that, not where it is.
     private(set) var placesTrain = false
+    /// The named tunnel or bridge the train is in or on right now. Only from GPS, or the marker carried on from
+    /// its last fix in a tunnel; never from a position estimated from the timetable, which can be minutes off.
+    private(set) var landmark: Landmark?
     let map = MapState()
     let picker: StationSearch
     let estimates = SpeedEstimator()
     let wifi = WiFiForecaster()
     let link = LinkProber()
     let journey: Journey
+    let calendar = CalendarJourneys()
     let trips = TripStore()
     private(set) var lastUpdate: Date?
     private(set) var lastError: String?
@@ -164,6 +168,7 @@ final class TrainMonitor {
                     self.sbbSettled = false
                     self.sbbTried = nil
                     self.ride.joinedNetwork()
+                    Providers.joinedNetwork()
                 }
                 self.restart()
             }
@@ -186,6 +191,11 @@ final class TrainMonitor {
     }
 
     var isOnline: Bool { provider is Transitous }
+
+    /// The stop and connection a booking in the calendar has for the train shown, for the user to take or leave.
+    var calendarSuggestion: CalendarJourney.Suggestion? {
+        demoMode || isSnapshot ? nil : calendar.suggestion(for: status, plan: journey.plan, now: now)
+    }
 
     var tracking: Tracking? {
         guard let status else { return nil }
@@ -317,24 +327,34 @@ final class TrainMonitor {
     @ObservationIgnored var mapsShown = 0
 
     /// Recomputes the marker about 30 times a second from the clock, so it moves at a constant pace, while a map
-    /// shows it; once a second otherwise, so the heading stays fresh for when one opens.
+    /// shows it; once a second otherwise, so the heading stays fresh for when one opens. On battery or in Low
+    /// Power Mode fewer frames, as few as still look the same: each one makes the map draw itself again.
     private func startFrames() {
         frameTask?.cancel()
         frameTask = Task { [weak self] in
             while !Task.isCancelled {
                 self?.moveTrain()
-                let smooth = (self?.mapsShown ?? 0) > 0 && self?.status != nil
-                try? await Task.sleep(for: smooth ? .milliseconds(33) : .seconds(1))
+                try? await Task.sleep(for: self?.frameInterval ?? .seconds(1))
             }
         }
+    }
+
+    private var frameInterval: Duration {
+        guard mapsShown > 0, status != nil else { return .seconds(1) }
+        let power = PowerState.shared
+        let frames = MapFrames.perSecond(onBattery: power.onBattery, lowPowerMode: power.lowPowerMode,
+                                         pointsPerSecond: map.pointsPerSecond(at: Date()))
+        return .milliseconds(1000 / frames)
     }
 
     private func moveTrain() {
         guard let status else {
             if trainPosition != nil { trainPosition = nil }
+            if landmark != nil { landmark = nil }
             return
         }
         let date = Date()
+        var located = true
         if let gps = status.position {
             marker.update(gps, speed: status.speed, route: status.route, nextStop: status.nextStop?.coordinate, at: date)
             trainPosition = marker.position(at: date)
@@ -350,8 +370,12 @@ final class TrainMonitor {
             // Back on GPS later, the marker starts from the new fix instead of gliding from an old one.
             marker = GPSMarker()
             trainPosition = estimates.position(of: status, at: date)
+            located = false
         }
         if let trainPosition { map.trainMoved(to: trainPosition, at: date) }
+        let passing = located ? trainPosition.flatMap { LandmarkBundle.shared?.landmark(at: $0, heading: map.heading.degrees) } : nil
+        // Only when it changes: this runs every frame, and the panel redraws on every assignment.
+        if passing != landmark { landmark = passing }
     }
 
     /// Where the marker will be at `date`, for camera animations that should end on the moving train.
@@ -503,7 +527,9 @@ final class TrainMonitor {
 
     /// Switches to an on-board portal if one answers, other than the train the user changed from.
     private func takeOverFromPortal() async -> Bool {
-        guard let (found, first) = await Self.firstResponding(Providers.onBoard(loader: PortalRecorder.wrap(URLSession.portal.loader))),
+        let portals = Providers.onBoard(loader: PortalRecorder.wrap(URLSession.portal.loader),
+                                        json: PortalRecorder.wrap(URLSession.portal.jsonLoader))
+        guard let (found, first) = await Self.firstResponding(portals),
               !Task.isCancelled, !isLeftBehind(first)
         else { return false }
         provider = found
@@ -647,7 +673,7 @@ final class TrainMonitor {
         leftTrain = (plan.trainName, Date())
         onBoardTrain = nil
         replacementSearch = nil
-        journey.plan = Handover.plan(after: connection)
+        journey.plan = Handover.plan(after: connection, from: plan)
         journey.lastSnapshot = nil
         let target = Handover.target(for: connection)
         quietlySetTarget(ManualTarget(target))
@@ -700,7 +726,7 @@ final class TrainMonitor {
             }
             Notifier.post(title: strings.nextTrainTitle, body: strings.nextTrain(next), force: true)
             if following {
-                journey.plan = Handover.plan(after: next)
+                journey.plan = Handover.plan(after: next, from: journey.plan)
                 journey.lastSnapshot = nil
                 quietlySetTarget(ManualTarget(Handover.target(for: next)))
                 restart()
@@ -767,14 +793,18 @@ final class TrainMonitor {
             // On the connection already, e.g. woken on it: hand over instead of dropping the plan as another train's.
             leftTrain = (plan.trainName, Date())
             onBoardTrain = nil
-            journey.plan = Handover.plan(after: connection)
+            journey.plan = Handover.plan(after: connection, from: plan)
             journey.lastSnapshot = nil
         }
-        journey.follow(newStatus, previous: status)
+        // On board: the train's own portal, or the train picked from its router's GPS.
+        let picked = manualTarget == nil && newStatus.isOnline && !ride.isGone
+            && ride.pick.map { TrainName.same($0.label, newStatus.trainName ?? "") } == true
+        journey.follow(newStatus, previous: status, onBoard: !demoMode && (!newStatus.isOnline || picked))
         if !newStatus.isOnline, !demoMode, let name = newStatus.trainName {
             onBoardTrain = (name, Handover.fallbackDeadline(for: newStatus, plan: journey.plan, now: Date()))
         }
         journey.notifyChanges(to: newStatus, strings: strings)
+        if !demoMode { journey.notifyLateArrival(of: newStatus, seen: Date(), strings: strings) }
         if anotherTrain {
             // Another train: its own top speed, and its marker doesn't glide from where the last one was.
             topSpeed = 0
@@ -1037,6 +1067,7 @@ final class TrainMonitor {
         provider = nil
         status = nil
         trainPosition = nil
+        landmark = nil
         displaySpeed = nil
         topSpeed = 0
         // The next train's first fix shouldn't glide from where this one was.
@@ -1080,10 +1111,14 @@ final class TrainMonitor {
         if Int(date.timeIntervalSince1970) != Int(now.timeIntervalSince1970) {
             now = date
             trips.finishIfIdle()
+            // The last status may be from before the Wi-Fi went as the train pulled in.
+            if let status, let lastUpdate, !demoMode { journey.notifyLateArrival(of: status, seen: lastUpdate, strings: strings) }
             // Picks up the setting being switched on and the train entering a new section without waiting for the next poll.
             if let status { estimates.prepareProfile(for: status) }
             estimates.refreshSection(for: status, at: now)
             updateLink()
+            // The calendar only matters next to a train it can be matched with.
+            if status != nil, !demoMode { calendar.refresh(now: now) } else { calendar.pause() }
         }
 
         // An on-board train whose portal stopped answering, e.g. after the Wi-Fi went away or a sleep: its last

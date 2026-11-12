@@ -72,6 +72,9 @@ struct JourneyCard: View {
             } else if monitor.journey.connections.isAdding {
                 ConnectionPicker(monitor: monitor)
             } else {
+                if let suggestion = monitor.calendarSuggestion {
+                    CalendarSuggestionRow(monitor: monitor, suggestion: suggestion)
+                }
                 Button { monitor.journey.connections.isAdding = true } label: {
                     Label(strings.addConnection, systemImage: "plus.circle")
                 }
@@ -83,6 +86,30 @@ struct JourneyCard: View {
         }
         .padding(10)
         .cardStyle()
+    }
+}
+
+/// A booked connection from the calendar, offered for the train shown; nothing changes until the user takes it.
+struct CalendarSuggestionRow: View {
+    let monitor: TrainMonitor
+    let suggestion: CalendarJourney.Suggestion
+    @Environment(\.strings) private var strings
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "calendar").foregroundStyle(.secondary)
+            Text(strings.calendarSuggestion(suggestion))
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            Button(strings.takeSuggestion) { monitor.journey.take(suggestion) }
+                .controlSize(.small)
+            Button { monitor.calendar.dismiss(suggestion) } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless)
+                .font(.caption)
+                .help(strings.dismissSuggestion)
+                .accessibilityLabel(strings.dismissSuggestion)
+        }
     }
 }
 

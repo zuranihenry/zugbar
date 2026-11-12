@@ -12,6 +12,8 @@ public struct TrainStatus: Sendable, Equatable {
     public var progress: Double?
     /// e.g. "ICE 4 · Tz 9018 „Gießen“"
     public var vehicle: String?
+    /// What the train looks like, when the portal says which series it is.
+    public var family: TrainFamily?
     public var internet: Internet?
     /// The on-board portal's own web page, when connected to one.
     public var portal: TrainLink?
@@ -29,6 +31,7 @@ public struct TrainStatus: Sendable, Equatable {
         nextStopID: String? = nil,
         progress: Double? = nil,
         vehicle: String? = nil,
+        family: TrainFamily? = nil,
         internet: Internet? = nil,
         portal: TrainLink? = nil,
         position: Coordinate? = nil,
@@ -42,6 +45,7 @@ public struct TrainStatus: Sendable, Equatable {
         self.nextStopID = nextStopID
         self.progress = progress
         self.vehicle = vehicle
+        self.family = family
         self.internet = internet
         self.portal = portal
         self.position = position

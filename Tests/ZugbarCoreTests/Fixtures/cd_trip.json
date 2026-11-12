@@ -1,0 +1,143 @@
+{
+  "id": 256,
+  "name": "RJ 256 Beispiel",
+  "line": null,
+  "connexionTimes": [
+    {
+      "id": "00000000-0000-4000-8000-000000000101",
+      "timeArrival": null,
+      "timeDeparture": "2099-01-01T10:00:00+01:00",
+      "state": 4,
+      "platform": null,
+      "track": null,
+      "station": {
+        "id": 9100001,
+        "name": "Starý Dvůr hl.n.",
+        "perex": null,
+        "gpsLat": 49.0,
+        "gpsLng": 16.0,
+        "images": [],
+        "city": {
+          "id": 1,
+          "name": "Starý",
+          "gpsLat": 49.0,
+          "gpsLng": 16.0,
+          "showOnDashboard": true,
+          "distance": 0.0,
+          "weather": [
+            {
+              "id": "w1",
+              "date": 4070941200,
+              "temperature": 2,
+              "temperatureNight": null,
+              "icon": "cloud",
+              "hours": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000102",
+      "timeArrival": "2099-01-01T10:20:00+01:00",
+      "timeDeparture": "2099-01-01T10:22:00+01:00",
+      "state": 4,
+      "platform": null,
+      "track": null,
+      "station": {
+        "id": 9100002,
+        "name": "Nová Ves",
+        "perex": null,
+        "gpsLat": 49.2,
+        "gpsLng": 16.1,
+        "images": [],
+        "city": {
+          "id": 2,
+          "name": "Nová",
+          "gpsLat": 49.2,
+          "gpsLng": 16.1,
+          "showOnDashboard": true,
+          "distance": 0.0,
+          "weather": [
+            {
+              "id": "w2",
+              "date": 4070941200,
+              "temperature": 2,
+              "temperatureNight": null,
+              "icon": "cloud",
+              "hours": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000103",
+      "timeArrival": "2099-01-01T10:50:00+01:00",
+      "timeDeparture": "2099-01-01T10:52:00+01:00",
+      "state": 2,
+      "platform": null,
+      "track": null,
+      "station": {
+        "id": 9100003,
+        "name": "Dlouhá Louka",
+        "perex": null,
+        "gpsLat": 49.5,
+        "gpsLng": 16.2,
+        "images": [],
+        "city": {
+          "id": 3,
+          "name": "Dlouhá",
+          "gpsLat": 49.5,
+          "gpsLng": 16.2,
+          "showOnDashboard": true,
+          "distance": 0.0,
+          "weather": [
+            {
+              "id": "w3",
+              "date": 4070941200,
+              "temperature": 2,
+              "temperatureNight": null,
+              "icon": "cloud",
+              "hours": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000104",
+      "timeArrival": "2099-01-01T11:35:00+0100",
+      "timeDeparture": null,
+      "state": 0,
+      "platform": null,
+      "track": null,
+      "station": {
+        "id": 9100004,
+        "name": "Horní Pole hl.n.",
+        "perex": null,
+        "gpsLat": 50.0,
+        "gpsLng": 16.3,
+        "images": [],
+        "city": {
+          "id": 4,
+          "name": "Horní",
+          "gpsLat": 50.0,
+          "gpsLng": 16.3,
+          "showOnDashboard": true,
+          "distance": 0.0,
+          "weather": [
+            {
+              "id": "w4",
+              "date": 4070941200,
+              "temperature": 2,
+              "temperatureNight": null,
+              "icon": "cloud",
+              "hours": []
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -7,8 +7,27 @@ import ZugbarCore
 @MainActor
 @Observable
 final class MapState {
-    /// Map camera; `.automatic` fits the whole route.
-    var camera: MapCameraPosition = .automatic
+    /// Where the app last sent the camera. Each map shown applies it once, told apart by `serial`.
+    struct CameraMove {
+        enum Target {
+            /// Nothing asked for yet: the map stays where MapKit puts it.
+            case automatic
+            case camera(center: Coordinate, distance: Double, heading: Double)
+            case rect(MKMapRect)
+        }
+
+        var target = Target.automatic
+        /// Seconds the move is animated over; 0 jumps.
+        var duration = 0.0
+        var serial = 0
+    }
+
+    private(set) var camera = CameraMove()
+
+    func move(to target: CameraMove.Target, duration: Double = 0) {
+        camera = CameraMove(target: target, duration: duration, serial: camera.serial &+ 1)
+    }
+
     /// The route by posted speed, worked out while the map shows track speeds.
     var trackStretches: [TrackSpeeds.Stretch] = []
     /// Keeps the map centered on the train as it moves.
@@ -32,11 +51,16 @@ final class MapState {
     @ObservationIgnored var programmaticMoves = 0
     var movingProgrammatically: Bool { programmaticMoves > 0 }
     /// Counts the map's camera changes, so the train's marker, drawn over the map, moves with it while the user
-    /// pans or zooms. Only the marker reads it.
-    var cameraMoves = 0
     /// Where the map is currently centered, and how far out, as reported by the map itself.
     @ObservationIgnored var center: Coordinate?
     @ObservationIgnored var cameraDistance: Double?
+    /// The map's scale at its center, and how far its corners are from there in points, as reported by the map itself.
+    @ObservationIgnored var metersPerPoint: Double?
+    @ObservationIgnored var edgeRadius: Double?
+    /// How fast the train, and the camera while following, move what the map shows.
+    @ObservationIgnored private var motion = MapMotion()
+    /// Which way up the map is, in degrees, as reported by the map itself.
+    @ObservationIgnored var shownCameraHeading: Double?
     /// Where following last put the camera; the user panning shows up as a difference to this.
     @ObservationIgnored var expectedCenter: Coordinate?
     /// Whether the current gesture changed the zoom; zooming never ends following.
@@ -51,6 +75,17 @@ final class MapState {
 
     func trainMoved(to position: Coordinate, at date: Date) {
         heading.update(position, at: date)
+        motion.trainMoved(to: position, at: date)
+    }
+
+    /// Following put the camera here; its zooming and turning count as movement on screen.
+    func followed(distance: Double, heading: Double, at date: Date) {
+        motion.cameraMoved(distance: distance, heading: heading, at: date)
+    }
+
+    /// Points a second the fastest part of the map moves on screen; nil while that isn't known.
+    func pointsPerSecond(at date: Date) -> Double? {
+        motion.pointsPerSecond(metersPerPoint: metersPerPoint, radius: edgeRadius, at: date)
     }
 
     /// The camera distance following currently puts the map at.
@@ -72,9 +107,9 @@ final class MapState {
         closingIn = closeIn.map { $0 < followDistance } ?? false
         if !closingIn { closeInOverride = nil }
         let wanted = closeInOverride ?? (closingIn ? closeIn ?? followDistance : followDistance)
-        // At most a frame or so at once: after a pause the map eases on instead of jumping, which would also
-        // look like the user zooming.
-        let elapsed = shownDistanceAt.map { min(max(date.timeIntervalSince($0), 0), 0.05) } ?? 0
+        // At most a frame or so at once, also at the 10 frames a second on battery: after a pause the map eases
+        // on instead of jumping, which would also look like the user zooming.
+        let elapsed = shownDistanceAt.map { min(max(date.timeIntervalSince($0), 0), 0.15) } ?? 0
         shownDistanceAt = date
         let shown = MapZoom.eased(from: followingDistance, to: wanted, elapsed: elapsed)
         shownDistance = shown

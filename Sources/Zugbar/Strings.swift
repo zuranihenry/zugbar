@@ -253,6 +253,21 @@ struct Strings {
     var coachMissing: String { t("not in today's train", "fährt heute nicht mit") }
     var coachClosed: String { t("closed today", "heute gesperrt") }
     var addConnection: String { t("Add connection…", "Anschluss hinzufügen…") }
+    var calendarJourney: String { t("Journey from calendar", "Reise aus dem Kalender") }
+    var calendarJourneyHint: String {
+        t("Looks at the next few hours of your calendar for a train connection added by a booking app and offers its stop and connection; what it reads stays on this Mac, and nothing is saved or looked up unless you accept.",
+          "Sucht in den nächsten Stunden deines Kalenders nach einer Zugverbindung aus einer Buchungs-App und bietet Ausstieg und Anschluss an; was dabei gelesen wird, bleibt auf diesem Mac, und ohne deine Bestätigung wird nichts gespeichert oder nachgeschlagen.")
+    }
+    func calendarSuggestion(_ suggestion: CalendarJourney.Suggestion) -> String {
+        let onward = suggestion.onward.map { "\($0.train) → \($0.to)" }
+        // The stop is already set: only the connection is new.
+        guard suggestion.setsStop else { return t("Calendar: continue with \(onward ?? "")", "Kalender: weiter mit \(onward ?? "")") }
+        guard let onward else { return t("Calendar: get off at \(suggestion.stopName)", "Kalender: Ausstieg \(suggestion.stopName)") }
+        return t("Calendar: get off at \(suggestion.stopName), continue with \(onward)",
+                 "Kalender: Ausstieg \(suggestion.stopName), weiter mit \(onward)")
+    }
+    var takeSuggestion: String { t("Use", "Übernehmen") }
+    var dismissSuggestion: String { t("Not this", "Verwerfen") }
     var continueTo: String { t("Continue to, e.g. Springfield", "Weiter nach, z. B. Musterstadt") }
     var connection: String { t("Connection", "Anschluss") }
     var enableRegional: String { t("Include regional trains", "Regionalzüge einschalten") }
@@ -353,6 +368,30 @@ struct Strings {
     var trackSpeedsLegend: String {
         t("Track colored by speed limit, from blue up to 120 km/h to red above 250",
           "Strecke nach Höchstgeschwindigkeit gefärbt, von Blau bis 120 km/h bis Rot über 250")
+    }
+    /// The line under the map: "Musterbergtunnel · 2,4 km", "Musterbrücke · Rhein". OpenStreetMap's names as they are.
+    func landmark(_ landmark: Landmark) -> String {
+        func mentions(_ name: String, _ words: [String]) -> Bool { words.contains { name.localizedCaseInsensitiveContains($0) } }
+        switch landmark.kind {
+        case .tunnel:
+            let name = landmark.name ?? ""
+            var parts = [mentions(name, ["tunnel"]) ? name : "Tunnel \(name)".trimmingCharacters(in: .whitespaces)]
+            if let length = landmark.length, length > 0 {
+                let kilometers = (Double(length) / 1000).formatted(.number.precision(.fractionLength(1)).locale(Locale(identifier: de ? "de" : "en")))
+                parts.append(length < 1000 ? "\(length) m" : "\(kilometers) km")
+            }
+            return parts.joined(separator: " · ")
+        case .bridge:
+            guard let river = landmark.river else { return landmark.name ?? "" }
+            guard let name = landmark.name else { return t("River bridge", "Flussbrücke") + " · " + river }
+            // "Rheinbrücke" already says which river.
+            return mentions(name, [river]) ? name : name + " · " + river
+        }
+    }
+    var landmarks: String { t("Name tunnels and bridges", "Tunnel und Brücken nennen") }
+    var landmarksHint: String {
+        t("Under the map, while the train is in a named tunnel or on a named bridge or river crossing of a main line. From OpenStreetMap, stored in the app: nothing is downloaded.",
+          "Unter der Karte, solange der Zug in einem benannten Tunnel oder auf einer benannten Brücke oder Flussquerung einer Hauptstrecke ist. Aus OpenStreetMap, in der App gespeichert: Es wird nichts geladen.")
     }
     func passedStops(_ count: Int) -> String {
         count == 1 ? t("1 passed stop", "1 vergangener Halt") : t("\(count) passed stops", "\(count) vergangene Halte")
@@ -495,13 +534,69 @@ struct Strings {
     var delayThreshold: String { t("Report delay changes from", "Verspätungsänderungen melden ab") }
     var trackChanges: String { t("Track changes", "Gleiswechsel") }
     var connectionAlerts: String { t("Connection alerts", "Anschluss-Warnungen") }
+    var passengerRightsHint: String { t("Refund hint after long delays", "Erstattungshinweis bei großer Verspätung") }
+
+    // Passenger rights: a possibility, never a promise. The app knows neither the ticket nor where the journey ended.
+    /// `observed`: the train was seen arriving; otherwise the delay is the last one known before.
+    func arrivedLate(_ minutes: Int, at stop: String, observed: Bool) -> String {
+        observed
+            ? t("\(stop): arrived \(minutes) min late", "\(stop): \(minutes) Min. verspätet angekommen")
+            : t("\(stop): was about \(minutes) min late", "\(stop): zuletzt etwa \(minutes) Min. verspätet")
+    }
+    func refundPossible(_ percent: Int) -> String {
+        t("If your ticket's journey ended here, \(percent) % of the fare may be due back.",
+          "Wenn die Reise auf deiner Fahrkarte hier endete, stehen dir womöglich \(percent) % des Fahrpreises zu.")
+    }
+    func refundMarker(_ minutes: Int, percent: Int) -> String {
+        t("\(minutes) min late. ", "\(minutes) Min. verspätet. ") + refundPossible(percent)
+    }
+    var passengerRights: String { t("Passenger rights", "Fahrgastrechte") }
+    /// Deutsche Bahn's passenger-rights page, where a claim starts.
+    var passengerRightsURL: URL {
+        URL(string: t("https://int.bahn.de/en/booking-information/passenger-rights",
+                      "https://www.bahn.de/service/informationen-buchung/fahrgastrechte"))!
+    }
     var debug: String { "Debug" }
     var trips: String { t("Trips", "Fahrten") }
-    func tripsThisYear(_ km: Int) -> String { t("\(km.formatted()) km this year", "\(km.formatted()) km dieses Jahr") }
-    func fastestTrip(_ speed: Int, train: String) -> String { t("Fastest: \(speed) km/h in \(train)", "Am schnellsten: \(speed) km/h im \(train)") }
+    // Year review: the figure is the value, these are the captions under it.
+    func reviewTrips(_ count: Int) -> String { count == 1 ? t("trip", "Fahrt") : t("trips", "Fahrten") }
+    var reviewDistance: String { t("travelled", "gefahren") }
+    var reviewDuration: String { t("on trains", "im Zug") }
+    /// German sets a space before the sign, one that doesn't break.
+    func reviewPercent(_ percent: Int) -> String { t("\(percent)%", "\(percent)\u{00A0}%") }
+    /// Short enough for a third of the pane at caption size, also with three-digit counts.
+    func reviewOnTime(of count: Int) -> String { t("of \(count) on time", "von \(count) pünktlich") }
+    var reviewOnTimeHelp: String {
+        t("Arrived less than 6 minutes late. Only trips with a known arrival delay count.",
+          "Weniger als 6 Minuten zu spät angekommen. Es zählen nur Fahrten mit bekannter Ankunftsverspätung.")
+    }
+    var reviewDelay: String { t("delay in total", "Verspätung insgesamt") }
+    func reviewFastest(_ train: String) -> String { t("top speed · \(train)", "Spitze · \(train)") }
+    func reviewMostRidden(_ count: Int) -> String { t("most ridden · \(count)×", "am häufigsten · \(count)×") }
+    var earlierYear: String { t("Earlier year", "Früheres Jahr") }
+    var laterYear: String { t("Later year", "Späteres Jahr") }
     var noTrips: String {
         t("Trips are recorded while you're on a train with on-board Wi-Fi, and stay on this Mac.",
           "Fahrten werden aufgezeichnet, solange du in einem Zug mit Zug-WLAN bist, und bleiben auf diesem Mac.")
+    }
+    var travelledMap: String { t("Map of your trips", "Karte deiner Fahrten") }
+    func travelledMapHint(missing: Int) -> String {
+        let hint = t("Where you've ridden so far. Thicker lines: ridden more often.",
+                     "Wo du bisher gefahren bist. Dickere Linien: öfter gefahren.")
+        switch missing {
+        case ...0: return hint
+        case 1: return hint + t(" One earlier trip has no recorded route and isn't on the map.",
+                                " Eine frühere Fahrt hat keinen aufgezeichneten Verlauf und fehlt auf der Karte.")
+        default: return hint + t(" \(missing) earlier trips have no recorded route and aren't on the map.",
+                                 " \(missing) frühere Fahrten haben keinen aufgezeichneten Verlauf und fehlen auf der Karte.")
+        }
+    }
+    var travelledMapEmpty: String {
+        t("From your next trip on, the lines you've ridden appear on a map here.",
+          "Ab deiner nächsten Fahrt erscheinen hier die gefahrenen Strecken auf einer Karte.")
+    }
+    var travelledMapSavingData: String {
+        t("The map of your trips is hidden while saving data.", "Die Karte deiner Fahrten ist ausgeblendet, solange Daten gespart werden.")
     }
     var exportCSV: String { t("Export as CSV…", "Als CSV exportieren…") }
     var deleteTrip: String { t("Delete trip", "Fahrt löschen") }

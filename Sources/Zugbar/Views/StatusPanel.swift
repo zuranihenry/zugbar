@@ -15,6 +15,7 @@ struct StatusPanel: View {
     @Bindable var monitor: TrainMonitor
     var layout: PanelLayout = .popover
     @AppStorage("showMap") private var showMap = true
+    @AppStorage("showLandmarks") private var showLandmarks = true
     @AppStorage("estimatedSpeed") private var estimatedSpeed = true
     @Environment(\.strings) private var strings
 
@@ -30,8 +31,11 @@ struct StatusPanel: View {
                         Footer(monitor: monitor, isWindow: true)
                     }
                     .frame(width: 360)
-                    TrainMap(monitor: monitor, status: status)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VStack(alignment: .leading, spacing: 6) {
+                        TrainMap(monitor: monitor, status: status)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        landmarkLine
+                    }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 12) {
@@ -58,6 +62,17 @@ struct StatusPanel: View {
         case .popover: showMap ? 180 : nil
         case .column(let height): height
         case .split: nil
+        }
+    }
+
+    /// The tunnel or bridge the train is in or on right now, under the map; nothing the rest of the time.
+    @ViewBuilder
+    private var landmarkLine: some View {
+        if showLandmarks, let landmark = monitor.landmark {
+            Text(strings.landmark(landmark))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
     }
 
@@ -94,6 +109,7 @@ struct StatusPanel: View {
         }
         if let map {
             TrainMap(monitor: monitor, status: status).frame(height: map)
+            landmarkLine
         }
         if waitingAt == nil, let next = status.nextStop, next.id != monitor.journey.destination?.id {
             NextStopCard(stop: next, now: monitor.now)
@@ -102,6 +118,8 @@ struct StatusPanel: View {
             // Takes over the delay reasons from the next stop card hidden above.
             JourneyCard(monitor: monitor, destination: destination,
                         showsDelayReasons: waitingAt == nil && status.nextStop?.id == destination.id)
+        } else if let suggestion = monitor.calendarSuggestion {
+            CalendarSuggestionRow(monitor: monitor, suggestion: suggestion).padding(10).cardStyle()
         }
         StopList(monitor: monitor, status: status, fillsHeight: isWindow)
         if let ride = monitor.trips.live, (ride.samples?.count ?? 0) > 1 {
@@ -155,6 +173,26 @@ private struct TripHeader: View {
             if let vehicle = status.vehicle {
                 Text(vehicle).font(.caption).foregroundStyle(.secondary)
             }
+        }
+        .background {
+            if let family = status.family {
+                watermark(family).transition(.opacity)
+            }
+        }
+        .animation(.easeIn(duration: 0.8), value: status.family)
+    }
+
+    /// The train as a faint backdrop: as tall as the header, nose at the right edge, dissolving towards the text.
+    /// A background, so it takes no room and the text stays on top.
+    private func watermark(_ family: TrainFamily) -> some View {
+        GeometryReader { proxy in
+            TrainSilhouette(family: family, height: min(proxy.size.height, 56))
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .trailing)
+                .mask(LinearGradient(
+                    stops: [.init(color: .clear, location: 0.3), .init(color: .black, location: 1)],
+                    startPoint: .leading, endPoint: .trailing
+                ))
+                .opacity(0.3)
         }
     }
 }

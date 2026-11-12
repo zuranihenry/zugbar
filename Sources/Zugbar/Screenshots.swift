@@ -55,14 +55,14 @@ enum Screenshots {
         exit(0)
     }
 
-    private static func settings(regional: Bool) -> UserDefaults {
+    private static func settings(regional: Bool, classic: Bool = true) -> UserDefaults {
         let defaults = UserDefaults(suiteName: "zugbar.screenshots")!
         defaults.removePersistentDomain(forName: "zugbar.screenshots")
         defaults.set(regional, forKey: "regionalTrains")
         // Map tiles don't load offscreen; an empty grid looks broken.
         defaults.set(false, forKey: "showMap")
         // Liquid Glass doesn't render offscreen, so screenshots use the classic look.
-        defaults.set(true, forKey: "classicDesign")
+        defaults.set(classic, forKey: "classicDesign")
         defaults.set(true, forKey: "solidBackground")
         return defaults
     }
@@ -85,19 +85,50 @@ enum Screenshots {
     static func renderSettings(to directory: URL) {
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let monitor = TrainMonitor(snapshot: nil)
         let defaults = settings(regional: false)
         save(GeneralSettings(monitor: monitor), .german, dark: true, "settings-general", in: directory, defaults: defaults)
         save(NotificationSettingsView(monitor: monitor), .german, dark: true, "settings-notifications", in: directory, defaults: defaults)
         save(DebugSettings(monitor: monitor), .german, dark: true, "settings-debug", in: directory, defaults: defaults)
         save(MenuBarSettings(), .german, dark: true, "settings-menubar", in: directory, defaults: defaults)
-        save(TripsView(monitor: monitor), .german, dark: true, "settings-trips", in: directory, defaults: defaults)
+        save(TripsView(monitor: monitor, madeUp: DemoTrips.log), .german, dark: true, "settings-trips", in: directory, defaults: defaults)
         let iceNow = try! Date("2026-06-12T16:56:00Z", strategy: .iso8601)
         let ice = try! ICEPortal.parse(status: DemoProvider.resource("demo_db_status"), trip: DemoProvider.resource("demo_db_trip"), now: iceNow)
         let window = StatusPanel(monitor: TrainMonitor(snapshot: ice, now: iceNow), layout: .column(mapHeight: 240))
         save(window, .german, dark: true, "window", in: directory, defaults: defaults)
         let split = StatusPanel(monitor: TrainMonitor(snapshot: ice, now: iceNow), layout: .split).frame(width: 820, height: 620)
         save(split, .german, dark: true, "window-split", in: directory, defaults: defaults)
+        // Every train drawing at panel size and enlarged, and a header where a long destination meets one.
+        for dark in [false, true] {
+            let sheet = VStack(alignment: .leading, spacing: 10) {
+                ForEach(TrainFamily.allCases, id: \.self) { family in
+                    HStack(spacing: 16) {
+                        Text(family.rawValue).font(.caption).frame(width: 50, alignment: .leading)
+                        TrainSilhouette(family: family)
+                        TrainSilhouette(family: family, height: 40)
+                    }
+                }
+            }
+            .padding(14)
+            save(sheet, .german, dark: dark, dark ? "silhouettes-dark" : "silhouettes", in: directory, defaults: defaults)
+        }
+        // Headers with a drawing: popover and window, classic and current design, short and long destination.
+        var railjet = try! OEBBRailnet.parse(combined: DemoProvider.resource("demo_oebb"), now: iceNow)
+        var longRailjet = railjet
+        longRailjet.destination = "Bregenz über einen sehr langen Zielbahnhofsnamen"
+        var plain = ice
+        plain.family = nil
+        railjet.stops = Array(railjet.stops.suffix(2))
+        for (name, status) in [("ice", ice), ("ice-plain", plain), ("railjet", railjet), ("railjet-long", longRailjet)] {
+            for classic in [true, false] {
+                let design = settings(regional: false, classic: classic)
+                let suffix = "\(name)\(classic ? "" : "-current")"
+                let monitor = TrainMonitor(snapshot: status, now: iceNow)
+                save(StatusPanel(monitor: monitor), .german, dark: !classic, "header-popover-\(suffix)", in: directory, defaults: design)
+                save(StatusPanel(monitor: monitor, layout: .column(mapHeight: nil)), .german, dark: !classic, "header-window-\(suffix)", in: directory, defaults: design)
+            }
+        }
         let ride = madeUpRide(start: iceNow)
         save(RideCharts(trip: ride).frame(width: 312).padding(14), .english, dark: false, "ride-charts", in: directory, defaults: defaults)
         save(RideCharts(trip: ride).frame(width: 440).padding(14), .german, dark: true, "ride-charts-history", in: directory, defaults: defaults)
