@@ -15,6 +15,9 @@ public struct Trip: Codable, Sendable, Equatable, Identifiable {
     public var arrivalDelay: Int?
     /// Speed and delay along the way, for the charts; `nil` for trips recorded before there were any.
     public var samples: [RideSample]?
+    /// Whether `to` is where the EU's passenger rights apply, as far as its ID tells; `nil` for trips recorded
+    /// before this was noted.
+    public var passengerRights: Bool?
 
     public init(id: UUID = UUID(), train: String, from: String, to: String, start: Date, end: Date, distance: Double,
                 topSpeed: Int, arrivalDelay: Int? = nil, samples: [RideSample]? = nil) {
@@ -53,8 +56,10 @@ public struct TripRecorder: Sendable {
             let stop = status.stops
                 .filter { $0.coordinate != nil }
                 .min { $0.coordinate!.distance(to: position) < $1.coordinate!.distance(to: position) }
-            return Trip(id: id, train: train, from: from, to: stop?.name ?? "?", start: start, end: last, distance: distance,
-                        topSpeed: topSpeed, arrivalDelay: stop?.delayMinutes, samples: sampler.all)
+            var trip = Trip(id: id, train: train, from: from, to: stop?.name ?? "?", start: start, end: last, distance: distance,
+                            topSpeed: topSpeed, arrivalDelay: stop?.delayMinutes, samples: sampler.all)
+            trip.passengerRights = stop.map { !$0.cancelled && PassengerRights.applies(at: $0) }
+            return trip
         }
     }
 

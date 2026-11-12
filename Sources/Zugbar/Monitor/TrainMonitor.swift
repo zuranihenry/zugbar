@@ -764,6 +764,7 @@ final class TrainMonitor {
             onBoardTrain = (name, Handover.fallbackDeadline(for: newStatus, plan: journey.plan, now: Date()))
         }
         journey.notifyChanges(to: newStatus, strings: strings)
+        if !demoMode { journey.notifyLateArrival(of: newStatus, strings: strings) }
         if anotherTrain {
             // Another train: its own top speed, and its marker doesn't glide from where the last one was.
             topSpeed = 0
@@ -1069,6 +1070,8 @@ final class TrainMonitor {
         if Int(date.timeIntervalSince1970) != Int(now.timeIntervalSince1970) {
             now = date
             trips.finishIfIdle()
+            // The last status may be from before the Wi-Fi went as the train pulled in.
+            if let status, !demoMode { journey.notifyLateArrival(of: status, strings: strings) }
             // Picks up the setting being switched on and the train entering a new section without waiting for the next poll.
             if let status { estimates.prepareProfile(for: status) }
             estimates.refreshSection(for: status, at: now)

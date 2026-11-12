@@ -188,6 +188,18 @@ final class Journey {
         }
     }
 
+    /// Once the train is at the journey's last stop an hour or more late: part of the fare may be due back.
+    /// Said once per arrival, also across a restart or a wake.
+    func notifyLateArrival(of status: TrainStatus, strings: Strings) {
+        guard notificationSettings.passengerRights,
+              let late = PassengerRights.arrival(plan: plan, status: status, now: now()),
+              UserDefaults.standard.string(forKey: "passengerRightsHinted") != late.key
+        else { return }
+        UserDefaults.standard.set(late.key, forKey: "passengerRightsHinted")
+        Notifier.post(title: strings.arrivedLate(late.delayMinutes, at: late.stop), body: strings.refundPossible(late.refund.rawValue),
+                      url: strings.passengerRightsURL, action: strings.passengerRights)
+    }
+
     /// Connections come from Transitous, so check them every few minutes, and about once a minute close to the change.
     func refreshConnectionIfNeeded() {
         let now = now()
