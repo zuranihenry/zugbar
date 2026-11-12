@@ -27,25 +27,39 @@ public enum PassengerRights {
         public var stop: String
         public var delayMinutes: Int
         public var refund: Refund
-        /// The same for this arrival however often it's seen, so it's hinted at once.
+        /// Whether the train was seen at or after its arrival; otherwise the delay is the last one known before.
+        public var observed: Bool
+        /// The same for this journey whichever train or source reports its end, so it's hinted at once.
         public var key: String
     }
 
-    /// The refund that may be due once the followed train has reached the plan's destination. Not while a
-    /// connection is planned: the journey ends where that one does, and its train is followed next.
-    public static func arrival(plan: JourneyPlan?, status: TrainStatus, now: Date) -> Arrival? {
+    /// How far back the user being on board, or the journey's planned arrival, still belongs to this arrival:
+    /// a plan can come back when the same train number runs again another day.
+    static let journeySpan: TimeInterval = 18 * 3600
+
+    /// The refund that may be due once the followed train has reached the plan's destination, counted from when
+    /// the journey was first planned to end. Not while a connection is planned: the journey ends where that one
+    /// does, and its train is followed next. Only for a journey the user was on board for, not a train merely
+    /// watched. `seen` is when `status` was fetched.
+    public static func arrival(plan: JourneyPlan?, status: TrainStatus, seen: Date, now: Date) -> Arrival? {
         guard let plan, plan.connection == nil, let train = status.trainName, TrainName.same(plan.trainName, train),
               let stop = status.stops.first(where: { $0.id == plan.destinationStopID }), applies(at: stop),
-              let delay = stop.delayMinutes, let refund = refund(delayMinutes: delay, cancelled: stop.cancelled),
-              let arrival = stop.arrival
+              let arrival = stop.arrival, let boarded = plan.boarded, abs(arrival.timeIntervalSince(boarded)) < journeySpan
         else { return nil }
-        // Online the live times can lag the train; on board the portal says when the stop is behind it.
+        let planned = plan.plannedArrival.flatMap { abs(arrival.timeIntervalSince($0)) < journeySpan ? $0 : nil }
+            ?? stop.scheduledArrival
+        guard let planned, let refund = refund(delayMinutes: minutes(from: planned, to: arrival), cancelled: stop.cancelled)
+        else { return nil }
+        // Online the live times can lag the train; on board the portal says when the stop is behind it, and
+        // whether the train is still rolling in, as long as it answers.
+        let fresh = now.timeIntervalSince(seen) < 60
         let reached = status.isOnline
             ? arrival.addingTimeInterval(Handover.onlineGrace) <= now
-            : stop.passed || arrival <= now && !Handover.isStillApproaching(plan: plan, status: status)
+            : stop.passed || arrival <= now && !(fresh && Handover.isStillApproaching(plan: plan, status: status))
         guard reached else { return nil }
-        let planned = stop.scheduledArrival.map { String(Int($0.timeIntervalSince1970)) } ?? ""
-        return Arrival(stop: stop.name, delayMinutes: delay, refund: refund, key: "\(train)|\(stop.name)|\(planned)")
+        return Arrival(stop: stop.name, delayMinutes: minutes(from: planned, to: arrival), refund: refund,
+                       observed: seen >= arrival || !status.isOnline && stop.passed,
+                       key: String(Int(planned.timeIntervalSince1970 / 60)))
     }
 
     /// The country a stop ID points to, as a lowercase ISO code: station numbers start with the railways' country

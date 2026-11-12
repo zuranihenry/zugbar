@@ -663,7 +663,7 @@ final class TrainMonitor {
         leftTrain = (plan.trainName, Date())
         onBoardTrain = nil
         replacementSearch = nil
-        journey.plan = Handover.plan(after: connection)
+        journey.plan = Handover.plan(after: connection, from: plan)
         journey.lastSnapshot = nil
         let target = Handover.target(for: connection)
         quietlySetTarget(ManualTarget(target))
@@ -716,7 +716,7 @@ final class TrainMonitor {
             }
             Notifier.post(title: strings.nextTrainTitle, body: strings.nextTrain(next), force: true)
             if following {
-                journey.plan = Handover.plan(after: next)
+                journey.plan = Handover.plan(after: next, from: journey.plan)
                 journey.lastSnapshot = nil
                 quietlySetTarget(ManualTarget(Handover.target(for: next)))
                 restart()
@@ -783,15 +783,18 @@ final class TrainMonitor {
             // On the connection already, e.g. woken on it: hand over instead of dropping the plan as another train's.
             leftTrain = (plan.trainName, Date())
             onBoardTrain = nil
-            journey.plan = Handover.plan(after: connection)
+            journey.plan = Handover.plan(after: connection, from: plan)
             journey.lastSnapshot = nil
         }
-        journey.follow(newStatus, previous: status)
+        // On board: the train's own portal, or the train picked from its router's GPS.
+        let picked = manualTarget == nil && newStatus.isOnline && !ride.isGone
+            && ride.pick.map { TrainName.same($0.label, newStatus.trainName ?? "") } == true
+        journey.follow(newStatus, previous: status, onBoard: !demoMode && (!newStatus.isOnline || picked))
         if !newStatus.isOnline, !demoMode, let name = newStatus.trainName {
             onBoardTrain = (name, Handover.fallbackDeadline(for: newStatus, plan: journey.plan, now: Date()))
         }
         journey.notifyChanges(to: newStatus, strings: strings)
-        if !demoMode { journey.notifyLateArrival(of: newStatus, strings: strings) }
+        if !demoMode { journey.notifyLateArrival(of: newStatus, seen: Date(), strings: strings) }
         if anotherTrain {
             // Another train: its own top speed, and its marker doesn't glide from where the last one was.
             topSpeed = 0
@@ -1098,7 +1101,7 @@ final class TrainMonitor {
             now = date
             trips.finishIfIdle()
             // The last status may be from before the Wi-Fi went as the train pulled in.
-            if let status, !demoMode { journey.notifyLateArrival(of: status, strings: strings) }
+            if let status, let lastUpdate, !demoMode { journey.notifyLateArrival(of: status, seen: lastUpdate, strings: strings) }
             // Picks up the setting being switched on and the train entering a new section without waiting for the next poll.
             if let status { estimates.prepareProfile(for: status) }
             estimates.refreshSection(for: status, at: now)
