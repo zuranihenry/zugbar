@@ -497,8 +497,23 @@ struct Strings {
     var connectionAlerts: String { t("Connection alerts", "Anschluss-Warnungen") }
     var debug: String { "Debug" }
     var trips: String { t("Trips", "Fahrten") }
-    func tripsThisYear(_ km: Int) -> String { t("\(km.formatted()) km this year", "\(km.formatted()) km dieses Jahr") }
-    func fastestTrip(_ speed: Int, train: String) -> String { t("Fastest: \(speed) km/h in \(train)", "Am schnellsten: \(speed) km/h im \(train)") }
+    // Year review: the figure is the value, these are the captions under it.
+    func reviewTrips(_ count: Int) -> String { count == 1 ? t("trip", "Fahrt") : t("trips", "Fahrten") }
+    var reviewDistance: String { t("travelled", "gefahren") }
+    var reviewDuration: String { t("on trains", "im Zug") }
+    func reviewPercent(_ share: Double) -> String { t("\(Int((share * 100).rounded()))%", "\(Int((share * 100).rounded())) %") }
+    func reviewOnTime(of count: Int) -> String {
+        count == 1 ? t("on time, of 1 trip", "pünktlich, von 1 Fahrt") : t("on time, of \(count) trips", "pünktlich, von \(count) Fahrten")
+    }
+    var reviewOnTimeHelp: String {
+        t("Arrived less than 6 minutes late. Only trips with a known arrival delay count.",
+          "Weniger als 6 Minuten zu spät angekommen. Es zählen nur Fahrten mit bekannter Ankunftsverspätung.")
+    }
+    var reviewDelay: String { t("delay in total", "Verspätung insgesamt") }
+    func reviewFastest(_ train: String) -> String { t("fastest · \(train)", "am schnellsten · \(train)") }
+    func reviewMostRidden(_ count: Int) -> String { t("most ridden · \(count)×", "am häufigsten · \(count)×") }
+    var earlierYear: String { t("Earlier year", "Früheres Jahr") }
+    var laterYear: String { t("Later year", "Späteres Jahr") }
     var noTrips: String {
         t("Trips are recorded while you're on a train with on-board Wi-Fi, and stay on this Mac.",
           "Fahrten werden aufgezeichnet, solange du in einem Zug mit Zug-WLAN bist, und bleiben auf diesem Mac.")

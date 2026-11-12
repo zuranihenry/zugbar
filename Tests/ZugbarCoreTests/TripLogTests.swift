@@ -191,8 +191,6 @@ struct TripLogTests {
         log.add(Trip(train: "ICE 1", from: "A", to: "B, Hbf", start: start, end: start.addingTimeInterval(1800), distance: 55.6, topSpeed: 250, arrivalDelay: 3))
         log.add(Trip(train: "RE 1", from: "B", to: "C", start: start.addingTimeInterval(3600), end: start.addingTimeInterval(5400), distance: 20, topSpeed: 140))
         #expect(log.trips.first?.train == "RE 1")
-        #expect(abs(log.distance(inYearOf: start, calendar: Calendar(identifier: .gregorian)) - 75.6) < 0.01)
-        #expect(log.fastest?.train == "ICE 1")
         let lines = log.csv().split(separator: "\n")
         #expect(lines.count == 3)
         #expect(lines[2].hasPrefix("ICE 1,A,\"B, Hbf\",2026-06-12T16:00:00Z,"))

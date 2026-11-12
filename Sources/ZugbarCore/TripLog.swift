@@ -158,7 +158,7 @@ public struct TripRecorder: Sendable {
     }
 }
 
-/// All recorded trips, newest first, with the totals the History tab shows.
+/// All recorded trips, newest first. The figures the Trips tab shows are in `YearReview`.
 public struct TripLog: Codable, Sendable, Equatable {
     public private(set) var trips: [Trip] = []
 
@@ -180,13 +180,6 @@ public struct TripLog: Codable, Sendable, Equatable {
     public mutating func remove(_ id: Trip.ID) {
         trips.removeAll { $0.id == id }
     }
-
-    public func distance(inYearOf date: Date, calendar: Calendar = .current) -> Double {
-        let year = calendar.component(.year, from: date)
-        return trips.filter { calendar.component(.year, from: $0.start) == year }.map(\.distance).reduce(0, +)
-    }
-
-    public var fastest: Trip? { trips.max { $0.topSpeed < $1.topSpeed } }
 
     /// One row per trip; times in ISO 8601, distance in km.
     public func csv() -> String {
