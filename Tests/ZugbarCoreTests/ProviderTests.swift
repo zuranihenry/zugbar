@@ -251,6 +251,189 @@ struct SNCFInouiTests {
     }
 }
 
+struct ZugportalTests {
+    @Test func trip() throws {
+        let status = try Zugportal.parse(journey: fixture("zugportal_journey"))
+        #expect(status.trainName == "RE 80 (4711)")
+        #expect(status.trainNumber?.number == "4711")
+        #expect(status.destination == "Neustadt (Beispiel) Hbf")
+        #expect(status.stops.map(\.passed) == [true, true, false, false, false])
+        let next = try #require(status.nextStop)
+        #expect(next.name == "Mittelfeld")
+        #expect(next.id == "9000003")
+        #expect(next.delayMinutes == 2)
+        #expect(next.arrival == utc("2099-01-01T09:17:30Z"))
+        #expect(next.track == "4")
+        #expect(next.trackChanged)
+        #expect(next.delayReasons == ["Verzögerungen im Betriebsablauf"])
+        #expect(next.coordinate == Coordinate(latitude: 50.1, longitude: 8.1))
+        #expect(status.stops[3].cancelled)
+        // Only the timetable: no forecast made up from it.
+        #expect(status.stops[3].expectedArrival == nil)
+        // The last stop's times come in UTC with milliseconds.
+        #expect(status.stops[4].scheduledArrival == utc("2099-01-01T09:30:00Z"))
+        #expect(status.stops[4].expectedArrival == nil)
+        #expect(status.stops[4].scheduledDeparture == nil)
+    }
+
+    /// The portal itself knows neither speed nor position.
+    @Test func speedOnlyFromTheRouter() throws {
+        let without = try Zugportal.parse(journey: fixture("zugportal_journey"))
+        #expect(without.speed == nil)
+        #expect(without.position == nil)
+        let place = Coordinate(latitude: 50.07, longitude: 8.07)
+        let fresh = try Zugportal.parse(journey: fixture("zugportal_journey"), fix: .init(coordinate: place, speed: 118, heading: 40, age: 2))
+        #expect(fresh.speed == 118)
+        #expect(fresh.position == place)
+        let stale = try Zugportal.parse(journey: fixture("zugportal_journey"), fix: .init(coordinate: place, speed: 118, heading: 40, age: 90))
+        #expect(stale.speed == nil)
+        #expect(stale.position == nil)
+    }
+
+    @Test func missingFields() throws {
+        let json = Data("""
+        {"stops": [
+            {"station": {"name": "A"}, "departureTime": {"target": "2099-01-01T10:00:00+01:00", "timeType": "REAL"}},
+            {"station": {"evaNo": "9000009"}},
+            {"station": {"name": "B", "evaNo": "9000002"}, "track": {"target": "", "prediction": ""},
+             "arrivalTime": {"target": "2099-01-01T10:10:00+01:00", "predicted": "2099-01-01T10:12:00.000Z"}}
+        ]}
+        """.utf8)
+        let status = try Zugportal.parse(journey: json)
+        #expect(status.trainName == nil)
+        #expect(status.stops.map(\.name) == ["A", "B"])
+        #expect(status.stops[0].id == "A")
+        #expect(status.stops[0].scheduledDeparture == utc("2099-01-01T09:00:00Z"))
+        #expect(status.stops[0].passed)
+        #expect(status.nextStop?.name == "B")
+        #expect(status.stops[1].track == nil)
+        #expect(status.stops[1].coordinate == nil)
+        #expect(status.stops[1].expectedArrival == utc("2099-01-01T10:12:00Z"))
+        #expect(throws: (any Error).self) { try Zugportal.parse(journey: Data("{}".utf8)) }
+        #expect(throws: (any Error).self) { try Zugportal.parse(journey: Data()) }
+    }
+
+    /// Off a train the site answers with nothing: it's then left alone, until another network is joined.
+    @Test func leftAloneOffTheTrain() async {
+        let asked = Tally()
+        let memory = PortalMemory()
+        let portal = Zugportal(loader: { _ in asked.add(); return Data() }, memory: memory)
+        let start = utc("2099-01-01T09:00:00Z")
+        for seconds in [0, 15, 30, 290] {
+            await #expect(throws: ProviderError.self) { try await portal.fetch(now: start.addingTimeInterval(Double(seconds))) }
+        }
+        #expect(asked.count == 1)
+        await #expect(throws: ProviderError.self) { try await portal.fetch(now: start.addingTimeInterval(301)) }
+        #expect(asked.count == 2)
+        memory.forget()
+        await #expect(throws: ProviderError.self) { try await portal.fetch(now: start.addingTimeInterval(302)) }
+        #expect(asked.count == 3)
+    }
+
+    /// On board the trip is asked for twice a minute, and a train without a router for its GPS once a minute.
+    @Test func asksSparinglyOnBoard() async throws {
+        let journeys = Tally(), routers = Tally()
+        let journey = try fixture("zugportal_journey")
+        let portal = Zugportal(loader: { url in
+            guard url.host == "regio-guide.de" else { routers.add(); throw URLError(.cannotFindHost) }
+            journeys.add()
+            return journey
+        }, memory: PortalMemory())
+        let start = utc("2099-01-01T09:00:00Z")
+        for seconds in stride(from: 0, to: 60, by: 3) {
+            let status = try await portal.fetch(now: start.addingTimeInterval(Double(seconds)))
+            #expect(status.trainName == "RE 80 (4711)")
+        }
+        #expect(journeys.count == 2)
+        #expect(routers.count == 1)
+    }
+}
+
+struct CDWiFiTests {
+    @Test func trip() throws {
+        let status = try CDWiFi.parse(trip: fixture("cd_trip"), realtime: fixture("cd_realtime"))
+        #expect(status.trainName == "RJ 256")
+        #expect(status.destination == "Horní Pole hl.n.")
+        #expect(status.speed == 157)
+        #expect(status.position == Coordinate(latitude: 49.35, longitude: 16.15))
+        #expect(status.stops.map(\.passed) == [true, true, false, false])
+        let next = try #require(status.nextStop)
+        #expect(next.name == "Dlouhá Louka")
+        #expect(next.id == "9100003")
+        #expect(next.scheduledArrival == utc("2099-01-01T09:50:00Z"))
+        #expect(next.scheduledDeparture == utc("2099-01-01T09:52:00Z"))
+        // The portal has the timetable only.
+        #expect(next.expectedArrival == nil)
+        #expect(next.delayMinutes == nil)
+        #expect(next.track == nil)
+        #expect(status.stops[0].scheduledArrival == nil)
+        // An offset without a colon, as older portals write it.
+        #expect(status.stops[3].scheduledArrival == utc("2099-01-01T10:35:00Z"))
+    }
+
+    @Test func worksWithoutSpeedData() throws {
+        let none = try CDWiFi.parse(trip: fixture("cd_trip"), realtime: nil)
+        #expect(none.speed == nil)
+        #expect(none.position == nil)
+        #expect(none.nextStop?.name == "Dlouhá Louka")
+        // No fix: a speed next to empty coordinates isn't one.
+        let noFix = try CDWiFi.parse(trip: fixture("cd_trip"), realtime: Data(#"{"gpsLat": null, "gpsLng": null, "speed": 0, "delay": null}"#.utf8))
+        #expect(noFix.speed == nil)
+        let zero = try CDWiFi.parse(trip: fixture("cd_trip"), realtime: Data(#"{"gpsLat": 0, "gpsLng": 0, "speed": 0}"#.utf8))
+        #expect(zero.speed == nil)
+        let text = try CDWiFi.parse(trip: fixture("cd_trip"), realtime: Data(#"{"gpsLat": "49.35", "gpsLng": "16.15", "speed": "80"}"#.utf8))
+        #expect(text.speed == 80)
+        let page = try CDWiFi.parse(trip: fixture("cd_trip"), realtime: Data("<html>".utf8))
+        #expect(page.speed == nil)
+    }
+
+    @Test func missingFields() throws {
+        let json = Data(#"""
+        {"id": null, "name": null, "line": null, "connexionTimes": [
+            {"timeArrival": null, "timeDeparture": "nope", "station": {"name": "A"}},
+            {"station": {"id": 9100009}},
+            {"timeArrival": "2099-01-01T11:00:00+01:00", "state": 0, "station": {"id": "x7", "name": "B"}}
+        ]}
+        """#.utf8)
+        let status = try CDWiFi.parse(trip: json, realtime: nil)
+        #expect(status.trainName == nil)
+        #expect(status.stops.map(\.id) == ["A", "x7"])
+        #expect(status.stops[0].scheduledDeparture == nil)
+        #expect(status.stops[0].coordinate == nil)
+        #expect(status.nextStop?.name == "A")
+        #expect(CDWiFi.trainName("Ex 143") == "Ex 143")
+        #expect(CDWiFi.trainName("  ") == nil)
+        // No trip loaded: nothing to show.
+        #expect(throws: (any Error).self) {
+            try CDWiFi.parse(trip: Data(#"{"id": null, "name": null, "connexionTimes": []}"#.utf8), realtime: fixture("cd_realtime"))
+        }
+    }
+
+    /// The timetable once a minute, the position as often as the portal renews it.
+    @Test func asksSparingly() async throws {
+        let trips = Tally(), positions = Tally()
+        let trip = try fixture("cd_trip"), realtime = try fixture("cd_realtime")
+        let portal = CDWiFi(loader: { url in
+            if url == CDWiFi.tripURL { trips.add(); return trip }
+            positions.add()
+            return realtime
+        })
+        let start = utc("2099-01-01T09:00:00Z")
+        for seconds in stride(from: 0, to: 60, by: 3) {
+            #expect(try await portal.fetch(now: start.addingTimeInterval(Double(seconds))).speed == 157)
+        }
+        #expect(trips.count == 1)
+        #expect(positions.count == 7)
+    }
+}
+
+final class Tally: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    var count: Int { lock.withLock { value } }
+    func add() { lock.withLock { value += 1 } }
+}
+
 struct DetectionTests {
     @Test func onlyTheReachablePortalAnswers() async {
         let loader: DataLoader = { url in

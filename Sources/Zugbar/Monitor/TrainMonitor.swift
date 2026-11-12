@@ -164,6 +164,7 @@ final class TrainMonitor {
                     self.sbbSettled = false
                     self.sbbTried = nil
                     self.ride.joinedNetwork()
+                    Zugportal.joinedNetwork()
                 }
                 self.restart()
             }

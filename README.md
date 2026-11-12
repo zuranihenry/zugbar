@@ -4,7 +4,8 @@ Live train info in your Mac's menu bar.
 
 <img src="docs/screenshots/window.png" alt="Following an ICE online, with the route on the map">
 
-- **On board:** speed, next stop, delays and tracks from the train's Wi-Fi (DB ICE, ÖBB Railjet, SNCF TGV INOUI), how
+- **On board:** speed, next stop, delays and tracks from the train's Wi-Fi (DB ICE, ÖBB Railjet, SNCF TGV INOUI;
+  DB Regio and ČD too, written from the portals' known formats and not yet tried on a real train), how
   well its internet actually works and when it will drop (learned from your own rides, kept on your Mac), and live GPS
   on trains with Icomera Wi-Fi such as DB Regio, which also tells which train you're on
 - **Easy on capped Wi-Fi:** shows what's left of the train Wi-Fi's data limit and holds back downloads while there is one
@@ -25,7 +26,7 @@ Live train info in your Mac's menu bar.
 > Vibe-coded hobby project, mostly written by Claude and built on
 > [TrainStatusInfo](https://github.com/niklaswa/TrainStatusInfo), [onboardapis](https://github.com/felix-zenk/onboardapis),
 > [ICE-Buddy](https://github.com/ICE-Buddy) and [Transitous](https://transitous.org). The portals are unofficial
-> APIs. Not affiliated with DB, ÖBB or SNCF.
+> APIs. Not affiliated with DB, ÖBB, SNCF or ČD.
 
 ## Install
 
