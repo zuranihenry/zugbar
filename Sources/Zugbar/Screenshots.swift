@@ -28,7 +28,9 @@ enum Screenshots {
             finalStop: "Regensburg Hbf", finalArrival: nuremberg.scheduledArrival!.addingTimeInterval(74 * 60)
         )
         let plan = JourneyPlan(trainName: ice.trainName!, destinationStopID: nuremberg.id, connection: connection)
-        save(TrainMonitor(snapshot: ice, topSpeed: 300, now: iceNow, plan: plan), .english, dark: false, "panel-ice", in: directory, defaults: defaults)
+        for dark in [false, true] {
+            save(TrainMonitor(snapshot: ice, topSpeed: 300, now: iceNow, plan: plan), .english, dark: dark, dark ? "panel-ice-dark" : "panel-ice", in: directory, defaults: defaults)
+        }
 
         // The window with the map beside the panel, for the top of the README in GitHub's light and dark themes.
         for dark in [false, true] {
@@ -53,7 +55,9 @@ enum Screenshots {
         let discover = TrainMonitor(snapshot: nil, history: history)
         discover.picker.loadLiveTrains()
         wait { !discover.picker.liveTrains.isEmpty }
-        save(discover, .english, dark: false, "panel-discover", in: directory, defaults: settings(regional: false))
+        for dark in [false, true] {
+            save(discover, .english, dark: dark, dark ? "panel-discover-dark" : "panel-discover", in: directory, defaults: settings(regional: false))
+        }
 
         if let station {
             let monitor = TrainMonitor(snapshot: nil)
@@ -63,7 +67,9 @@ enum Screenshots {
             wait { !monitor.picker.departures.isEmpty }
             monitor.picker.loadLiveTrains()
             wait { !monitor.picker.liveTrains.isEmpty }
-            save(monitor, .english, dark: false, "panel-regional", in: directory, defaults: settings(regional: true))
+            for dark in [false, true] {
+                save(monitor, .english, dark: dark, dark ? "panel-regional-dark" : "panel-regional", in: directory, defaults: settings(regional: true))
+            }
         }
         exit(0)
     }
