@@ -8,8 +8,8 @@ Live train info in your Mac's menu bar.
   DB Regio and ČD too, written from the portals' known formats and not yet tried on a real train), how
   well its internet actually works and when it will drop (learned from your own rides, kept on your Mac), and live GPS
   on trains with Icomera Wi-Fi such as DB Regio, which also tells which train you're on
-- **Map:** the route with your train moving along it, the track colored by its speed limit if you like, and lighter
-  on the battery when the Mac isn't plugged in
+- **Map:** the route with your train moving along it, the track colored by its speed limit if you like, lighter on the
+  battery when the Mac isn't plugged in, and under it the tunnel, bridge or river you're passing right now (offline)
 - **Easy on capped Wi-Fi:** shows what's left of the train Wi-Fi's data limit and holds back downloads while there is one
 - **Online:** follow any train in Europe via [Transitous](https://transitous.org), with estimated position and speed
 - **Your journey:** when and where your train leaves while you wait, destination and connection, with alerts for delays,

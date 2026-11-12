@@ -57,6 +57,7 @@ struct GeneralSettings: View {
     @AppStorage("estimatedSpeed") private var estimatedSpeed = true
     @AppStorage("trackProfiles") private var trackProfiles = false
     @AppStorage("learnSpeeds") private var learnSpeeds = true
+    @AppStorage("showLandmarks") private var showLandmarks = true
     @AppStorage(UpdateChecker.enabledKey) private var checkForUpdates = true
     @AppStorage(DataSaver.settingKey) private var dataSaving = DataSaving.automatic
 
@@ -93,6 +94,10 @@ struct GeneralSettings: View {
                     Text(strings.calendarJourneyHint)
                 }
                 .disabled(!monitor.calendar.isAvailable)
+                Toggle(isOn: $showLandmarks) {
+                    Text(strings.landmarks)
+                    Text(strings.landmarksHint)
+                }
                 Picker(selection: $dataSaving) {
                     ForEach(DataSaving.allCases) { Text(strings.name(of: $0)).tag($0) }
                 } label: {

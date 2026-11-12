@@ -369,6 +369,30 @@ struct Strings {
         t("Track colored by speed limit, from blue up to 120 km/h to red above 250",
           "Strecke nach Höchstgeschwindigkeit gefärbt, von Blau bis 120 km/h bis Rot über 250")
     }
+    /// The line under the map: "Musterbergtunnel · 2,4 km", "Musterbrücke · Rhein". OpenStreetMap's names as they are.
+    func landmark(_ landmark: Landmark) -> String {
+        func mentions(_ name: String, _ words: [String]) -> Bool { words.contains { name.localizedCaseInsensitiveContains($0) } }
+        switch landmark.kind {
+        case .tunnel:
+            let name = landmark.name ?? ""
+            var parts = [mentions(name, ["tunnel"]) ? name : "Tunnel \(name)".trimmingCharacters(in: .whitespaces)]
+            if let length = landmark.length, length > 0 {
+                let kilometers = (Double(length) / 1000).formatted(.number.precision(.fractionLength(1)).locale(Locale(identifier: de ? "de" : "en")))
+                parts.append(length < 1000 ? "\(length) m" : "\(kilometers) km")
+            }
+            return parts.joined(separator: " · ")
+        case .bridge:
+            guard let river = landmark.river else { return landmark.name ?? "" }
+            guard let name = landmark.name else { return t("River bridge", "Flussbrücke") + " · " + river }
+            // "Rheinbrücke" already says which river.
+            return mentions(name, [river]) ? name : name + " · " + river
+        }
+    }
+    var landmarks: String { t("Name tunnels and bridges", "Tunnel und Brücken nennen") }
+    var landmarksHint: String {
+        t("Under the map, while the train is in a named tunnel or on a named bridge or river crossing of a main line. From OpenStreetMap, stored in the app: nothing is downloaded.",
+          "Unter der Karte, solange der Zug in einem benannten Tunnel oder auf einer benannten Brücke oder Flussquerung einer Hauptstrecke ist. Aus OpenStreetMap, in der App gespeichert: Es wird nichts geladen.")
+    }
     func passedStops(_ count: Int) -> String {
         count == 1 ? t("1 passed stop", "1 vergangener Halt") : t("\(count) passed stops", "\(count) vergangene Halte")
     }
