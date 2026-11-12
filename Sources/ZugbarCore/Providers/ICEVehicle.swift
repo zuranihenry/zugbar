@@ -39,11 +39,10 @@ enum ICEVehicle {
     }
 
     /// The family to draw, from the portal's series ("412") and the trainset number.
-    /// `nil` unless what the portal reports is known, and the two agree where both say something.
+    /// Either one is enough when the other is missing or not in the list; `nil` when they name different families.
     static func family(series: String?, tzn: String?) -> TrainFamily? {
         let fromNumber = tzn.flatMap { Int($0.filter(\.isNumber)) }.flatMap(family(for:))
-        guard let series = series?.trimmingCharacters(in: .whitespaces), !series.isEmpty else { return fromNumber }
-        guard let fromSeries = family(series: series) else { return nil }
+        guard let fromSeries = series.flatMap({ family(series: $0.trimmingCharacters(in: .whitespaces)) }) else { return fromNumber }
         return fromNumber == nil || fromNumber == fromSeries ? fromSeries : nil
     }
 

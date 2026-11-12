@@ -163,10 +163,13 @@ struct ICEPortalTests {
         // The trainset number alone is enough.
         #expect(ICEVehicle.family(series: nil, tzn: "Tz9018") == .ice4)
         #expect(ICEVehicle.family(series: " ", tzn: "Tz4712") == .velaro)
-        // Nothing rather than a guess: unknown series, unknown number, or the two disagreeing.
+        // A series that isn't in the list doesn't hide what the trainset number says.
+        #expect(ICEVehicle.family(series: "147", tzn: "Tz9018") == .ice4)
+        #expect(ICEVehicle.family(series: "ICE", tzn: "Tz304") == .ice3)
+        // Nothing rather than a guess: neither one known, or the two disagreeing.
         #expect(ICEVehicle.family(series: nil, tzn: nil) == nil)
         #expect(ICEVehicle.family(series: "147", tzn: nil) == nil)
-        #expect(ICEVehicle.family(series: "147", tzn: "Tz9018") == nil)
+        #expect(ICEVehicle.family(series: "147", tzn: "Tz42") == nil)
         #expect(ICEVehicle.family(series: nil, tzn: "Tz42") == nil)
         #expect(ICEVehicle.family(series: "412", tzn: "Tz304") == nil)
     }

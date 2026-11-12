@@ -55,14 +55,14 @@ enum Screenshots {
         exit(0)
     }
 
-    private static func settings(regional: Bool) -> UserDefaults {
+    private static func settings(regional: Bool, classic: Bool = true) -> UserDefaults {
         let defaults = UserDefaults(suiteName: "zugbar.screenshots")!
         defaults.removePersistentDomain(forName: "zugbar.screenshots")
         defaults.set(regional, forKey: "regionalTrains")
         // Map tiles don't load offscreen; an empty grid looks broken.
         defaults.set(false, forKey: "showMap")
         // Liquid Glass doesn't render offscreen, so screenshots use the classic look.
-        defaults.set(true, forKey: "classicDesign")
+        defaults.set(classic, forKey: "classicDesign")
         defaults.set(true, forKey: "solidBackground")
         return defaults
     }
@@ -113,9 +113,22 @@ enum Screenshots {
             .padding(14)
             save(sheet, .german, dark: dark, dark ? "silhouettes-dark" : "silhouettes", in: directory, defaults: defaults)
         }
+        // Headers with a drawing: popover and window, classic and current design, short and long destination.
         var railjet = try! OEBBRailnet.parse(combined: DemoProvider.resource("demo_oebb"), now: iceNow)
-        railjet.destination = "Bregenz über einen sehr langen Zielbahnhofsnamen"
-        save(TrainMonitor(snapshot: railjet, now: iceNow), .german, dark: true, "panel-railjet", in: directory, defaults: defaults)
+        var longRailjet = railjet
+        longRailjet.destination = "Bregenz über einen sehr langen Zielbahnhofsnamen"
+        var plain = ice
+        plain.family = nil
+        railjet.stops = Array(railjet.stops.suffix(2))
+        for (name, status) in [("ice", ice), ("ice-plain", plain), ("railjet", railjet), ("railjet-long", longRailjet)] {
+            for classic in [true, false] {
+                let design = settings(regional: false, classic: classic)
+                let suffix = "\(name)\(classic ? "" : "-current")"
+                let monitor = TrainMonitor(snapshot: status, now: iceNow)
+                save(StatusPanel(monitor: monitor), .german, dark: !classic, "header-popover-\(suffix)", in: directory, defaults: design)
+                save(StatusPanel(monitor: monitor, layout: .column(mapHeight: nil)), .german, dark: !classic, "header-window-\(suffix)", in: directory, defaults: design)
+            }
+        }
         let ride = madeUpRide(start: iceNow)
         save(RideCharts(trip: ride).frame(width: 312).padding(14), .english, dark: false, "ride-charts", in: directory, defaults: defaults)
         save(RideCharts(trip: ride).frame(width: 440).padding(14), .german, dark: true, "ride-charts-history", in: directory, defaults: defaults)

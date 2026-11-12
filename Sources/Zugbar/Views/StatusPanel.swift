@@ -144,27 +144,51 @@ private struct TripHeader: View {
                         Text(strings.to(destination)).font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
+                .anchorPreference(key: HeaderBounds.self, value: .bounds) { [.text: $0] }
                 Spacer()
-                // The drawing sits under the badge, next to the destination, so the header keeps its height;
-                // the pop-out button is taller than it looks, hence the overlap.
-                VStack(alignment: .trailing, spacing: showsPopOut ? -3 : 2) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(status.provider)
-                            .font(.caption.weight(.medium))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .badgeStyle()
-                        if showsPopOut { PopOutButton() }
-                    }
-                    if let family = status.family, status.destination != nil {
-                        TrainSilhouette(family: family)
-                    }
+                Text(status.provider)
+                    .font(.caption.weight(.medium))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .badgeStyle()
+                    .anchorPreference(key: HeaderBounds.self, value: .bounds) { [.badge: $0] }
+                if showsPopOut {
+                    PopOutButton().anchorPreference(key: HeaderBounds.self, value: .bounds) { [.popOut: $0] }
                 }
+            }
+            .overlayPreferenceValue(HeaderBounds.self) { bounds in
+                if let family = status.family { drawing(family, bounds) }
             }
             if let vehicle = status.vehicle {
                 Text(vehicle).font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// The train's drawing in the corner left free under the badge and beside the text. An overlay, so it
+    /// takes no room from either: it shrinks to what is free and stays away when that is too little.
+    private func drawing(_ family: TrainFamily, _ bounds: [HeaderBounds.Part: Anchor<CGRect>]) -> some View {
+        GeometryReader { proxy in
+            let text = bounds[.text].map { proxy[$0].maxX } ?? proxy.size.width
+            let above = [HeaderBounds.Part.badge, .popOut].compactMap { bounds[$0] }.map { proxy[$0].maxY }.max() ?? proxy.size.height
+            let width = proxy.size.width - text - 8
+            let height = min(13, proxy.size.height - above - 1, width / TrainSilhouette.aspectRatio)
+            if height >= 8 {
+                TrainSilhouette(family: family, height: height)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            }
+        }
+    }
+}
+
+/// Where the parts of the header ended up, to find the room left over.
+private struct HeaderBounds: PreferenceKey {
+    enum Part { case text, badge, popOut }
+
+    static var defaultValue: [Part: Anchor<CGRect>] { [:] }
+
+    static func reduce(value: inout [Part: Anchor<CGRect>], nextValue: () -> [Part: Anchor<CGRect>]) {
+        value.merge(nextValue()) { $1 }
     }
 }
 
