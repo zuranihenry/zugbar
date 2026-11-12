@@ -31,6 +31,9 @@ final class MapState {
     /// Counts camera moves the app itself started, so those changes don't count as user input.
     @ObservationIgnored var programmaticMoves = 0
     var movingProgrammatically: Bool { programmaticMoves > 0 }
+    /// Counts the map's camera changes, so the train's marker, drawn over the map, moves with it while the user
+    /// pans or zooms. Only the marker reads it.
+    var cameraMoves = 0
     /// Where the map is currently centered, and how far out, as reported by the map itself.
     @ObservationIgnored var center: Coordinate?
     @ObservationIgnored var cameraDistance: Double?

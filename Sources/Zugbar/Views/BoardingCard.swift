@@ -97,7 +97,8 @@ struct BoardingCard: View {
             parts.append(strings.stopsBefore(count))
             if let last = status.lastStop(before: stop, at: now) { parts.append(strings.lastStop(last.name)) }
         }
-        if let position = monitor.trainPosition, let coordinate = stop.coordinate {
+        // Not the marker's position, which changes every frame of the map: whole kilometers need it once a second.
+        if let position = monitor.predictedPosition(at: now), let coordinate = stop.coordinate {
             let kilometers = Int(position.distance(to: coordinate).rounded())
             if kilometers >= 1 { parts.append(strings.kilometersAway(kilometers)) }
         }

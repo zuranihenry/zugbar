@@ -63,6 +63,18 @@ struct GPSMarkerTests {
         #expect(marker.position(at: at(300)) == marker.position(at: at(170)))
     }
 
+    @Test func holdsWhileTheFixIsRecent() throws {
+        var marker = GPSMarker()
+        drive(&marker, route: route)
+        // The GPS reports no fix for a while: the marker goes on from the last one as before.
+        let held = try #require(marker.held(at: at(80)))
+        #expect(abs(route.projection(of: held).along - (last + 1_667)) < 2)
+        // Two minutes after the last fix it's let go, so the timetable can take over.
+        #expect(marker.held(at: at(169)) != nil)
+        #expect(marker.held(at: at(171)) == nil)
+        #expect(GPSMarker().held(at: at(0)) == nil)
+    }
+
     @Test func stopsAtTheNextStop() throws {
         var marker = GPSMarker()
         let stop = on(last + 1_000)
