@@ -289,6 +289,14 @@ private struct TripRow: View {
                 Text(details).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            if let refund = trip.refund, let delay = trip.arrivalDelay {
+                // An hour or more late: part of the fare may be due back.
+                Image(systemName: "eurosign.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help(strings.refundMarker(delay, percent: refund.rawValue))
+                    .accessibilityLabel(strings.refundMarker(delay, percent: refund.rawValue))
+            }
             DelayBadge(minutes: trip.arrivalDelay).font(.caption)
         }
         .help("\(trip.train) · \(trip.from) → \(trip.to)")
@@ -430,6 +438,7 @@ struct NotificationSettingsView: View {
                 }
                 Toggle(strings.trackChanges, isOn: $journey.notificationSettings.trackChanges)
                 Toggle(strings.connectionAlerts, isOn: $journey.notificationSettings.connectionAlerts)
+                Toggle(strings.passengerRightsHint, isOn: $journey.notificationSettings.passengerRights)
             }
             .disabled(!notifications)
             Section {

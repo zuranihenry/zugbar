@@ -510,6 +510,25 @@ struct Strings {
     var delayThreshold: String { t("Report delay changes from", "Verspätungsänderungen melden ab") }
     var trackChanges: String { t("Track changes", "Gleiswechsel") }
     var connectionAlerts: String { t("Connection alerts", "Anschluss-Warnungen") }
+    var passengerRightsHint: String { t("Refund hint after long delays", "Erstattungshinweis bei großer Verspätung") }
+
+    // Passenger rights: a possibility, never a promise. The app knows neither the ticket nor where the journey ended.
+    func arrivedLate(_ minutes: Int, at stop: String) -> String {
+        t("\(stop): arrived \(minutes) min late", "\(stop): \(minutes) Min. verspätet angekommen")
+    }
+    func refundPossible(_ percent: Int) -> String {
+        t("If your ticket's journey ended here, \(percent) % of the fare may be due back.",
+          "Wenn die Reise auf deiner Fahrkarte hier endete, stehen dir womöglich \(percent) % des Fahrpreises zu.")
+    }
+    func refundMarker(_ minutes: Int, percent: Int) -> String {
+        t("\(minutes) min late. ", "\(minutes) Min. verspätet. ") + refundPossible(percent)
+    }
+    var passengerRights: String { t("Passenger rights", "Fahrgastrechte") }
+    /// Deutsche Bahn's passenger-rights page, where a claim starts.
+    var passengerRightsURL: URL {
+        URL(string: t("https://int.bahn.de/en/booking-information/passenger-rights",
+                      "https://www.bahn.de/service/informationen-buchung/fahrgastrechte"))!
+    }
     var debug: String { "Debug" }
     var trips: String { t("Trips", "Fahrten") }
     // Year review: the figure is the value, these are the captions under it.

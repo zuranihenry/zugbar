@@ -138,6 +138,8 @@ public struct NotificationSettings: Codable, Sendable, Equatable {
     public var delayThreshold = 3
     public var trackChanges = true
     public var connectionAlerts = true
+    /// A hint that part of the fare may be due back after arriving an hour or more late.
+    public var passengerRights = true
 
     public static let reminderChoices = [30, 15, 10, 5, 2]
     public static let thresholdChoices = [1, 3, 5, 10]
@@ -145,7 +147,7 @@ public struct NotificationSettings: Codable, Sendable, Equatable {
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case arrivalReminders, departureReminders, delayThreshold, trackChanges, connectionAlerts
+        case arrivalReminders, departureReminders, delayThreshold, trackChanges, connectionAlerts, passengerRights
     }
 
     /// Settings saved by older versions lack newer keys; those keep their defaults instead of failing the whole decode.
@@ -157,6 +159,7 @@ public struct NotificationSettings: Codable, Sendable, Equatable {
         delayThreshold = try container.decodeIfPresent(Int.self, forKey: .delayThreshold) ?? defaults.delayThreshold
         trackChanges = try container.decodeIfPresent(Bool.self, forKey: .trackChanges) ?? defaults.trackChanges
         connectionAlerts = try container.decodeIfPresent(Bool.self, forKey: .connectionAlerts) ?? defaults.connectionAlerts
+        passengerRights = try container.decodeIfPresent(Bool.self, forKey: .passengerRights) ?? defaults.passengerRights
     }
 }
 
