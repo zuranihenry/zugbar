@@ -498,8 +498,11 @@ struct Strings {
     var passengerRightsHint: String { t("Refund hint after long delays", "Erstattungshinweis bei großer Verspätung") }
 
     // Passenger rights: a possibility, never a promise. The app knows neither the ticket nor where the journey ended.
-    func arrivedLate(_ minutes: Int, at stop: String) -> String {
-        t("\(stop): arrived \(minutes) min late", "\(stop): \(minutes) Min. verspätet angekommen")
+    /// `observed`: the train was seen arriving; otherwise the delay is the last one known before.
+    func arrivedLate(_ minutes: Int, at stop: String, observed: Bool) -> String {
+        observed
+            ? t("\(stop): arrived \(minutes) min late", "\(stop): \(minutes) Min. verspätet angekommen")
+            : t("\(stop): was about \(minutes) min late", "\(stop): zuletzt etwa \(minutes) Min. verspätet")
     }
     func refundPossible(_ percent: Int) -> String {
         t("If your ticket's journey ended here, \(percent) % of the fare may be due back.",
