@@ -36,6 +36,9 @@ final class TrainMonitor {
     private(set) var status: TrainStatus?
     /// Where the map draws the train; glides between updates instead of jumping.
     private(set) var trainPosition: Coordinate?
+    /// The named tunnel or bridge the train is in or on right now. Only from GPS, or the marker carried on from
+    /// its last fix in a tunnel; never from a position estimated from the timetable, which can be minutes off.
+    private(set) var landmark: Landmark?
     let map = MapState()
     let picker: StationSearch
     let estimates = SpeedEstimator()
@@ -326,9 +329,11 @@ final class TrainMonitor {
     private func moveTrain() {
         guard let status else {
             if trainPosition != nil { trainPosition = nil }
+            if landmark != nil { landmark = nil }
             return
         }
         let date = Date()
+        var located = true
         if let gps = status.position {
             marker.update(gps, speed: status.speed, route: status.route, nextStop: status.nextStop?.coordinate, at: date)
             trainPosition = marker.position(at: date)
@@ -340,8 +345,12 @@ final class TrainMonitor {
             // Back on GPS later, the marker starts from the new fix instead of gliding from an old one.
             marker = GPSMarker()
             trainPosition = estimates.position(of: status, at: date)
+            located = false
         }
         if let trainPosition { map.trainMoved(to: trainPosition, at: date) }
+        let passing = located ? trainPosition.flatMap { LandmarkBundle.shared?.landmark(at: $0, heading: map.heading.degrees) } : nil
+        // Only when it changes: this runs every frame, and the panel redraws on every assignment.
+        if passing != landmark { landmark = passing }
     }
 
     /// Where the marker will be at `date`, for camera animations that should end on the moving train.
@@ -1026,6 +1035,7 @@ final class TrainMonitor {
         provider = nil
         status = nil
         trainPosition = nil
+        landmark = nil
         displaySpeed = nil
         topSpeed = 0
         // The next train's first fix shouldn't glide from where this one was.

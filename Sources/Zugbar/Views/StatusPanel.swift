@@ -15,6 +15,7 @@ struct StatusPanel: View {
     @Bindable var monitor: TrainMonitor
     var layout: PanelLayout = .popover
     @AppStorage("showMap") private var showMap = true
+    @AppStorage("showLandmarks") private var showLandmarks = true
     @AppStorage("estimatedSpeed") private var estimatedSpeed = true
     @Environment(\.strings) private var strings
 
@@ -30,8 +31,11 @@ struct StatusPanel: View {
                         Footer(monitor: monitor, isWindow: true)
                     }
                     .frame(width: 360)
-                    TrainMap(monitor: monitor, status: status)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VStack(alignment: .leading, spacing: 6) {
+                        TrainMap(monitor: monitor, status: status)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        landmarkLine
+                    }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 12) {
@@ -58,6 +62,17 @@ struct StatusPanel: View {
         case .popover: showMap ? 180 : nil
         case .column(let height): height
         case .split: nil
+        }
+    }
+
+    /// The tunnel or bridge the train is in or on right now, under the map; nothing the rest of the time.
+    @ViewBuilder
+    private var landmarkLine: some View {
+        if showLandmarks, let landmark = monitor.landmark {
+            Text(strings.landmark(landmark))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
     }
 
@@ -94,6 +109,7 @@ struct StatusPanel: View {
         }
         if let map {
             TrainMap(monitor: monitor, status: status).frame(height: map)
+            landmarkLine
         }
         if waitingAt == nil, let next = status.nextStop, next.id != monitor.journey.destination?.id {
             NextStopCard(stop: next, now: monitor.now)

@@ -7,25 +7,7 @@ public struct TrackBundle: Sendable {
     public let date: String
     let tracks: [TrackLimit]
     /// Track indices by grid cell of about 5 km.
-    private let grid: [Cell: [Int]]
-
-    private struct Cell: Hashable {
-        let lat: Int, lon: Int
-
-        init(_ coordinate: Coordinate) {
-            lat = Int((coordinate.latitude / TrackBundle.cellSize).rounded(.down))
-            lon = Int((coordinate.longitude / TrackBundle.cellSize).rounded(.down))
-        }
-
-        init(lat: Int, lon: Int) {
-            self.lat = lat
-            self.lon = lon
-        }
-
-        var neighbors: [Cell] {
-            (-1...1).flatMap { dLat in (-1...1).map { dLon in Cell(lat: lat + dLat, lon: lon + dLon) } }
-        }
-    }
+    private let grid: [GridCell: [Int]]
 
     static let cellSize = 0.05
     /// Coordinates are stored as integers of this many degrees.
@@ -38,19 +20,9 @@ public struct TrackBundle: Sendable {
     public init(date: String, tracks: [TrackLimit]) {
         self.date = date
         self.tracks = tracks
-        var grid: [Cell: [Int]] = [:]
+        var grid: [GridCell: [Int]] = [:]
         for (index, track) in tracks.enumerated() {
-            // Every cell the line passes through: simplified straight stretches can run for kilometers between nodes.
-            var cells = Set(track.nodes.map(Cell.init))
-            for (a, b) in zip(track.nodes, track.nodes.dropFirst()) {
-                let steps = Int(max(abs(b.latitude - a.latitude), abs(b.longitude - a.longitude)) / (Self.cellSize / 2))
-                for step in stride(from: 1, through: steps, by: 1) {
-                    let t = Double(step) / Double(steps + 1)
-                    cells.insert(Cell(Coordinate(latitude: a.latitude + (b.latitude - a.latitude) * t,
-                                                 longitude: a.longitude + (b.longitude - a.longitude) * t)))
-                }
-            }
-            for cell in cells { grid[cell, default: []].append(index) }
+            for cell in GridCell.cells(along: track.nodes) { grid[cell, default: []].append(index) }
         }
         self.grid = grid
     }
@@ -101,7 +73,7 @@ public struct TrackBundle: Sendable {
 
     /// The posted limit at `point`, or nil off the bundled lines.
     public func limit(at point: Coordinate) -> Int? {
-        TrackLimit.limit(at: point, among: Set(Cell(point).neighbors.flatMap { grid[$0] ?? [] }).map { tracks[$0] })
+        TrackLimit.limit(at: point, among: Set(GridCell(point).neighbors.flatMap { grid[$0] ?? [] }).map { tracks[$0] })
     }
 
     /// The bundled tracks along `points`, or `nil` when the bundle doesn't cover the section: nearly every point
@@ -115,11 +87,44 @@ public struct TrackBundle: Sendable {
         var found = Set<Int>()
         var covered = 0
         for point in checks {
-            let candidates = Set(Cell(point).neighbors.flatMap { grid[$0] ?? [] })
+            let candidates = Set(GridCell(point).neighbors.flatMap { grid[$0] ?? [] })
             found.formUnion(candidates)
             if candidates.contains(where: { tracks[$0].isNear(point) && tracks[$0].distance(to: point) < 0.06 }) { covered += 1 }
         }
         guard Double(covered) >= Double(checks.count) * 0.95 else { return nil }
         return found.sorted().map { tracks[$0] }
+    }
+}
+
+/// A cell of about 5 km, to find the few lines near a point among thousands.
+struct GridCell: Hashable {
+    let lat: Int, lon: Int
+
+    init(_ coordinate: Coordinate) {
+        lat = Int((coordinate.latitude / TrackBundle.cellSize).rounded(.down))
+        lon = Int((coordinate.longitude / TrackBundle.cellSize).rounded(.down))
+    }
+
+    init(lat: Int, lon: Int) {
+        self.lat = lat
+        self.lon = lon
+    }
+
+    var neighbors: [GridCell] {
+        (-1...1).flatMap { dLat in (-1...1).map { dLon in GridCell(lat: lat + dLat, lon: lon + dLon) } }
+    }
+
+    /// Every cell a line passes through: simplified straight stretches can run for kilometers between nodes.
+    static func cells(along nodes: [Coordinate]) -> Set<GridCell> {
+        var cells = Set(nodes.map(GridCell.init))
+        for (a, b) in zip(nodes, nodes.dropFirst()) {
+            let steps = Int(max(abs(b.latitude - a.latitude), abs(b.longitude - a.longitude)) / (TrackBundle.cellSize / 2))
+            for step in stride(from: 1, through: steps, by: 1) {
+                let t = Double(step) / Double(steps + 1)
+                cells.insert(GridCell(Coordinate(latitude: a.latitude + (b.latitude - a.latitude) * t,
+                                                 longitude: a.longitude + (b.longitude - a.longitude) * t)))
+            }
+        }
+        return cells
     }
 }

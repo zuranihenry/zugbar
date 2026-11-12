@@ -7,6 +7,7 @@ enum CLI {
         case departures(station: String, line: String)
         case profile(String)
         case bundleTracks(String)
+        case bundleLandmarks(String)
         case help
 
         init?(arguments: [String]) {
@@ -20,6 +21,8 @@ enum CLI {
                 self = .profile(args[1])
             case "--bundle-tracks" where args.count >= 2:
                 self = .bundleTracks(args[1])
+            case "--bundle-landmarks" where args.count >= 2:
+                self = .bundleLandmarks(args[1])
             case "--help", "-h":
                 self = .help
             default:
@@ -38,6 +41,8 @@ enum CLI {
                     try await profile(train)
                 case .bundleTracks(let path):
                     try await bundleTracks(to: path)
+                case .bundleLandmarks(let path):
+                    try await bundleLandmarks(to: path)
                 case .help:
                     print("""
                     Usage: Zugbar [--demo]
@@ -45,6 +50,7 @@ enum CLI {
                            Zugbar --departures "Köln Hbf" [RE5]
                            Zugbar --profile "ICE 123"
                            Zugbar --bundle-tracks Sources/ZugbarCore/Resources/main_line_tracks.lzfse
+                           Zugbar --bundle-landmarks Sources/ZugbarCore/Resources/main_line_landmarks.lzfse
                     """)
                 }
             } catch {
@@ -109,16 +115,7 @@ enum CLI {
         private func bundleTracks(to path: String) async throws {
             setvbuf(stdout, nil, _IOLBF, 0)
             let size = 0.5
-            // Germany and Austria by bounding box; main lines just across the border come along.
-            let boxes = [(south: 47.0, west: 5.5, north: 55.5, east: 15.5), (south: 46.0, west: 9.5, north: 49.5, east: 17.5)]
-            var tiles: [(Double, Double)] = []
-            for box in boxes {
-                for south in stride(from: box.south, to: box.north, by: size) {
-                    for west in stride(from: box.west, to: box.east, by: size) where !tiles.contains(where: { $0 == (south, west) }) {
-                        tiles.append((south, west))
-                    }
-                }
-            }
+            let tiles = Self.tiles(size: size)
             let folder = URL(fileURLWithPath: path + ".tiles", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             var ways: [Int: TrackLimit] = [:]
@@ -129,7 +126,9 @@ enum CLI {
                 if let saved = try? Data(contentsOf: file) {
                     data = saved
                 } else {
-                    data = try await overpass("[out:json][timeout:120];way(\(box))[railway=rail][usage=main][maxspeed];out tags geom qt;")
+                    data = try await overpass("[out:json][timeout:120];way(\(box))[railway=rail][usage=main][maxspeed];out tags geom qt;") {
+                        (try? OverpassClient.parseWays($0)) != nil
+                    }
                     try data.write(to: file)
                     try await Task.sleep(for: .seconds(3))
                 }
@@ -144,9 +143,64 @@ enum CLI {
             print("Wrote \(tracks.count) tracks, \(tracks.map(\.nodes.count).reduce(0, +)) nodes, \(data.count / 1024) KB to \(path)")
         }
 
+        /// Named tunnels and bridges on the same main lines, and the rivers the bridges cross, for the line under the
+        /// map. Far fewer than tracks, so the tiles are bigger; about an hour, and reruns continue too.
+        private func bundleLandmarks(to path: String) async throws {
+            setvbuf(stdout, nil, _IOLBF, 0)
+            let size = 1.0
+            let tiles = Self.tiles(size: size)
+            let folder = URL(fileURLWithPath: path + ".tiles", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            var ways: [Int: LandmarkBundle.Way] = [:]
+            var downloaded = 0
+            for (number, (south, west)) in tiles.enumerated() {
+                let box = "\(south),\(west),\(south + size),\(west + size)"
+                let file = folder.appendingPathComponent(box + ".json")
+                let data: Data
+                if let saved = try? Data(contentsOf: file) {
+                    data = saved
+                } else {
+                    data = try await overpass(LandmarkBundle.query(box: box)) {
+                        (try? LandmarkBundle.parseWays($0)) != nil && LandmarkBundle.searchedAround($0)
+                    }
+                    try data.write(to: file)
+                    try await Task.sleep(for: .seconds(3))
+                }
+                downloaded += data.count
+                let found = try LandmarkBundle.parseWays(data)
+                ways.merge(found) { first, _ in first }
+                print("\(number + 1)/\(tiles.count) \(box): \(found.count) ways, \(ways.count) in all")
+            }
+            let landmarks = LandmarkBundle.landmarks(from: ways.keys.sorted().compactMap { ways[$0] })
+            let date = Date().formatted(.iso8601.year().month().day())
+            let data = try LandmarkBundle(date: date, landmarks: landmarks).compressed()
+            try data.write(to: URL(fileURLWithPath: path))
+            let tunnels = landmarks.filter { $0.kind == .tunnel }, bridges = landmarks.filter { $0.kind == .bridge }
+            print("""
+            Read \(downloaded / 1024) KB of OpenStreetMap data (uncompressed).
+            Wrote \(Set(tunnels.compactMap(\.name)).count) tunnels on \(tunnels.count) tracks, \(Set(bridges.compactMap(\.name)).count) named \
+            bridges and \(Set(bridges.compactMap(\.river)).count) rivers on \(bridges.count) tracks, \
+            \(landmarks.map(\.nodes.count).reduce(0, +)) nodes, \(data.count / 1024) KB to \(path)
+            """)
+        }
+
+        /// Germany and Austria by bounding box, in tiles of `size` degrees; main lines just across the border come along.
+        private static func tiles(size: Double) -> [(Double, Double)] {
+            let boxes = [(south: 47.0, west: 5.5, north: 55.5, east: 15.5), (south: 46.0, west: 9.5, north: 49.5, east: 17.5)]
+            var tiles: [(Double, Double)] = []
+            for box in boxes {
+                for south in stride(from: box.south, to: box.north, by: size) {
+                    for west in stride(from: box.west, to: box.east, by: size) where !tiles.contains(where: { $0 == (south, west) }) {
+                        tiles.append((south, west))
+                    }
+                }
+            }
+            return tiles
+        }
+
         /// One query, trying each public server in turn and waiting longer after every round of failures.
-        private func overpass(_ query: String) async throws -> Data {
-            let servers = ["https://overpass-api.de/api/interpreter", "https://overpass.openstreetmap.fr/api/interpreter",
+        private func overpass(_ query: String, valid: (Data) -> Bool) async throws -> Data {
+            let servers = ["https://overpass.openstreetmap.fr/api/interpreter", "https://overpass-api.de/api/interpreter",
                            "https://overpass.private.coffee/api/interpreter"]
             var body = URLComponents()
             body.queryItems = [URLQueryItem(name: "data", value: query)]
@@ -159,7 +213,7 @@ enum CLI {
                     guard let (data, response) = try? await URLSession.shared.data(for: request),
                           (response as? HTTPURLResponse)?.statusCode == 200,
                           // An overloaded server answers 200 with a "runtime error" remark.
-                          (try? OverpassClient.parseWays(data)) != nil
+                          valid(data)
                     else { continue }
                     return data
                 }
