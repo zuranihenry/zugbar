@@ -102,6 +102,8 @@ struct StatusPanel: View {
             // Takes over the delay reasons from the next stop card hidden above.
             JourneyCard(monitor: monitor, destination: destination,
                         showsDelayReasons: waitingAt == nil && status.nextStop?.id == destination.id)
+        } else if let suggestion = monitor.calendarSuggestion {
+            CalendarSuggestionRow(monitor: monitor, suggestion: suggestion).padding(10).cardStyle()
         }
         StopList(monitor: monitor, status: status, fillsHeight: isWindow)
         if let ride = monitor.trips.live, (ride.samples?.count ?? 0) > 1 {

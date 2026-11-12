@@ -12,6 +12,8 @@ Live train info in your Mac's menu bar.
 - **Online:** follow any train in Europe via [Transitous](https://transitous.org), with estimated position and speed
 - **Your journey:** when and where your train leaves while you wait, destination and connection, with alerts for delays,
   track changes and tight or missed transfers; took an SBB train instead (ECE)? Its Wi-Fi gives it away
+- **From your calendar, if you want:** off by default; switched on, Zugbar spots a connection that bahn.de or DB
+  Navigator saved to your calendar and offers its stop and connection. Read on your Mac only, never stored or logged
 - English and German
 
 <table>
