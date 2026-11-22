@@ -802,12 +802,11 @@ final class TrainMonitor {
         return taken
     }
 
-    /// Why the text last pasted wasn't taken as a connection, shown for a few seconds.
+    /// What became of the text last pasted, shown for a few seconds: the connection taken, or why it wasn't.
     private(set) var sharedNotice: SharedResult?
 
     func pasteShared(_ text: String) {
         let result = importShared(text)
-        if case .taken = result { return sharedNotice = nil }
         sharedNotice = result
         Task {
             try? await Task.sleep(for: .seconds(8))

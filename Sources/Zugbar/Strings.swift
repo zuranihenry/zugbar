@@ -322,10 +322,14 @@ struct Strings {
     var pasteShared: String {
         t("Paste a connection shared from DB Navigator", "Aus dem DB Navigator geteilte Verbindung einfügen")
     }
-    /// Why pasted text wasn't taken as a connection; nil when it was.
-    func sharedNotice(_ result: TrainMonitor.SharedResult) -> String? {
+    /// Next to the paste button where no train is shown.
+    var pasteSharedRow: String { t("Connection shared from DB Navigator:", "Im DB Navigator geteilte Verbindung:") }
+    /// What became of pasted text: the connection taken, or why it wasn't.
+    func sharedNotice(_ result: TrainMonitor.SharedResult) -> String {
         switch result {
-        case .taken: nil
+        case .taken(let from, let to, let trains):
+            t("Connection taken: \(from) → \(to), ", "Verbindung übernommen: \(from) → \(to), ")
+                + (trains == 1 ? t("1 train", "1 Zug") : t("\(trains) trains", "\(trains) Züge"))
         case .notAConnection:
             t("The clipboard doesn't hold a connection shared from DB Navigator.",
               "In der Zwischenablage ist keine aus dem DB Navigator geteilte Verbindung.")
