@@ -170,9 +170,95 @@ struct CalendarJourneyTests {
         let suggestion = try #require(found.suggestion(for: status(), plan: nil, now: local(10, 30)))
         #expect(suggestion.stopID == "b")
         #expect(suggestion.setsStop)
-        #expect(suggestion.onward == .init(train: "RE 5", alias: "RE 89012", departure: local(11, 45), to: "Cstadt"))
+        #expect(suggestion.rest == [found.legs[1]])
         // Named by the number in brackets, as some portals do.
         #expect(found.suggestion(for: status(train: "ICE 4567"), plan: nil, now: local(10, 30)) != nil)
+    }
+
+    /// The two-train entry with a third train on to Dstadt.
+    func threeTrains() -> CalendarJourney? {
+        let notes = twoLegs.replacingOccurrences(of: "Astadt Hbf ➞ Cstadt\nDatum", with: "Astadt Hbf ➞ Dstadt Hauptbahnhof\nDatum")
+            .replacingOccurrences(of: "Dauer: 2h 20min", with: """
+                Cstadt ➞ Dstadt Hauptbahnhof
+                RB 7
+                ● ab 12:30 Cstadt ▷ Gleis 1
+                ○ an 13:05 Dstadt Hauptbahnhof ▷ Gleis 3
+
+                Dauer: 3h 5min
+                """)
+        return journey(notes, title: "Astadt Hbf ➞ Dstadt Hauptbahnhof", end: local(13, 5))
+    }
+
+    @Test func suggestsTheWholeRestOfThreeTrains() throws {
+        let found = try #require(threeTrains())
+        #expect(found.legs.map(\.train) == ["ICE 123", "RE 5", "RB 7"])
+        let suggestion = try #require(found.suggestion(for: status(), plan: nil, now: local(10, 30)))
+        #expect(suggestion.stopID == "b" && suggestion.setsStop)
+        #expect(suggestion.rest.map(\.train) == ["RE 5", "RB 7"])
+
+        // As trains to change to: by name, each from where the one before gets in, the last to the journey's end.
+        let route = suggestion.route
+        #expect(route.map(\.name) == ["RE 5 (89012)", "RB 7"])
+        #expect(route.map(\.station) == ["Bstadt Hbf", "Cstadt"])
+        #expect(route.map(\.finalStop) == ["Cstadt", "Dstadt Hbf"])
+        #expect(route.map(\.scheduledDeparture) == [local(11, 45), local(12, 30)])
+        #expect(route.map(\.scheduledFinalArrival) == [local(12, 20), local(13, 5)])
+        #expect(route.map(\.isShared) == [true, true])
+        #expect(Set(route.map(\.tripID)).count == 2)
+
+        // In the plan they're the connection and the train after it, and the journey ends with the last.
+        var plan = JourneyPlan(trainName: "ICE 123", destinationStopID: suggestion.stopID)
+        plan.route = route
+        #expect(plan.connection?.name == "RE 5 (89012)" && plan.onward?.map(\.name) == ["RB 7"])
+        #expect(plan.finalStop == "Dstadt Hbf" && plan.timetabledArrival(in: status()) == local(13, 5))
+        // Taken: nothing more to offer.
+        #expect(found.suggestion(for: status(), plan: plan, now: local(10, 30)) == nil)
+    }
+
+    @Test func suggestsWhatIsLeftOnALaterTrain() throws {
+        let found = try #require(threeTrains())
+        let second = TrainStatus(provider: "DB", trainName: "RE 5 (89012)", stops: [
+            Stop(id: "b", name: "Bstadt Hbf", scheduledDeparture: local(11, 45), passed: true),
+            Stop(id: "c", name: "Cstadt", scheduledArrival: local(12, 20)),
+        ])
+        let suggestion = try #require(found.suggestion(for: second, plan: nil, now: local(11, 50)))
+        #expect(suggestion.stopID == "c")
+        #expect(suggestion.route.map(\.name) == ["RB 7"])
+        // The stop set by hand already: the rest is still offered, but not over another stop.
+        let same = found.suggestion(for: second, plan: JourneyPlan(trainName: "RE 5", destinationStopID: "c"), now: local(11, 50))
+        #expect(same?.setsStop == false && same?.rest.count == 1)
+        let third = TrainStatus(provider: "DB", trainName: "RB 7", stops: [Stop(id: "d", name: "Dstadt Hbf", scheduledArrival: local(13, 5))])
+        #expect(found.suggestion(for: third, plan: nil, now: local(12, 40))?.rest == [])
+    }
+
+    @Test func bookedTrainsAreFoundOnTheDepartureBoard() throws {
+        let found = try #require(threeTrains())
+        let route = try #require(found.suggestion(for: status(), plan: nil, now: local(10, 30))).route
+        let board = [
+            TransitousClient.Departure(tripID: "later", displayName: "RE5 (89014)", line: "RE5", headsign: "Xstadt",
+                                       scheduled: local(12, 45), expected: nil, track: "2", cancelled: false, realTime: false),
+            TransitousClient.Departure(tripID: "trip-re5", displayName: "RE5 (89012)", line: "RE5", headsign: "Xstadt",
+                                       scheduled: local(11, 45), expected: local(11, 48), track: "2", cancelled: false, realTime: true),
+        ]
+        let departure = try #require(Handover.departure(for: route[0], in: board))
+        let resolved = route[0].resolved(with: departure)
+        #expect(resolved.tripID == "trip-re5" && !resolved.isShared)
+        #expect(resolved.delayMinutes == 3 && resolved.track == "2")
+        #expect(resolved.finalStop == "Cstadt" && resolved.scheduledFinalArrival == local(12, 20))
+        // A train the entry names without a number, on a board that knows it by its line.
+        let byLine = TransitousClient.Departure(tripID: "trip-rb7", displayName: "RB7 (7001)", line: "RB7", headsign: nil,
+                                                scheduled: local(12, 30), expected: nil, track: nil, cancelled: false, realTime: false)
+        #expect(Handover.departure(for: route[1], in: [byLine])?.tripID == "trip-rb7")
+        #expect(Handover.departure(for: route[1], in: board) == nil)
+    }
+
+    @Test func legsNamedByNumberAlone() {
+        // The former shape has the train's number only; one the brackets repeat isn't written twice.
+        let leg = CalendarJourney.Leg(train: "RE 89012", from: "Bstadt(Fluss)Hbf", departure: local(11, 45), to: "Cstadt", arrival: local(12, 20))
+        #expect(leg.connection.name == "RE 89012" && leg.connection.station == "Bstadt(Fluss) Hbf")
+        var same = leg
+        same.alias = "RE 89012"
+        #expect(same.connection.name == "RE 89012")
     }
 
     @Test func suggestsNothingForOtherTrainsOrTimes() throws {
@@ -189,31 +275,16 @@ struct CalendarJourneyTests {
         let now = local(10, 30)
         // Another stop chosen by hand.
         #expect(found.suggestion(for: status(), plan: JourneyPlan(trainName: "ICE 123", destinationStopID: "d"), now: now) == nil)
-        // The same stop: only the connection is offered, and not once there is one.
+        // The same stop: only the connection is offered, and not once there is one, whichever it is.
         var plan = JourneyPlan(trainName: "ICE 123", destinationStopID: "b")
         let suggestion = try #require(found.suggestion(for: status(), plan: plan, now: now))
         #expect(!suggestion.setsStop)
-        #expect(suggestion.onward?.train == "RE 5")
-        plan.connection = connection("RE 5", at: local(11, 45))
+        #expect(suggestion.rest.map(\.train) == ["RE 5"])
+        plan.connection = Connection(tripID: "own", name: "S 1", headsign: nil, station: "Bstadt Hbf",
+                                     scheduledDeparture: local(11, 50), expectedDeparture: nil, track: nil)
         #expect(found.suggestion(for: status(), plan: plan, now: now) == nil)
         // On the last train of the journey there's a stop but nothing after it.
         let last = TrainStatus(provider: "DB", trainName: "RE 5 (89012)", stops: [Stop(id: "c", name: "Cstadt", scheduledArrival: local(12, 20))])
-        #expect(found.suggestion(for: last, plan: nil, now: now)?.onward == nil)
-    }
-
-    func connection(_ name: String, at departure: Date) -> Connection {
-        Connection(tripID: name + departure.description, name: name, headsign: nil, station: "Bstadt Hbf",
-                   scheduledDeparture: departure, expectedDeparture: nil, track: nil)
-    }
-
-    @Test func picksTheBookedConnection() {
-        let onward = CalendarJourney.Onward(train: "RE 5", alias: "RE 89012", departure: local(11, 45), to: "Cstadt")
-        let booked = connection("RE 5", at: local(11, 45)), later = connection("RE 5", at: local(12, 45))
-        #expect(onward.pick(from: [later, booked]) == booked)
-        #expect(onward.pick(from: [later]) == nil)
-        // Named differently: only when it's the one train leaving that minute.
-        let other = connection("RB 7", at: local(11, 45))
-        #expect(onward.pick(from: [other, later]) == other)
-        #expect(onward.pick(from: [other, connection("S 1", at: local(11, 45))]) == nil)
+        #expect(found.suggestion(for: last, plan: nil, now: now)?.rest == [])
     }
 }

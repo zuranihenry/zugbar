@@ -111,18 +111,25 @@ public struct SharedJourney: Equatable, Sendable {
 extension SharedJourney.Leg {
     /// The leg as a train to change to. Known by its name and times only until its trip is found.
     public var connection: Connection {
-        var connection = Connection(
-            tripID: "\(Connection.sharedMarker):\(train)@\(Int(departure.timeIntervalSince1970))", name: train, headsign: headsign,
-            station: from, scheduledDeparture: departure, expectedDeparture: nil, track: departureTrack,
-            finalStop: to, finalArrival: arrival, portalStationID: Connection.sharedMarker
-        )
-        connection.scheduledFinalArrival = arrival
-        return connection
+        .named(train, headsign: headsign, from: from, departure: departure, track: departureTrack, to: to, arrival: arrival)
     }
 }
 
 extension Connection {
     static let sharedMarker = "shared"
+
+    /// A train of a journey read from text, a shared connection or a calendar entry: known by its name and by
+    /// where and when the user gets on and off it, until its trip is found.
+    static func named(_ train: String, headsign: String? = nil, from: String, departure: Date, track: String? = nil,
+                      to: String, arrival: Date) -> Connection {
+        var connection = Connection(
+            tripID: "\(sharedMarker):\(train)@\(Int(departure.timeIntervalSince1970))", name: train, headsign: headsign,
+            station: from, scheduledDeparture: departure, expectedDeparture: nil, track: track,
+            finalStop: to, finalArrival: arrival, portalStationID: sharedMarker
+        )
+        connection.scheduledFinalArrival = arrival
+        return connection
+    }
 
     /// Read from a shared connection, and its trip not found yet.
     public var isShared: Bool { portalStationID == Self.sharedMarker }

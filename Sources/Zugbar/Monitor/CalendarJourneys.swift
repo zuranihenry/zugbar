@@ -5,7 +5,7 @@ import ZugbarCore
 
 /// The journey from a booked connection in the calendar, as booking apps put it there. Off unless the user turns
 /// it on. What's read stays in memory: nothing of it is saved, logged or recorded, and nothing is sent anywhere
-/// until the user takes the suggestion, which then looks up the connection like picking it by hand does.
+/// until the user takes the suggestion; only then are the booked trains' trips looked up on the departure boards.
 @MainActor
 @Observable
 final class CalendarJourneys {

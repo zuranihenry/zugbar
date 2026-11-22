@@ -36,50 +36,29 @@ final class ConnectionSearch {
         self.context = context
     }
 
-    /// Opens the picker on the connections to the station called `name` and takes the one `pick` settles on,
-    /// if any; otherwise they're listed for the user.
-    func find(station name: String, pick: @escaping ([Connection]) -> Connection?, chosen: @escaping (Connection) -> Void) {
-        // A booked train is one train: picked among the direct ones.
-        let pick = { (options: [[Connection]]) in pick(options.compactMap { $0.count == 1 ? $0[0] : nil }) }
-        search?.cancel()
-        isAdding = true
-        message = .loadingDepartures
-        search = Task {
-            do {
-                let target = try await client.stations(matching: name).first
-                guard !Task.isCancelled else { return }
-                guard let target else { return message = .noStation }
-                choose(target, direct: true) { options in pick(options).map(chosen) }
-            } catch {
-                if !Task.isCancelled { message = .failed }
-            }
-        }
-    }
-
-    /// `direct`: only trains that go there without a change, to find one train among them.
-    func choose(_ target: TransitousClient.Station, direct: Bool = false, loaded: (([[Connection]]) -> Void)? = nil) {
+    func choose(_ target: TransitousClient.Station) {
         targets = []
         self.target = target
         query = target.name
         options = []
-        load(target, after: nil, direct: direct, loaded: loaded)
+        load(target, after: nil)
     }
 
     /// More ways to the same place, leaving after the last one listed.
     func loadLater() {
         guard let target, let last = options.last?.first?.departure else { return }
-        load(target, after: last.addingTimeInterval(60), direct: false, loaded: nil)
+        load(target, after: last.addingTimeInterval(60))
     }
 
     /// `after`: nil for the first ways on after the train gets in; else later ones, added to the list.
-    private func load(_ target: TransitousClient.Station, after: Date?, direct: Bool, loaded: (([[Connection]]) -> Void)?) {
+    private func load(_ target: TransitousClient.Station, after: Date?) {
         let context = context()
         guard let destination = context.destination else { return }
         search?.cancel()
         message = .loadingDepartures
         hasLater = false
         // The time the user wants for a change counts for the first one too, off the followed train.
-        let minTransfer = direct ? 0 : UserDefaults.standard.integer(forKey: "minTransferMinutes")
+        let minTransfer = UserDefaults.standard.integer(forKey: "minTransferMinutes")
         let earliest = after ?? (destination.arrival ?? context.now).addingTimeInterval(Double(minTransfer) * 60)
         let regional = UserDefaults.standard.object(forKey: "regionalTrains") as? Bool ?? true
         // Stored so choosing another target or closing the picker cancels this search.
@@ -91,7 +70,7 @@ final class ConnectionSearch {
                 }
                 let found = try await client.routes(
                     from: station, to: target, after: earliest, regional: regional,
-                    changes: direct ? 0 : TransitousClient.maxTransfers, minTransfer: minTransfer
+                    changes: TransitousClient.maxTransfers, minTransfer: minTransfer
                 ).map { route in
                     // The first train leaves where the followed one arrives, named as that one names it.
                     var route = route
@@ -103,7 +82,6 @@ final class ConnectionSearch {
                 options += found.filter { !known.contains(Self.id($0)) }
                 hasLater = !found.isEmpty
                 message = options.isEmpty ? (regional ? .noConnection : .regionalOff) : nil
-                loaded?(options)
             } catch {
                 guard !Task.isCancelled else { return }
                 message = .failed

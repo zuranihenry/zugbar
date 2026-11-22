@@ -259,12 +259,16 @@ struct Strings {
           "Sucht in den nächsten Stunden deines Kalenders nach einer Zugverbindung aus einer Buchungs-App und bietet Ausstieg und Anschluss an; was dabei gelesen wird, bleibt auf diesem Mac, und ohne deine Bestätigung wird nichts gespeichert oder nachgeschlagen.")
     }
     func calendarSuggestion(_ suggestion: CalendarJourney.Suggestion) -> String {
-        let onward = suggestion.onward.map { "\($0.train) → \($0.to)" }
-        // The stop is already set: only the connection is new.
-        guard suggestion.setsStop else { return t("Calendar: continue with \(onward ?? "")", "Kalender: weiter mit \(onward ?? "")") }
+        let rest = suggestion.rest
+        // One more train by its name; a longer journey by where it ends and how often to change on the way.
+        let onward = rest.last.map { last in
+            rest.count == 1 ? t("continue with \(last.train) → \(last.to)", "weiter mit \(last.train) → \(last.to)")
+                : t("\(rest.count) changes to \(last.to)", "\(rest.count) Umstiege bis \(last.to)")
+        }
+        // The stop is already set: only the trains after it are new.
+        guard suggestion.setsStop else { return t("Calendar: \(onward ?? "")", "Kalender: \(onward ?? "")") }
         guard let onward else { return t("Calendar: get off at \(suggestion.stopName)", "Kalender: Ausstieg \(suggestion.stopName)") }
-        return t("Calendar: get off at \(suggestion.stopName), continue with \(onward)",
-                 "Kalender: Ausstieg \(suggestion.stopName), weiter mit \(onward)")
+        return t("Calendar: get off at \(suggestion.stopName), \(onward)", "Kalender: Ausstieg \(suggestion.stopName), \(onward)")
     }
     var takeSuggestion: String { t("Use", "Übernehmen") }
     var dismissSuggestion: String { t("Not this", "Verwerfen") }

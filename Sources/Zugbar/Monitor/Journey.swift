@@ -103,13 +103,15 @@ final class Journey {
         refreshCoaches()
     }
 
-    /// Takes what the calendar suggested: the stop from the train's own list, the connection looked up the way
-    /// picking it by hand does. One that can't be told apart for sure is left to the user in the open picker.
+    /// Takes what the calendar suggested: the stop from the train's own list, then the rest of the booked journey,
+    /// its trains by name. Their trips are found on the departure boards afterwards, like a shared connection's.
     func take(_ suggestion: CalendarJourney.Suggestion) {
         guard let stop = status()?.stops.first(where: { $0.id == suggestion.stopID }) else { return }
         if plan?.destinationStopID != stop.id { toggleDestination(stop) }
-        guard let onward = suggestion.onward, plan?.connection == nil else { return }
-        connections.find(station: onward.to, pick: onward.pick) { [weak self] in self?.chooseRoute([$0]) }
+        guard !suggestion.rest.isEmpty, plan?.connection == nil else { return }
+        chooseRoute(suggestion.route)
+        sharedRetry = nil
+        resolveSharedIfNeeded()
     }
 
     func removeConnection() {
