@@ -119,15 +119,81 @@ struct JourneyTests {
     }
 
     @Test func parsesDirectConnections() throws {
-        let options = try TransitousClient.parseConnections(fixture("transitous_plan"), station: "Weidenhagen Hbf")
+        let options = try TransitousClient.parseRoutes(fixture("transitous_plan"), station: "Weidenhagen Hbf")
         #expect(options.count == 3)
-        let first = try #require(options.first)
+        #expect(options.allSatisfy { $0.count == 1 })
+        let first = try #require(options.first?.first)
         #expect(first.name == "S2")
         #expect(first.station == "Weidenhagen Hbf")
         #expect(first.finalStop == "Gerstdorf")
         #expect(first.track == "2")
         #expect(first.finalArrival != nil)
     }
+
+    @Test func parsesRoutesWithChanges() throws {
+        let options = try TransitousClient.parseRoutes(fixture("transitous_plan_transfers"), station: "Weidenhagen Hbf (oben)")
+        // The same trains listed twice count once, and a way that takes a bus isn't one by train.
+        #expect(options.map { $0.map(\.name) } == [["RE7 (5512)", "RB12 (7781)"], ["RE9 (5600)"]])
+        let route = try #require(options.first)
+        // The first train leaves where the followed one arrives, as that one names it; the next from the plan's station.
+        #expect(route[0].station == "Weidenhagen Hbf (oben)")
+        #expect(route[0].finalStop == "Birkenbach")
+        #expect(route[0].delayMinutes == 3)
+        #expect(route[1].station == "Birkenbach")
+        #expect(route[1].track == "3")
+        #expect(route[1].finalStop == "Lindental")
+        #expect(route[1].scheduledFinalArrival == utc("2026-06-16T18:20:00Z"))
+        // Ten minutes to change at Birkenbach.
+        #expect(route[1].transfer(after: route[0].finalArrival) == .comfortable(minutes: 10))
+    }
+
+    @Test func routeSearchAllowsChangesAndKeepsAnswersSmall() async throws {
+        let asked = URLBox()
+        let client = TransitousClient { url in
+            await asked.set(url)
+            return try fixture("transitous_plan_transfers")
+        }
+        let routes = try await client.routes(
+            from: .init(id: "a", name: "Weidenhagen Hbf"), to: .init(id: "b", name: "Lindental"),
+            after: t0, regional: true, minTransfer: 10
+        )
+        #expect(routes.count == 2)
+        let query = try #require(await asked.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems })
+        func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
+        #expect(value("maxTransfers") == "3")
+        #expect(value("minTransferTime") == "10")
+        #expect(value("detailedLegs") == "false")
+    }
+
+    @Test func planKeepsTheTrainsAfterTheConnection() throws {
+        func train(_ id: String, from: String, to: String, arrives: Double) -> Connection {
+            var train = Connection(tripID: id, name: id, headsign: nil, station: from, scheduledDeparture: t0, expectedDeparture: nil,
+                                   track: nil, finalStop: to)
+            train.scheduledFinalArrival = t0.addingTimeInterval(arrives * 60)
+            return train
+        }
+        var plan = self.plan
+        plan.route = [train("RE 1", from: "Nürnberg Hbf", to: "B", arrives: 30), train("RB 2", from: "B", to: "C", arrives: 70)]
+        #expect(plan.connection?.name == "RE 1")
+        #expect(plan.onward?.map(\.name) == ["RB 2"])
+        #expect(plan.finalStop == "C")
+        // The journey ends where its last train does.
+        #expect(plan.timetabledArrival(in: nil) == t0.addingTimeInterval(70 * 60))
+        // Saved and loaded again as it is.
+        #expect(try JSONDecoder().decode(JourneyPlan.self, from: JSONEncoder().encode(plan)) == plan)
+        // Without the connection there's nothing after it either.
+        plan.connection = nil
+        #expect(plan.route.isEmpty && plan.onward == nil)
+        // A plan saved before journeys had several trains still loads.
+        let saved = Data(#"{"trainName":"ICE 503","destinationStopID":"nbg"}"#.utf8)
+        #expect(try JSONDecoder().decode(JourneyPlan.self, from: saved).route.isEmpty)
+    }
+}
+
+/// The URL a stubbed loader was last asked for.
+actor URLBox {
+    private(set) var url: URL?
+    func set(_ url: URL) { self.url = url }
 }
 
 struct JourneySettingsTests {

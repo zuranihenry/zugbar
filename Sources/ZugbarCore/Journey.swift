@@ -7,8 +7,14 @@ public struct JourneyPlan: Codable, Sendable, Equatable {
     public var boardingStopID: String?
     public var destinationStopID: String?
     public var connection: Connection? {
-        didSet { if connection?.tripID != oldValue?.tripID { warnedTransferLevel = nil } }
+        didSet {
+            if connection?.tripID != oldValue?.tripID { warnedTransferLevel = nil }
+            if connection == nil { onward = nil }
+        }
     }
+    /// The trains after the connection, in the order they're taken, each to where the next one leaves.
+    /// Optional so plans saved by older versions still load.
+    public var onward: [Connection]?
     /// The worst transfer state already notified for the current connection. Optional so plans saved
     /// by older versions still load.
     var warnedTransferLevel: Int?
@@ -26,9 +32,21 @@ public struct JourneyPlan: Codable, Sendable, Equatable {
     /// When the user was last seen on board on this journey, by a train's portal or its router's GPS.
     public var boarded: Date?
 
-    /// When the journey ends by the timetable, as the plan stands: with the connection, or at the destination.
+    /// The trains still to change to, in order: the connection and those after it.
+    public var route: [Connection] {
+        get { connection.map { [$0] + (onward ?? []) } ?? [] }
+        set {
+            connection = newValue.first
+            onward = newValue.count > 1 ? Array(newValue.dropFirst()) : nil
+        }
+    }
+
+    /// Where the journey ends, when it goes on past the followed train.
+    public var finalStop: String? { route.last?.finalStop }
+
+    /// When the journey ends by the timetable, as the plan stands: with the last connection, or at the destination.
     public func timetabledArrival(in status: TrainStatus?) -> Date? {
-        if let connection { return connection.scheduledFinalArrival }
+        if let last = route.last { return last.scheduledFinalArrival }
         return status?.stops.first { $0.id == destinationStopID }?.scheduledArrival
     }
 
@@ -83,8 +101,9 @@ public struct Connection: Codable, Sendable, Equatable {
     public var finalArrival: Date?
     /// The timetable's arrival there, for how late the journey ends up. Optional so saved plans still load.
     public var scheduledFinalArrival: Date?
-    /// Set on connections an older version took from the ICE portal, and on the demo connection:
-    /// they aren't refreshed from Transitous and are followed by name after changing.
+    /// Set on connections an older version took from the ICE portal, on the demo connection, and on one read
+    /// from a shared connection until its trip is found: they aren't refreshed from Transitous and are followed
+    /// by name after changing.
     public var portalStationID: String?
     /// The user's coach on this train; it moves to the plan for the train once they've changed.
     public var seat: Seat?
@@ -339,25 +358,40 @@ extension Connection.Transfer {
 }
 
 extension TransitousClient {
-    /// Direct trains from `station` (where the followed train arrives) to `target`, departing after `arrival`.
-    /// S-Bahn and regional trains are only included when `regional` is set.
-    public func connections(from station: Station, to target: Station, after arrival: Date, regional: Bool) async throws -> [Connection] {
+    /// Ways from `station` (where the followed train arrives) to `target`, leaving after `arrival`: each the trains
+    /// to take in order, one for a direct train. S-Bahn and regional trains are only included when `regional` is
+    /// set. `changes`: how often a route may change trains, 0 for direct trains only. `minTransfer`: the minutes
+    /// every change must leave at least, 0 for what the timetable allows.
+    public func routes(
+        from station: Station, to target: Station, after arrival: Date, regional: Bool,
+        changes: Int = TransitousClient.maxTransfers, minTransfer: Int = 0
+    ) async throws -> [[Connection]] {
         var modes = ["HIGHSPEED_RAIL", "LONG_DISTANCE", "NIGHT_RAIL"]
         if regional { modes += ["REGIONAL_FAST_RAIL", "REGIONAL_RAIL", "SUBURBAN"] }
         var url = Transitous.base.appending(path: "v6/plan")
-        url.appendQuery([
+        var query = [
             URLQueryItem(name: "fromPlace", value: station.id),
             URLQueryItem(name: "toPlace", value: target.id),
             URLQueryItem(name: "time", value: arrival.formatted(.iso8601)),
             URLQueryItem(name: "numItineraries", value: "6"),
-            URLQueryItem(name: "maxTransfers", value: "0"),
+            URLQueryItem(name: "maxTransfers", value: String(changes)),
             URLQueryItem(name: "directModes", value: ""),
             URLQueryItem(name: "transitModes", value: modes.joined(separator: ",")),
-        ])
-        return try Self.parseConnections(await loader(url), station: station.name)
+            // Without the stops and shapes along the way: train Wi-Fi may be capped.
+            URLQueryItem(name: "detailedLegs", value: "false"),
+            URLQueryItem(name: "detailedTransfers", value: "false"),
+        ]
+        if minTransfer > 0 { query.append(URLQueryItem(name: "minTransferTime", value: String(minTransfer))) }
+        url.appendQuery(query)
+        return try Self.parseRoutes(await loader(url), station: station.name)
     }
 
-    static func parseConnections(_ data: Data, station: String) throws -> [Connection] {
+    /// Changes of train a route may have, beyond which a journey is rarely worth taking.
+    public static let maxTransfers = 3
+
+    /// The itineraries of a plan as the trains to take; walks between platforms or stations aren't trains.
+    /// The first train leaves from `station`, the rest from the stations the plan names.
+    static func parseRoutes(_ data: Data, station: String) throws -> [[Connection]] {
         struct Plan: Decodable { let itineraries: [Itinerary] }
         struct Itinerary: Decodable { let legs: [Leg] }
         struct Leg: Decodable {
@@ -373,21 +407,25 @@ extension TransitousClient {
         var seen = Set<String>()
         return try JSONDecoder.portal.decode(Plan.self, from: data).itineraries.compactMap { itinerary in
             let rides = itinerary.legs.filter { $0.mode != "WALK" }
-            guard rides.count == 1, let leg = rides.first, let tripID = leg.tripId, seen.insert(tripID).inserted else { return nil }
-            var connection = Connection(
-                tripID: tripID,
-                name: leg.displayName ?? "?",
-                headsign: leg.headsign.map(StationName.tidy),
-                station: station,
-                scheduledDeparture: leg.from.scheduledDeparture,
-                expectedDeparture: leg.from.departure,
-                track: leg.from.track ?? leg.from.scheduledTrack,
-                cancelled: leg.cancelled ?? false,
-                finalStop: StationName.tidy(leg.to.name),
-                finalArrival: leg.to.arrival ?? leg.to.scheduledArrival
-            )
-            connection.scheduledFinalArrival = leg.to.scheduledArrival
-            return connection
+            guard !rides.isEmpty, rides.allSatisfy({ $0.tripId != nil && railModes.contains($0.mode) }),
+                  seen.insert(rides.compactMap(\.tripId).joined(separator: "|")).inserted
+            else { return nil }
+            return rides.enumerated().map { index, leg in
+                var connection = Connection(
+                    tripID: leg.tripId ?? "",
+                    name: leg.displayName ?? "?",
+                    headsign: leg.headsign.map(StationName.tidy),
+                    station: index == 0 ? station : StationName.tidy(leg.from.name),
+                    scheduledDeparture: leg.from.scheduledDeparture,
+                    expectedDeparture: leg.from.departure,
+                    track: leg.from.track ?? leg.from.scheduledTrack,
+                    cancelled: leg.cancelled ?? false,
+                    finalStop: StationName.tidy(leg.to.name),
+                    finalArrival: leg.to.arrival ?? leg.to.scheduledArrival
+                )
+                connection.scheduledFinalArrival = leg.to.scheduledArrival
+                return connection
+            }
         }
     }
 

@@ -9,6 +9,7 @@ enum CLI {
         case bundleTracks(String)
         case rebuildTrips(recordings: String, output: String)
         case bundleLandmarks(String)
+        case shared
         case help
 
         init?(arguments: [String]) {
@@ -26,6 +27,8 @@ enum CLI {
                 self = .rebuildTrips(recordings: args[1], output: args[2])
             case "--bundle-landmarks" where args.count >= 2:
                 self = .bundleLandmarks(args[1])
+            case "--shared":
+                self = .shared
             case "--help", "-h":
                 self = .help
             default:
@@ -48,11 +51,14 @@ enum CLI {
                     try rebuildTrips(from: recordings, to: output)
                 case .bundleLandmarks(let path):
                     try await bundleLandmarks(to: path)
+                case .shared:
+                    try await shared()
                 case .help:
                     print("""
                     Usage: Zugbar [--demo]
                            Zugbar --lookup "ICE 123"
                            Zugbar --departures "Köln Hbf" [RE5]
+                           pbpaste | Zugbar --shared
                            Zugbar --profile "ICE 123"
                            Zugbar --bundle-tracks Sources/ZugbarCore/Resources/main_line_tracks.lzfse
                            Zugbar --rebuild-trips <recordings folder> <trips.json to write>
@@ -94,6 +100,22 @@ enum CLI {
             for trip in log.trips.reversed() {
                 let day = trip.start.formatted(date: .numeric, time: .shortened)
                 print("  \(day)  \(trip.train)  \(trip.from) → \(trip.to)  \(Int(trip.distance.rounded())) km  \(Int(trip.duration / 60)) min")
+            }
+        }
+
+        /// Reads a connection shared from DB Navigator on standard input and looks up its trains' trips.
+        private func shared() async throws {
+            let text = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+            guard let journey = SharedJourney(text: text) else { return print("Not a shared connection.") }
+            let client = TransitousClient()
+            for leg in journey.legs {
+                print("\(leg.train)  \(time(leg.departure)) \(leg.from)\(leg.departureTrack.map { ", track \($0)" } ?? "") → \(time(leg.arrival)) \(leg.to)")
+                if let departure = try await client.departure(for: leg.connection) {
+                    let live = leg.connection.resolved(with: departure)
+                    print("    \(live.name) → \(live.headsign ?? "?"), \(live.delayMinutes.map { "+\($0)" } ?? "no live data"), trip \(live.tripID)")
+                } else {
+                    print("    not on the departure board")
+                }
             }
         }
 

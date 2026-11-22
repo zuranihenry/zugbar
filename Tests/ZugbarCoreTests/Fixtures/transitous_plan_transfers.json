@@ -1,0 +1,298 @@
+{
+ "itineraries": [
+  {
+   "transfers": 1,
+   "legs": [
+    {
+     "mode": "REGIONAL_RAIL",
+     "from": {
+      "name": "Weidenhagen Hauptbahnhof",
+      "stopId": "de-DELFI_de:98985:31",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "departure": "2026-06-16T17:08:00Z",
+      "scheduledDeparture": "2026-06-16T17:05:00Z",
+      "track": "4",
+      "scheduledTrack": "4"
+     },
+     "to": {
+      "name": "Birkenbach Bahnhof",
+      "stopId": "de-DELFI_de:98985:77",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "arrival": "2026-06-16T17:42:00Z",
+      "scheduledArrival": "2026-06-16T17:40:00Z",
+      "track": "1",
+      "scheduledTrack": "1"
+     },
+     "realTime": true,
+     "scheduled": true,
+     "interlineWithPreviousLeg": false,
+     "headsign": "Kaltbach",
+     "tripId": "20260616_18:40_de-DELFI_1001",
+     "displayName": "RE7 (5512)",
+     "cancelled": false
+    },
+    {
+     "mode": "WALK",
+     "from": {
+      "name": "Birkenbach Bahnhof",
+      "stopId": "de-DELFI_de:98985:77",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "departure": "2026-06-16T17:42:00Z",
+      "scheduledDeparture": "2026-06-16T17:42:00Z"
+     },
+     "to": {
+      "name": "Birkenbach Bahnhof",
+      "stopId": "de-DELFI_de:98985:77",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "arrival": "2026-06-16T17:45:00Z",
+      "scheduledArrival": "2026-06-16T17:45:00Z"
+     },
+     "realTime": false,
+     "scheduled": false,
+     "distance": 0.0
+    },
+    {
+     "mode": "REGIONAL_RAIL",
+     "from": {
+      "name": "Birkenbach Bahnhof",
+      "stopId": "de-DELFI_de:98985:77",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "departure": "2026-06-16T17:52:00Z",
+      "scheduledDeparture": "2026-06-16T17:52:00Z",
+      "track": "3",
+      "scheduledTrack": "3"
+     },
+     "to": {
+      "name": "Lindental",
+      "stopId": "de-DELFI_de:98985:412",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "arrival": "2026-06-16T18:20:00Z",
+      "scheduledArrival": "2026-06-16T18:20:00Z",
+      "track": "2",
+      "scheduledTrack": "2"
+     },
+     "realTime": true,
+     "scheduled": true,
+     "interlineWithPreviousLeg": false,
+     "headsign": "Lindental",
+     "tripId": "20260616_19:50_de-DELFI_1002",
+     "displayName": "RB12 (7781)",
+     "cancelled": false
+    }
+   ]
+  },
+  {
+   "transfers": 0,
+   "legs": [
+    {
+     "mode": "REGIONAL_FAST_RAIL",
+     "from": {
+      "name": "Weidenhagen Hauptbahnhof",
+      "stopId": "de-DELFI_de:98985:31",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "departure": "2026-06-16T17:30:00Z",
+      "scheduledDeparture": "2026-06-16T17:30:00Z",
+      "track": "6",
+      "scheduledTrack": "6"
+     },
+     "to": {
+      "name": "Lindental",
+      "stopId": "de-DELFI_de:98985:412",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "arrival": "2026-06-16T18:35:00Z",
+      "scheduledArrival": "2026-06-16T18:35:00Z",
+      "track": "1",
+      "scheduledTrack": "1"
+     },
+     "realTime": true,
+     "scheduled": true,
+     "interlineWithPreviousLeg": false,
+     "headsign": "Lindental",
+     "tripId": "20260616_19:10_de-DELFI_1003",
+     "displayName": "RE9 (5600)",
+     "cancelled": false
+    }
+   ]
+  },
+  {
+   "transfers": 1,
+   "legs": [
+    {
+     "mode": "REGIONAL_RAIL",
+     "from": {
+      "name": "Weidenhagen Hauptbahnhof",
+      "stopId": "de-DELFI_de:98985:31",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "departure": "2026-06-16T17:08:00Z",
+      "scheduledDeparture": "2026-06-16T17:05:00Z",
+      "track": "4",
+      "scheduledTrack": "4"
+     },
+     "to": {
+      "name": "Birkenbach Bahnhof",
+      "stopId": "de-DELFI_de:98985:77",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "arrival": "2026-06-16T17:42:00Z",
+      "scheduledArrival": "2026-06-16T17:40:00Z",
+      "track": "1",
+      "scheduledTrack": "1"
+     },
+     "realTime": true,
+     "scheduled": true,
+     "interlineWithPreviousLeg": false,
+     "headsign": "Kaltbach",
+     "tripId": "20260616_18:40_de-DELFI_1001",
+     "displayName": "RE7 (5512)",
+     "cancelled": false
+    },
+    {
+     "mode": "REGIONAL_RAIL",
+     "from": {
+      "name": "Birkenbach Bahnhof",
+      "stopId": "de-DELFI_de:98985:77",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "departure": "2026-06-16T17:52:00Z",
+      "scheduledDeparture": "2026-06-16T17:52:00Z",
+      "track": "3",
+      "scheduledTrack": "3"
+     },
+     "to": {
+      "name": "Lindental",
+      "stopId": "de-DELFI_de:98985:412",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "arrival": "2026-06-16T18:20:00Z",
+      "scheduledArrival": "2026-06-16T18:20:00Z",
+      "track": "2",
+      "scheduledTrack": "2"
+     },
+     "realTime": true,
+     "scheduled": true,
+     "interlineWithPreviousLeg": false,
+     "headsign": "Lindental",
+     "tripId": "20260616_19:50_de-DELFI_1002",
+     "displayName": "RB12 (7781)",
+     "cancelled": false
+    }
+   ]
+  },
+  {
+   "transfers": 1,
+   "legs": [
+    {
+     "mode": "SUBURBAN",
+     "from": {
+      "name": "Weidenhagen Hauptbahnhof",
+      "stopId": "de-DELFI_de:98985:31",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "departure": "2026-06-16T17:12:00Z",
+      "scheduledDeparture": "2026-06-16T17:12:00Z",
+      "track": "2",
+      "scheduledTrack": "2"
+     },
+     "to": {
+      "name": "Gerstdorf",
+      "stopId": "de-DELFI_de:98985:9884",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "arrival": "2026-06-16T17:32:00Z",
+      "scheduledArrival": "2026-06-16T17:32:00Z"
+     },
+     "realTime": true,
+     "scheduled": true,
+     "interlineWithPreviousLeg": false,
+     "headsign": "Gerstdorf",
+     "tripId": "20260616_19:04_de-DELFI_1004",
+     "displayName": "S2",
+     "cancelled": false
+    },
+    {
+     "mode": "BUS",
+     "from": {
+      "name": "Gerstdorf",
+      "stopId": "de-DELFI_de:98985:9884",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "departure": "2026-06-16T17:40:00Z",
+      "scheduledDeparture": "2026-06-16T17:40:00Z"
+     },
+     "to": {
+      "name": "Lindental",
+      "stopId": "de-DELFI_de:98985:412",
+      "lat": 52.3,
+      "lon": -20.2,
+      "tz": "Europe/Berlin",
+      "vertexType": "TRANSIT",
+      "cancelled": false,
+      "arrival": "2026-06-16T18:10:00Z",
+      "scheduledArrival": "2026-06-16T18:10:00Z"
+     },
+     "realTime": true,
+     "scheduled": true,
+     "interlineWithPreviousLeg": false,
+     "headsign": "Lindental",
+     "tripId": "20260616_19:40_de-DELFI_1005",
+     "displayName": "Bus 40",
+     "cancelled": false
+    }
+   ]
+  }
+ ]
+}

@@ -39,13 +39,14 @@ public enum SBB {
         return status.stops[(start + 1)...].contains { !$0.cancelled && !$0.passed && StationName.same($0.name, destination) }
     }
 
-    /// The plan moved to the train the user actually got on: the same stops by name, and the same connection.
+    /// The plan moved to the train the user actually got on: the same stops by name, and the same trains after it.
     public static func plan(_ plan: JourneyPlan, on trainName: String, from boarding: String, to destination: String,
                             now: Date = Date()) -> JourneyPlan {
         var moved = JourneyPlan(trainName: trainName, connection: plan.connection)
         moved.updated = now
         moved.pendingBoarding = boarding
         moved.pendingDestination = destination
+        moved.onward = plan.onward
         return moved
     }
 }

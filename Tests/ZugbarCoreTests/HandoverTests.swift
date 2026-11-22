@@ -326,6 +326,8 @@ struct TrainNameTests {
         ("RE80 (4711)", "RE 4711"),
         ("RE 1 → Nürnberg Hbf", "RE 1"),
         ("IC 2013", "ICE 2013"),
+        ("RE80 (4711)", "RE 80"),
+        ("RE80", "RE 80 (4711)"),
     ])
     func same(_ a: String, _ b: String) {
         #expect(TrainName.same(a, b))
@@ -336,6 +338,9 @@ struct TrainNameTests {
         ("RE 1", "RB 1"),
         ("RE 1", "S 1"),
         ("ICE 1356", "RE 1"),
+        ("RE80 (4711)", "RE80 (4713)"),
+        ("RE80 (4711)", "RE 8"),
+        ("RE80 (4711)", "RB 80"),
     ])
     func different(_ a: String, _ b: String) {
         #expect(!TrainName.same(a, b))
@@ -371,9 +376,9 @@ struct TrainNameTests {
         }
         let connection = train("missed", minutes: 0)
         let options = [train("missed", minutes: 0), train("later", minutes: 60), train("cancelled", minutes: 30, cancelled: true), train("soon", minutes: 45)]
-        let next = Handover.replacement(for: connection, in: options, after: missed.addingTimeInterval(5 * 60))
-        #expect(next?.tripID == "soon")
-        #expect(Handover.replacement(for: connection, in: [connection], after: missed) == nil)
+        let next = Handover.replacement(for: connection, in: options.map { [$0] }, after: missed.addingTimeInterval(5 * 60))
+        #expect(next?.map(\.tripID) == ["soon"])
+        #expect(Handover.replacement(for: connection, in: [[connection]], after: missed) == nil)
     }
 
     @Test func replacementArrivesFirst() {
@@ -385,7 +390,51 @@ struct TrainNameTests {
                        finalArrival: base.addingTimeInterval(arrives * 60))
         }
         let options = [train("S 1 late", leaves: 88, arrives: 122), train("RE 1", leaves: 80, arrives: 107), train("S 1 later", leaves: 118, arrives: 152)]
-        let next = Handover.replacement(for: train("RE 1 missed", leaves: 20, arrives: 47), in: options, after: base.addingTimeInterval(70 * 60))
-        #expect(next?.name == "RE 1")
+        let missed = train("RE 1 missed", leaves: 20, arrives: 47)
+        let next = Handover.replacement(for: missed, in: options.map { [$0] }, after: base.addingTimeInterval(70 * 60))
+        #expect(next?.map(\.name) == ["RE 1"])
+        // A way with a change that gets there sooner still wins; of two as fast, the one without a change.
+        let viaB = [train("RB 3", leaves: 75, arrives: 90), train("RB 4", leaves: 95, arrives: 105)]
+        let withChange = Handover.replacement(for: missed, in: options.map { [$0] } + [viaB], after: base.addingTimeInterval(70 * 60))
+        #expect(withChange?.map(\.name) == ["RB 3", "RB 4"])
+        let asFast = [train("RB 5", leaves: 75, arrives: 90), train("RB 6", leaves: 95, arrives: 107)]
+        let direct = Handover.replacement(for: missed, in: [asFast] + options.map { [$0] }, after: base.addingTimeInterval(70 * 60))
+        #expect(direct?.map(\.name) == ["RE 1"])
+        // A way whose later train is cancelled is no way.
+        var cancelled = viaB
+        cancelled[1].cancelled = true
+        #expect(Handover.replacement(for: missed, in: [cancelled], after: base) == nil)
+    }
+
+    @Test func handoverMovesAlongTheRoute() {
+        let now = utc("2026-06-12T16:00:00Z")
+        func minutes(_ value: Double) -> Date { now.addingTimeInterval(value * 60) }
+        func train(_ name: String, from: String, to: String, leaves: Double, arrives: Double) -> Connection {
+            var train = Connection(tripID: name, name: name, headsign: nil, station: from, scheduledDeparture: minutes(leaves),
+                                   expectedDeparture: nil, track: nil, finalStop: to, finalArrival: minutes(arrives))
+            train.scheduledFinalArrival = minutes(arrives)
+            return train
+        }
+        let second = train("RE 1", from: "Nürnberg Hbf", to: "B", leaves: 10, arrives: 40)
+        let third = train("RB 2", from: "B", to: "C", leaves: 50, arrives: 80)
+        let fourth = train("S 3", from: "C", to: "D", leaves: 90, arrives: 100)
+        var plan = JourneyPlan(trainName: "ICE 1356", destinationStopID: "nbg")
+        plan.route = [second, third, fourth]
+        plan.plannedArrival = minutes(100)
+
+        // Changed to the second train: the third is the connection now, the fourth comes after it.
+        let onSecond = Handover.plan(after: second, from: plan, now: now)
+        #expect(onSecond.trainName == "RE 1")
+        #expect(onSecond.pendingBoarding == "Nürnberg Hbf" && onSecond.pendingDestination == "B")
+        #expect(onSecond.route == [third, fourth])
+        #expect(onSecond.plannedArrival == minutes(100))
+        let onThird = Handover.plan(after: third, from: onSecond, now: now)
+        #expect(onThird.route == [fourth])
+        #expect(Handover.plan(after: fourth, from: onThird, now: now).route.isEmpty)
+
+        // Woken on the third train, the laptop closed across the second: its place in the route is found.
+        #expect(Handover.boardedConnection(plan: plan, trainName: "RB 2", now: minutes(55)) == third)
+        #expect(Handover.plan(after: third, from: plan, now: now).route == [fourth])
+        #expect(Handover.boardedConnection(plan: plan, trainName: "RB 9", now: minutes(55)) == nil)
     }
 }

@@ -32,6 +32,9 @@ final class Journey {
     /// Reminders already sent, so a delay or a source switch crossing the same mark again doesn't repeat them.
     @ObservationIgnored private var sentReminders: Set<String> = []
     @ObservationIgnored private var connectionRefreshed: Date?
+    /// When a shared connection's trips are looked for next.
+    @ObservationIgnored private var sharedRetry: Date?
+    @ObservationIgnored private var resolvingShared = false
     private let client: TransitousClient
     private let status: () -> TrainStatus?
     private let now: () -> Date
@@ -82,12 +85,22 @@ final class Journey {
         }
     }
 
-    func chooseConnection(_ connection: Connection) {
+    /// The trains to take from the destination on, in order: one, or several with changes between them.
+    func chooseRoute(_ route: [Connection]) {
         update { plan in
-            plan.connection = connection
+            plan.route = route
             plan.plannedArrival = plan.timetabledArrival(in: status())
         }
         connections.isAdding = false
+    }
+
+    /// Takes a plan made elsewhere for the train shown, e.g. from a shared connection.
+    func adopt(_ plan: JourneyPlan) {
+        self.plan = plan
+        sharedRetry = nil
+        planSet()
+        lastSnapshot = status().map { ($0, now(), plan.connection) }
+        refreshCoaches()
     }
 
     /// Takes what the calendar suggested: the stop from the train's own list, the connection looked up the way
@@ -96,7 +109,7 @@ final class Journey {
         guard let stop = status()?.stops.first(where: { $0.id == suggestion.stopID }) else { return }
         if plan?.destinationStopID != stop.id { toggleDestination(stop) }
         guard let onward = suggestion.onward, plan?.connection == nil else { return }
-        connections.find(station: onward.to, pick: onward.pick) { [weak self] in self?.chooseConnection($0) }
+        connections.find(station: onward.to, pick: onward.pick) { [weak self] in self?.chooseRoute([$0]) }
     }
 
     func removeConnection() {
@@ -232,6 +245,36 @@ final class Journey {
             // The coach may have been entered while this was loading.
             updated.seat = plan?.connection?.seat
             plan?.connection = updated
+        }
+    }
+
+    /// A shared connection names its trains; their trips, with live times, are found on the departure boards of
+    /// where they leave. Tried again after two minutes without network, and now and then for a train no board has.
+    func resolveSharedIfNeeded() {
+        let now = now()
+        guard !resolvingShared, let shared = plan?.route.filter(\.isShared), !shared.isEmpty,
+              sharedRetry.map({ now >= $0 }) ?? true
+        else { return }
+        resolvingShared = true
+        Task {
+            var wait: TimeInterval = 15 * 60
+            for connection in shared {
+                do {
+                    guard let departure = try await client.departure(for: connection), var route = plan?.route,
+                          let index = route.firstIndex(where: { $0.tripID == connection.tripID })
+                    else { continue }
+                    // The coach may have been entered while this was loading.
+                    var resolved = route[index].resolved(with: departure)
+                    resolved.seat = route[index].seat
+                    route[index] = resolved
+                    plan?.route = route
+                } catch {
+                    wait = 2 * 60
+                    break
+                }
+            }
+            sharedRetry = self.now().addingTimeInterval(wait)
+            resolvingShared = false
         }
     }
 

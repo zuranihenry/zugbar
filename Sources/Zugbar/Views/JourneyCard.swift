@@ -69,6 +69,11 @@ struct JourneyCard: View {
                     sequence: monitor.journey.coachSequence(at: destination, connection: connection),
                     setSeat: { monitor.journey.setSeat($0, connection: true) }
                 ) { monitor.journey.removeConnection() }
+                // The trains after it, each from where the one before gets in.
+                let route = monitor.journey.plan?.route ?? []
+                ForEach(Array(zip(route, route.dropFirst())), id: \.1.tripID) { before, leg in
+                    OnwardRow(leg: leg, arrival: before.finalArrival)
+                }
             } else if monitor.journey.connections.isAdding {
                 ConnectionPicker(monitor: monitor)
             } else {
@@ -169,6 +174,37 @@ private struct ConnectionRow: View {
     }
 }
 
+/// A later train of the journey, in one line: when and where it leaves, where it takes the user, and the time to change.
+private struct OnwardRow: View {
+    let leg: Connection
+    /// When the train before gets to where this one leaves.
+    let arrival: Date?
+    @Environment(\.strings) private var strings
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.turn.down.right").foregroundStyle(.secondary).frame(width: 16)
+            if let departure = leg.departure {
+                Text(departure, format: .dateTime.hour().minute()).monospacedDigit()
+            }
+            Text(leg.name).fontWeight(.semibold).lineLimit(1).layoutPriority(1)
+            Text("→ \(leg.finalStop ?? leg.headsign ?? "")").foregroundStyle(.secondary).lineLimit(1)
+            Spacer(minLength: 4)
+            if let track = leg.track {
+                Text(strings.track(track)).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1)
+            }
+            if let transfer = leg.transfer(after: arrival), transfer.severity > 0 {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(transfer.severity == 1 ? .orange : .red)
+                    .help(strings.transfer(transfer))
+                    .accessibilityLabel(strings.transfer(transfer))
+            }
+        }
+        .font(.callout)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 private struct ConnectionPicker: View {
     @Bindable var monitor: TrainMonitor
     @Environment(\.strings) private var strings
@@ -200,8 +236,17 @@ private struct ConnectionPicker: View {
                 .font(.callout)
             }
 
-            ForEach(monitor.journey.connections.options, id: \.tripID) { option in
-                ConnectionOption(option: option) { monitor.journey.chooseConnection(option) }
+            ForEach(monitor.journey.connections.options.map { (id: ConnectionSearch.id($0), trains: $0) }, id: \.id) { route in
+                if let option = route.trains.first {
+                    ConnectionOption(option: option, onward: Array(route.trains.dropFirst())) {
+                        monitor.journey.chooseRoute(route.trains)
+                    }
+                }
+            }
+            if monitor.journey.connections.hasLater, monitor.journey.connections.message == nil {
+                Button(strings.laterConnections) { monitor.journey.connections.loadLater() }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
             }
 
             if let message = monitor.journey.connections.message {
@@ -220,6 +265,8 @@ private struct ConnectionPicker: View {
 
 private struct ConnectionOption: View {
     let option: Connection
+    /// The trains to change to after it, for a way with changes.
+    var onward: [Connection] = []
     let action: () -> Void
     @Environment(\.strings) private var strings
 
@@ -229,12 +276,16 @@ private struct ConnectionOption: View {
                 if let departure = option.departure {
                     Text(departure, format: .dateTime.hour().minute()).monospacedDigit().frame(width: 42, alignment: .leading)
                 }
-                Text(option.name)
-                    .fontWeight(.semibold)
-                    .padding(.horizontal, 5)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
-                if let finalArrival = option.finalArrival {
+                ForEach([option] + onward, id: \.tripID) { leg in
+                    Text(TransitousClient.lineName(from: leg.name))
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                        .padding(.horizontal, 5)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                }
+                if let finalArrival = (onward.last ?? option).finalArrival {
                     Text(strings.arrives(finalArrival.formatted(.dateTime.hour().minute()))).foregroundStyle(.secondary)
+                        .lineLimit(1).layoutPriority(1)
                 } else if let finalStop = option.finalStop {
                     Text("→ \(finalStop)").foregroundStyle(.secondary).lineLimit(1)
                 }
@@ -248,5 +299,6 @@ private struct ConnectionOption: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(onward.isEmpty ? "" : strings.changes(onward.count) + ": " + strings.nextRoute([option] + onward))
     }
 }

@@ -71,12 +71,13 @@ public enum Handover {
         return departure > now.addingTimeInterval(-60 * 60)
     }
 
-    /// The plan's connection, when `trainName` is that train: the user changed trains without Zugbar seeing the
-    /// first one arrive, e.g. the laptop was closed and woken on the connection, whose portal answered first.
+    /// The train of the plan's route that `trainName` is: the user changed trains without Zugbar seeing the
+    /// one before arrive, e.g. the laptop was closed and woken on the connection, whose portal answered first, or
+    /// stayed closed across a whole train of the journey.
     /// Up to six hours after its departure, as a laptop can stay closed a while.
     public static func boardedConnection(plan: JourneyPlan?, trainName: String?, now: Date) -> Connection? {
-        guard let plan, let trainName, let connection = plan.connection, !connection.cancelled,
-              !TrainName.same(plan.trainName, trainName), TrainName.same(connection.name, trainName)
+        guard let plan, let trainName, !TrainName.same(plan.trainName, trainName),
+              let connection = plan.route.first(where: { TrainName.same($0.name, trainName) }), !connection.cancelled
         else { return nil }
         if let departure = connection.departure, departure < now.addingTimeInterval(-6 * 60 * 60) { return nil }
         return connection
@@ -150,28 +151,38 @@ public enum Handover {
         connection.cancelled || isMissed(connection, arrival: arrival)
     }
 
-    /// The train to take instead of a missed one: of the direct trains leaving from `earliest` on, the one that
-    /// gets there first. An RE leaving a few minutes after an S-Bahn often overtakes it.
-    public static func replacement(for connection: Connection, in options: [Connection], after earliest: Date) -> Connection? {
-        options
-            .filter { !$0.cancelled && $0.tripID != connection.tripID && ($0.departure ?? .distantPast) >= earliest }
+    /// The way to take instead of a missed train: of the routes leaving from `earliest` on, the one that gets
+    /// there first, and of those the one with the fewest changes. An RE leaving a few minutes after an S-Bahn
+    /// often overtakes it.
+    public static func replacement(for connection: Connection, in routes: [[Connection]], after earliest: Date) -> [Connection]? {
+        routes
+            .filter { route in
+                guard let first = route.first else { return false }
+                return !route.contains(where: \.cancelled) && first.tripID != connection.tripID
+                    && (first.departure ?? .distantPast) >= earliest
+            }
             .min { a, b in
-                let (arrivalA, arrivalB) = (a.finalArrival ?? .distantFuture, b.finalArrival ?? .distantFuture)
-                return arrivalA != arrivalB ? arrivalA < arrivalB : (a.departure ?? .distantFuture) < (b.departure ?? .distantFuture)
+                let (arrivalA, arrivalB) = (a.last?.finalArrival ?? .distantFuture, b.last?.finalArrival ?? .distantFuture)
+                if arrivalA != arrivalB { return arrivalA < arrivalB }
+                if a.count != b.count { return a.count < b.count }
+                return (a[0].departure ?? .distantFuture) < (b[0].departure ?? .distantFuture)
             }
     }
 
     /// The plan for the connecting train: boarding where the user changes, getting off at the connection's
     /// final stop. Stops are matched by name once the train's own stop list is known.
     /// `previous` is the plan it follows from: the journey's planned arrival and the user having been on board
-    /// carry over.
+    /// carry over, and the trains its route has after `connection` are the ones to change to next.
     public static func plan(after connection: Connection, from previous: JourneyPlan? = nil, now: Date = Date()) -> JourneyPlan {
         var plan = JourneyPlan(trainName: connection.name)
         plan.updated = now
         plan.pendingBoarding = connection.station
         plan.pendingDestination = connection.finalStop
         plan.seat = connection.seat
-        plan.plannedArrival = previous?.plannedArrival ?? connection.scheduledFinalArrival
+        if let route = previous?.route, let index = route.firstIndex(where: { $0.tripID == connection.tripID }) {
+            plan.route = Array(route[(index + 1)...])
+        }
+        plan.plannedArrival = previous?.plannedArrival ?? plan.route.last?.scheduledFinalArrival ?? connection.scheduledFinalArrival
         plan.boarded = previous?.boarded
         return plan
     }
@@ -227,13 +238,21 @@ extension JourneyPlan {
 
 public enum TrainName {
     /// Whether two names mean the same train, e.g. "ICE 1356" and "ICE1356", "RE80 (4711)" and "RE 4711",
-    /// or a followed trip's label "RE 1 → Nürnberg Hbf" and "RE 1".
+    /// a followed trip's label "RE 1 → Nürnberg Hbf" and "RE 1", or "RE80 (4711)" and its line alone, "RE 80":
+    /// one feed adds the train's number to the line, another doesn't.
     public static func same(_ a: String, _ b: String) -> Bool {
         let (a, b) = (withoutHeadsign(a), withoutHeadsign(b))
         if Transitous.normalize(a) == Transitous.normalize(b) { return true }
+        if isLine(a, of: b) || isLine(b, of: a) { return true }
         guard let x = number(a), let y = number(b), x.number == y.number else { return false }
         // Long-distance numbers are unique; short ones are line numbers and need the same category too.
         return x.number.count >= 3 || x.category == y.category
+    }
+
+    /// "RE 80" for "RE80 (4711)".
+    private static func isLine(_ line: String, of name: String) -> Bool {
+        name.contains("(") && !line.contains("(")
+            && Transitous.normalize(TransitousClient.lineName(from: name)) == Transitous.normalize(line)
     }
 
     private static func withoutHeadsign(_ name: String) -> String {
