@@ -11,8 +11,8 @@ Live train info in your Mac's menu bar.
 
 - **On board:** speed, next stop, delays, live GPS and tracks from the train's Wi-Fi.
 - **Online:** follow any train in Europe via [Transitous](https://transitous.org), with estimated position and speed
-- **Your journey:** when and where your train leaves while you wait, destination and connection, alerts for delays,
-  track changes and tight or missed transfers
+- **Your journey:** when and where your train leaves while you wait, destination and every train you change to, alerts
+  for delays, track changes and tight or missed transfers; paste a connection shared from DB Navigator to set it all
 - **Trip log:** every ride with its speed and delays, your year in figures and a map of the lines you've ridden
 - English and German
 

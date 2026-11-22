@@ -552,6 +552,15 @@ private struct Footer: View {
     @AppStorage("alwaysOnTop") private var alwaysOnTop = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let notice = monitor.sharedNotice.map(strings.sharedNotice) {
+                Text(notice).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            buttons
+        }
+    }
+
+    private var buttons: some View {
         HStack(spacing: 14) {
             if monitor.status != nil {
                 Button { monitor.endTracking() } label: {
@@ -582,6 +591,16 @@ private struct Footer: View {
                                      copyTitle: strings.copy)
                 } label: { Image(systemName: "square.and.arrow.up") }
                     .help(strings.share)
+            }
+            // Without a train the picker has the paste button, with a word on what it's for.
+            if !monitor.demoMode, monitor.status != nil {
+                // The system's own paste button: the clipboard is read only when it's clicked.
+                PasteButton(payloadType: String.self) { texts in
+                    if let text = texts.first { monitor.pasteShared(text) }
+                }
+                .labelStyle(.iconOnly)
+                .help(strings.pasteShared)
+                .accessibilityLabel(strings.pasteShared)
             }
             Button { PopUpMenu.show(menuItems) } label: { Image(systemName: "ellipsis.circle") }
                 .help(strings.moreOptions)

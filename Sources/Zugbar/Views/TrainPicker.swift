@@ -38,6 +38,19 @@ struct TrainPicker: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            if !monitor.demoMode {
+                HStack {
+                    Text(strings.pasteSharedRow).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    // The system's own paste button: the clipboard is read only when it's clicked.
+                    PasteButton(payloadType: String.self) { texts in
+                        if let text = texts.first { monitor.pasteShared(text) }
+                    }
+                    .controlSize(.small)
+                    .help(strings.pasteShared)
+                }
+            }
+
             if monitor.picker.selectedStation == nil {
                 LiveNow(monitor: monitor)
             }

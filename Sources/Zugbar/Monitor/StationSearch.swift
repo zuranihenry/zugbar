@@ -6,7 +6,7 @@ import ZugbarCore
 enum PickerMessage: Equatable {
     case noStation, loadingDepartures, noDepartures, failed
     /// No direct connection; `regionalOff` means only long-distance trains were searched.
-    case noDirectConnection, regionalOff
+    case noConnection, regionalOff
 }
 
 /// Finding a train when not on board: a station's departures for regional trains, and the trains running right now.

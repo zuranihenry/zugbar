@@ -54,6 +54,7 @@ struct GeneralSettings: View {
     @Environment(\.strings) private var strings
     @AppStorage("language") private var language = AppLanguage.system
     @AppStorage("regionalTrains") private var regionalTrains = true
+    @AppStorage("minTransferMinutes") private var minTransfer = 0
     @AppStorage("estimatedSpeed") private var estimatedSpeed = true
     @AppStorage("trackProfiles") private var trackProfiles = false
     @AppStorage("learnSpeeds") private var learnSpeeds = true
@@ -75,6 +76,12 @@ struct GeneralSettings: View {
                 Toggle(isOn: $regionalTrains) {
                     Text(strings.regionalTrains)
                     Text(strings.regionalTrainsHint)
+                }
+                Picker(selection: $minTransfer) {
+                    ForEach([0, 5, 10, 15, 20], id: \.self) { Text(strings.minTransferChoice($0)).tag($0) }
+                } label: {
+                    Text(strings.minTransfer)
+                    Text(strings.minTransferHint)
                 }
                 Toggle(isOn: $estimatedSpeed) {
                     Text(strings.estimatedSpeedSetting)

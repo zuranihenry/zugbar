@@ -41,38 +41,18 @@ public struct CalendarJourney: Equatable, Sendable {
 }
 
 extension CalendarJourney {
-    /// What a journey has for the followed train: where to get off, and the train after that.
+    /// What a journey has for the followed train: where to get off, and the trains after that.
     public struct Suggestion: Equatable, Sendable {
         /// The stop in the followed train's own list.
         public var stopID: String
         public var stopName: String
-        /// False when the plan already has this stop and only the connection is new.
+        /// False when the plan already has this stop and only the trains after it are new.
         public var setsStop: Bool
-        public var onward: Onward?
-    }
+        /// The journey's trains after the followed one, in order; none on its last train.
+        public var rest: [Leg]
 
-    /// The next train of the journey, to be found among the connections from where the user gets off.
-    public struct Onward: Equatable, Sendable {
-        public var train: String
-        public var alias: String?
-        public var departure: Date
-        public var to: String
-
-        func isTrain(_ name: String) -> Bool {
-            TrainName.same(train, name) || alias.map { TrainName.same($0, name) } == true
-        }
-
-        /// The one of `options` that is this train: the same name leaving within a few minutes of the booked
-        /// time, or, named differently, the only one leaving at that very minute. Nil when that's not certain.
-        public func pick(from options: [Connection]) -> Connection? {
-            func gap(_ option: Connection) -> TimeInterval? {
-                option.scheduledDeparture.map { abs($0.timeIntervalSince(departure)) }
-            }
-            let named = options.filter { isTrain($0.name) && (gap($0) ?? .infinity) <= 5 * 60 }
-            if named.count == 1 { return named[0] }
-            let timed = options.filter { (gap($0) ?? .infinity) < 60 }
-            return named.isEmpty && timed.count == 1 ? timed[0] : nil
-        }
+        /// Those trains to change to, as booked: known by name until their trips are found.
+        public var route: [Connection] { rest.map(\.connection) }
     }
 
     /// The leg on the train `status` shows, as a stop of that train still ahead. Nothing when the user's plan
@@ -90,13 +70,23 @@ extension CalendarJourney {
               (stop.scheduledArrival ?? stop.arrival).map({ abs($0.timeIntervalSince(leg.arrival)) <= 30 * 60 }) ?? true
         else { return nil }
         let plan = plan.flatMap { TrainName.same($0.trainName, name) ? $0 : nil }
-        let onward = legs.dropFirst(index + 1).first.map { Onward(train: $0.train, alias: $0.alias, departure: $0.departure, to: $0.to) }
+        let rest = Array(legs[(index + 1)...])
         if let destination = plan?.destinationStopID ?? plan?.pendingDestination {
             guard destination == stop.id || StationName.same(destination, stop.name),
-                  plan?.connection == nil, let onward else { return nil }
-            return Suggestion(stopID: stop.id, stopName: stop.name, setsStop: false, onward: onward)
+                  plan?.connection == nil, !rest.isEmpty else { return nil }
+            return Suggestion(stopID: stop.id, stopName: stop.name, setsStop: false, rest: rest)
         }
-        return Suggestion(stopID: stop.id, stopName: stop.name, setsStop: true, onward: onward)
+        return Suggestion(stopID: stop.id, stopName: stop.name, setsStop: true, rest: rest)
+    }
+}
+
+extension CalendarJourney.Leg {
+    /// The leg as a train to change to, named as departure boards and shared connections name it, "RE 5 (4711)".
+    /// Known by its name and times only until its trip is found.
+    public var connection: Connection {
+        let number = alias?.split(separator: " ").last.map(String.init)
+        let name = number.map { train.hasSuffix(" \($0)") ? train : "\(train) (\($0))" } ?? train
+        return .named(name, from: StationName.tidy(from), departure: departure, to: StationName.tidy(to), arrival: arrival)
     }
 }
 

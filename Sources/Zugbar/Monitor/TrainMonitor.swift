@@ -655,12 +655,12 @@ final class TrainMonitor {
             findingReplacement = true
             let title = connection.cancelled ? strings.connectionCancelled : strings.connectionMissed
             Task {
-                let (next, networkError) = await replacement(for: connection, after: arrival ?? Date())
+                let (next, networkError) = await replacement(for: connection, to: plan.finalStop, after: arrival ?? Date())
                 replacementSearch = (connection.tripID, Date(), networkError, arrival ?? Date())
                 findingReplacement = false
                 if let next {
-                    Notifier.post(title: title, body: strings.nextTrain(next))
-                    journey.plan?.connection = next
+                    Notifier.post(title: title, body: strings.nextRoute(next))
+                    journey.plan?.route = next
                     followConnection()
                 } else if !networkError {
                     Notifier.post(title: title, body: strings.noNextTrain)
@@ -686,17 +686,22 @@ final class TrainMonitor {
     /// `after`: when the train got in, kept for a retry once its status is gone.
     @ObservationIgnored private var replacementSearch: (tripID: String, at: Date, networkError: Bool, after: Date)?
 
-    /// The earliest direct train after `connection` from the same station to the same final stop.
-    /// The next direct train between the connection's stops, and whether the search failed for lack of network.
-    private func replacement(for connection: Connection, after earliest: Date) async -> (next: Connection?, networkError: Bool) {
-        guard let final = connection.finalStop else { return (nil, false) }
+    /// The next way from where `connection` leaves to `final`, where the journey ends, or else to where the
+    /// connection itself goes: the trains to take, and whether the search failed for lack of network.
+    private func replacement(
+        for connection: Connection, to final: String?, after earliest: Date
+    ) async -> (next: [Connection]?, networkError: Bool) {
+        guard let final = final ?? connection.finalStop else { return (nil, false) }
         do {
             guard let from = try await client.stations(matching: connection.station).first,
                   let to = try await client.stations(matching: final).first
             else { return (nil, false) }
-            let options = try await client.connections(from: from, to: to, after: earliest, regional: true)
+            let options = try await client.routes(
+                from: from, to: to, after: earliest, regional: true,
+                minTransfer: UserDefaults.standard.integer(forKey: "minTransferMinutes")
+            )
             guard var next = Handover.replacement(for: connection, in: options, after: earliest) else { return (nil, false) }
-            next.station = connection.station
+            next[0].station = connection.station
             return (next, false)
         } catch {
             return (nil, error.isTransientNetwork)
@@ -720,19 +725,92 @@ final class TrainMonitor {
         }
         let following = plan.connection == nil
         Task {
-            guard let next = await replacement(for: leg, after: (leg.departure ?? Date()).addingTimeInterval(60)).next else {
+            let earliest = (leg.departure ?? Date()).addingTimeInterval(60)
+            guard let next = await replacement(for: leg, to: plan.finalStop, after: earliest).next else {
                 Notifier.post(title: strings.takeNextTrain, body: strings.noNextTrain, force: true)
                 return
             }
-            Notifier.post(title: strings.nextTrainTitle, body: strings.nextTrain(next), force: true)
+            Notifier.post(title: strings.nextTrainTitle, body: strings.nextRoute(next), force: true)
             if following {
-                journey.plan = Handover.plan(after: next, from: journey.plan)
+                var onward = Handover.plan(after: next[0], from: journey.plan)
+                onward.route = Array(next.dropFirst())
+                journey.plan = onward
                 journey.lastSnapshot = nil
-                quietlySetTarget(ManualTarget(Handover.target(for: next)))
+                quietlySetTarget(ManualTarget(Handover.target(for: next[0])))
                 restart()
             } else {
-                journey.update { $0.connection = next }
+                journey.update { $0.route = next }
             }
+        }
+    }
+
+    // MARK: - Shared connections
+
+    enum SharedResult: Equatable {
+        case taken(from: String, to: String, trains: Int)
+        case notAConnection, over
+        /// On board a train that isn't part of it.
+        case otherTrain(String)
+    }
+
+    /// Takes a connection shared from DB Navigator as text: the train shown gets its stop and the trains after
+    /// it, or, when it isn't one of them, the connection's next train is followed instead. Read from the text
+    /// alone; the trips behind the trains are looked up afterwards, like picking them by hand does.
+    @discardableResult
+    func importShared(_ text: String) -> SharedResult {
+        let now = Date()
+        guard !demoMode, let shared = SharedJourney(text: text, now: now),
+              let first = shared.legs.first, let last = shared.legs.last
+        else { return .notAConnection }
+        let taken = SharedResult.taken(from: first.from, to: last.to, trains: shared.legs.count)
+        if let status, let plan = shared.plan(on: status, previous: journey.plan, now: now) {
+            journey.connections.isAdding = false
+            journey.adopt(plan)
+            journey.resolveSharedIfNeeded()
+            return taken
+        }
+        // The portal's train leads while it answers: another train's plan wouldn't last.
+        if let status, !status.isOnline, let name = status.trainName { return .otherTrain(name) }
+        guard let (train, plan) = shared.start(at: now) else { return .over }
+        onBoardTrain = nil
+        ride.superseded()
+        quietlySetTarget(nil)
+        lost()
+        restart()
+        journey.plan = plan
+        journey.lastSnapshot = nil
+        lookupMessage = .lookingUp(train.name)
+        let client = client
+        Task {
+            // By trip once the departure board has the train. Until then by name, which finds long-distance trains,
+            // and the board is asked again for a few minutes, e.g. while the network comes up.
+            for attempt in 0..<10 {
+                let departure = try? await client.departure(for: train)
+                guard status == nil, journey.plan.map({ TrainName.same($0.trainName, train.name) }) == true,
+                      manualTarget == (attempt == 0 ? nil : .name(train.name))
+                else { return }
+                if let departure {
+                    let found = train.resolved(with: departure)
+                    journey.plan?.trainName = found.name
+                    manualTarget = ManualTarget(Handover.target(for: found))
+                    return
+                }
+                if attempt == 0 { manualTarget = .name(train.name) }
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
+        return taken
+    }
+
+    /// What became of the text last pasted, shown for a few seconds: the connection taken, or why it wasn't.
+    private(set) var sharedNotice: SharedResult?
+
+    func pasteShared(_ text: String) {
+        let result = importShared(text)
+        sharedNotice = result
+        Task {
+            try? await Task.sleep(for: .seconds(8))
+            if sharedNotice == result { sharedNotice = nil }
         }
     }
 
@@ -812,6 +890,7 @@ final class TrainMonitor {
             marker = GPSMarker()
         }
         journey.refreshConnectionIfNeeded()
+        if !demoMode { journey.resolveSharedIfNeeded() }
         if !demoMode {
             let measured = newStatus.isOnline ? nil : link.current(at: Date())
             // The forecast learns from the last request alone; the panel shows the last two minutes.

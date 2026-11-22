@@ -208,8 +208,8 @@ struct Strings {
         case .loadingDepartures: t("Loading departures…", "Lade Abfahrten…")
         case .noDepartures: t("No trains leaving soon.", "In Kürze keine Abfahrten.")
         case .failed: t("Couldn't load data.", "Daten konnten nicht geladen werden.")
-        case .noDirectConnection: t("No direct connection found.", "Keine direkte Verbindung gefunden.")
-        case .regionalOff: t("No direct long-distance connection.", "Keine direkte Fernverkehrsverbindung.")
+        case .noConnection: t("No connection found.", "Keine Verbindung gefunden.")
+        case .regionalOff: t("No long-distance connection.", "Keine Fernverkehrsverbindung.")
         }
     }
 
@@ -259,12 +259,16 @@ struct Strings {
           "Sucht in den nächsten Stunden deines Kalenders nach einer Zugverbindung aus einer Buchungs-App und bietet Ausstieg und Anschluss an; was dabei gelesen wird, bleibt auf diesem Mac, und ohne deine Bestätigung wird nichts gespeichert oder nachgeschlagen.")
     }
     func calendarSuggestion(_ suggestion: CalendarJourney.Suggestion) -> String {
-        let onward = suggestion.onward.map { "\($0.train) → \($0.to)" }
-        // The stop is already set: only the connection is new.
-        guard suggestion.setsStop else { return t("Calendar: continue with \(onward ?? "")", "Kalender: weiter mit \(onward ?? "")") }
+        let rest = suggestion.rest
+        // One more train by its name; a longer journey by where it ends and how often to change on the way.
+        let onward = rest.last.map { last in
+            rest.count == 1 ? t("continue with \(last.train) → \(last.to)", "weiter mit \(last.train) → \(last.to)")
+                : t("\(rest.count) changes to \(last.to)", "\(rest.count) Umstiege bis \(last.to)")
+        }
+        // The stop is already set: only the trains after it are new.
+        guard suggestion.setsStop else { return t("Calendar: \(onward ?? "")", "Kalender: \(onward ?? "")") }
         guard let onward else { return t("Calendar: get off at \(suggestion.stopName)", "Kalender: Ausstieg \(suggestion.stopName)") }
-        return t("Calendar: get off at \(suggestion.stopName), continue with \(onward)",
-                 "Kalender: Ausstieg \(suggestion.stopName), weiter mit \(onward)")
+        return t("Calendar: get off at \(suggestion.stopName), \(onward)", "Kalender: Ausstieg \(suggestion.stopName), \(onward)")
     }
     var takeSuggestion: String { t("Use", "Übernehmen") }
     var dismissSuggestion: String { t("Not this", "Verwerfen") }
@@ -295,7 +299,44 @@ struct Strings {
         if let final = connection.finalStop { text += t(" to \(final)", " nach \(final)") }
         return text
     }
-    var noNextTrain: String { t("No later direct train found.", "Kein späterer direkter Zug gefunden.") }
+    /// "RE 1 at 19:15, Track 12 to Bstadt, then RB 2 to Cstadt"
+    func nextRoute(_ route: [Connection]) -> String {
+        guard let first = route.first else { return "" }
+        return ([nextTrain(first)] + route.dropFirst().map { leg in
+            t("then \(leg.name)", "dann \(leg.name)") + (leg.finalStop.map { t(" to \($0)", " nach \($0)") } ?? "")
+        }).joined(separator: ", ")
+    }
+    var noNextTrain: String { t("No later train found.", "Kein späterer Zug gefunden.") }
+    func changes(_ count: Int) -> String {
+        count == 1 ? t("1 change", "1 Umstieg") : t("\(count) changes", "\(count) Umstiege")
+    }
+    var laterConnections: String { t("Later", "Später") }
+    var minTransfer: String { t("Time to change trains", "Umstiegszeit") }
+    var minTransferHint: String {
+        t("The least time a change may leave when looking for connections with changes.",
+          "So viel Zeit muss ein Umstieg mindestens lassen, wenn Anschlüsse mit Umstieg gesucht werden.")
+    }
+    func minTransferChoice(_ minutes: Int) -> String {
+        minutes == 0 ? t("As the timetable allows", "Wie im Fahrplan") : t("At least \(minutes) min", "Mindestens \(minutes) Min.")
+    }
+    var pasteShared: String {
+        t("Paste a connection shared from DB Navigator", "Aus dem DB Navigator geteilte Verbindung einfügen")
+    }
+    /// Next to the paste button where no train is shown.
+    var pasteSharedRow: String { t("Connection shared from DB Navigator:", "Im DB Navigator geteilte Verbindung:") }
+    /// What became of pasted text: the connection taken, or why it wasn't.
+    func sharedNotice(_ result: TrainMonitor.SharedResult) -> String {
+        switch result {
+        case .taken(let from, let to, let trains):
+            t("Connection taken: \(from) → \(to), ", "Verbindung übernommen: \(from) → \(to), ")
+                + (trains == 1 ? t("1 train", "1 Zug") : t("\(trains) trains", "\(trains) Züge"))
+        case .notAConnection:
+            t("The clipboard doesn't hold a connection shared from DB Navigator.",
+              "In der Zwischenablage ist keine aus dem DB Navigator geteilte Verbindung.")
+        case .over: t("That connection's last train has already arrived.", "Der letzte Zug dieser Verbindung ist schon angekommen.")
+        case .otherTrain(let name): t("\(name) isn't part of that connection.", "\(name) gehört nicht zu dieser Verbindung.")
+        }
+    }
     var cancelled: String { t("Cancelled", "Fällt aus") }
     var noStopHere: String { t("The train no longer stops here.", "Der Zug hält hier nicht mehr.") }
     var notifications: String { t("Notifications", "Benachrichtigungen") }

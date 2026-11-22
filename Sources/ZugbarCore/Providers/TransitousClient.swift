@@ -83,13 +83,16 @@ public struct TransitousClient: Sendable {
         return try Self.parseStations(await loader(url))
     }
 
-    public func departures(from station: Station, at time: Date = Date(), count: Int = 80) async throws -> [Departure] {
+    /// `railOnly` leaves buses and trams out of the answer, which at a main station are most of it.
+    public func departures(from station: Station, at time: Date = Date(), count: Int = 80, railOnly: Bool = false) async throws -> [Departure] {
         var url = Transitous.base.appending(path: "v6/stoptimes")
-        url.appendQuery([
+        var query = [
             URLQueryItem(name: "stopId", value: station.id),
             URLQueryItem(name: "time", value: time.formatted(.iso8601)),
             URLQueryItem(name: "n", value: String(count)),
-        ])
+        ]
+        if railOnly { query.append(URLQueryItem(name: "mode", value: Self.railModes.sorted().joined(separator: ","))) }
+        url.appendQuery(query)
         return try Self.parseDepartures(await loader(url))
     }
 
@@ -187,7 +190,7 @@ public struct TransitousClient: Sendable {
     }
 
     /// "RE6 (89736)" → "RE6"
-    static func lineName(from displayName: String) -> String {
+    public static func lineName(from displayName: String) -> String {
         displayName.split(separator: "(").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? displayName
     }
 
