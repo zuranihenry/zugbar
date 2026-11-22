@@ -310,6 +310,11 @@ struct Strings {
     func changes(_ count: Int) -> String {
         count == 1 ? t("1 change", "1 Umstieg") : t("\(count) changes", "\(count) Umstiege")
     }
+    var timetableOnly: String { t("No live data, times from the timetable", "Keine Live-Daten, Zeiten laut Fahrplan") }
+    var timetableOnlyHelp: String {
+        t("No live data for this train: delays and track changes won't show.",
+          "Keine Live-Daten für diesen Zug: Verspätungen und Gleiswechsel werden nicht angezeigt.")
+    }
     var laterConnections: String { t("Later", "Später") }
     var minTransfer: String { t("Time to change trains", "Umstiegszeit") }
     var minTransferHint: String {

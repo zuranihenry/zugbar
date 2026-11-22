@@ -245,7 +245,7 @@ public actor Transitous: TrainProvider {
 
         let route = leg.legGeometry.map { Route(points: Route.decode($0.points, precision: $0.precision ?? 5)) }
 
-        return TrainStatus(
+        var status = TrainStatus(
             provider: "Transitous",
             trainName: leg.displayName ?? leg.tripShortName,
             // Some trips (e.g. TGVs) come with an empty headsign.
@@ -255,6 +255,8 @@ public actor Transitous: TrainProvider {
             progress: progress,
             route: route.flatMap { $0.points.count > 1 ? $0 : nil }
         )
+        status.hasLiveData = leg.realTime
+        return status
     }
 
     /// A train cut short keeps its headsign; it now ends at the last stop it still calls at. A trip cancelled
@@ -288,6 +290,7 @@ public actor Transitous: TrainProvider {
         let intermediateStops: [Place]?
         let legGeometry: Geometry?
         let cancelled: Bool?
+        let realTime: Bool?
     }
 
     struct Geometry: Decodable {

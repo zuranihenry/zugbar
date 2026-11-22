@@ -147,6 +147,8 @@ struct SharedJourneyTests {
         #expect(Handover.departure(for: connection, in: [byLine]) == byLine)
         let kept = connection.resolved(with: byLine)
         #expect(kept.name == "RE2 (8901)" && kept.headsign == "Ystadt Hbf" && kept.track == "5")
+        // Read from the text, nothing says whether there's live data; the board does.
+        #expect(connection.live == nil && resolved.live == true && kept.live == false)
         #expect(TrainName.same(kept.name, "RE2") && TrainName.same(kept.name, "RE 2 (8901)"))
     }
 

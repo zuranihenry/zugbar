@@ -10,6 +10,8 @@ public struct TrainStatus: Sendable, Equatable {
     public var nextStopID: String?
     /// 0...1
     public var progress: Double?
+    /// Whether an online source has live times for the train, or only the timetable's; nil when it doesn't say.
+    public var hasLiveData: Bool?
     /// e.g. "ICE 4 · Tz 9018 „Gießen“"
     public var vehicle: String?
     /// What the train looks like, when the portal says which series it is.
