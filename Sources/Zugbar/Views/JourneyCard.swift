@@ -158,6 +158,14 @@ private struct ConnectionRow: View {
             }
             .font(.callout)
             .padding(.leading, 22)
+            if connection.live == false, !connection.cancelled {
+                // The time above is the timetable's: nothing says the train is on time.
+                Text(strings.timetableOnly)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help(strings.timetableOnlyHelp)
+                    .padding(.leading, 22)
+            }
             if !connection.cancelled, CoachSequence.numbersCoaches(connection.name) {
                 SeatRow(editor: editor, field: .connection, seat: connection.seat, sequence: sequence, save: setSeat)
                     .padding(.leading, 22)

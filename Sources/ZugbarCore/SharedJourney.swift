@@ -147,6 +147,7 @@ extension Connection {
         resolved.expectedDeparture = departure.expected
         resolved.track = departure.track ?? track
         resolved.cancelled = departure.cancelled
+        resolved.live = departure.realTime
         resolved.portalStationID = nil
         return resolved
     }

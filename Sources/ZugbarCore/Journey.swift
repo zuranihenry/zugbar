@@ -107,6 +107,9 @@ public struct Connection: Codable, Sendable, Equatable {
     public var portalStationID: String?
     /// The user's coach on this train; it moves to the plan for the train once they've changed.
     public var seat: Seat?
+    /// False when the source has only the timetable for this train, so its departure isn't known to be on time.
+    /// Nil when it doesn't say, and on plans saved by older versions.
+    public var live: Bool?
 
     public init(
         tripID: String, name: String, headsign: String?, station: String,
@@ -400,6 +403,7 @@ extension TransitousClient {
             let displayName: String?
             let headsign: String?
             let cancelled: Bool?
+            let realTime: Bool?
             let from: Transitous.Place
             let to: Transitous.Place
         }
@@ -424,6 +428,7 @@ extension TransitousClient {
                     finalArrival: leg.to.arrival ?? leg.to.scheduledArrival
                 )
                 connection.scheduledFinalArrival = leg.to.scheduledArrival
+                connection.live = leg.realTime
                 return connection
             }
         }
@@ -448,6 +453,7 @@ extension TransitousClient {
         updated.expectedDeparture = stop.expectedDeparture
         updated.track = stop.track ?? connection.track
         updated.cancelled = stop.cancelled
+        updated.live = status.hasLiveData ?? connection.live
         return updated
     }
 }

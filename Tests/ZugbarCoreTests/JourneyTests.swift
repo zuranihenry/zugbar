@@ -143,6 +143,8 @@ struct JourneyTests {
         #expect(route[1].track == "3")
         #expect(route[1].finalStop == "Lindental")
         #expect(route[1].scheduledFinalArrival == utc("2026-06-16T18:20:00Z"))
+        // The plan says these trains have live times.
+        #expect(route.allSatisfy { $0.live == true })
         // Ten minutes to change at Birkenbach.
         #expect(route[1].transfer(after: route[0].finalArrival) == .comfortable(minutes: 10))
     }
