@@ -35,7 +35,7 @@ struct SharedJourneyTests {
     }
     func local(_ hour: Int, _ minute: Int, day: Int = 1) -> Date { Self.local(hour, minute, day: day) }
 
-    func journey(_ text: String? = nil, now: Date = local(9, 0)) -> SharedJourney? {
+    func parse(_ text: String? = nil, now: Date = local(9, 0)) -> SharedJourney? {
         SharedJourney(text: text ?? threeTrains, now: now, timeZone: Self.zone)
     }
 
@@ -50,7 +50,7 @@ struct SharedJourneyTests {
     }
 
     @Test func readsTheTrainsInOrder() throws {
-        let legs = try #require(journey()).legs
+        let legs = try #require(parse()).legs
         #expect(legs.map(\.train) == ["RE1 (4567)", "RE2 (8901)", "RE3 (2345)"])
         #expect(legs.map(\.from) == ["Astadt Hbf", "Bstadt", "Cstadt Hbf"])
         #expect(legs.map(\.to) == ["Bstadt", "Cstadt Hbf", "Dstadt"])
@@ -65,14 +65,14 @@ struct SharedJourneyTests {
     @Test func readsVariationsOfTheText() throws {
         // No tracks, no "Nach" line, a two-digit year, Windows line ends.
         let plain = "Astadt → Bstadt\r\n01.02.26\r\n\r\nICE 123\r\nAb 23:40 Astadt\r\nAn 00:25 Bstadt\r\n"
-        let leg = try #require(journey(plain)?.legs.first)
+        let leg = try #require(parse(plain)?.legs.first)
         #expect(leg.train == "ICE 123" && leg.headsign == nil && leg.departureTrack == nil)
         #expect(leg.departure == local(23, 40))
         // Past midnight is the next day.
         #expect(leg.arrival == local(0, 25, day: 2))
 
         // Without a date line the journey starts today.
-        let undated = try #require(journey("S 3\nAb 10:00 Astadt\nAn 10:20 Bstadt", now: local(9, 0, day: 5)))
+        let undated = try #require(parse("S 3\nAb 10:00 Astadt\nAn 10:20 Bstadt", now: local(9, 0, day: 5)))
         #expect(undated.legs[0].departure == local(10, 0, day: 5))
     }
 
@@ -99,27 +99,27 @@ struct SharedJourneyTests {
             Ab 11:40 Bstadt Nord, Gleis 1
             An 12:00 Cstadt
             """
-        let legs = try #require(journey(withBus)).legs
+        let legs = try #require(parse(withBus)).legs
         #expect(legs.map(\.train) == ["RE1 (4567)", "RB 7"])
         // The next train starts where it starts, and at its own time.
         #expect(legs[1].from == "Bstadt Nord" && legs[1].departure == local(11, 40))
     }
 
     @Test func otherTextIsNoConnection() {
-        #expect(journey("") == nil)
-        #expect(journey("Ab morgen bin ich im Urlaub.\nAn alle: bis dann!") == nil)
-        #expect(journey("https://www.example.com/start?vbid=0000") == nil)
+        #expect(parse("") == nil)
+        #expect(parse("Ab morgen bin ich im Urlaub.\nAn alle: bis dann!") == nil)
+        #expect(parse("https://www.example.com/start?vbid=0000") == nil)
         // A departure without the arrival below it.
-        #expect(journey("RE 1\nAb 10:00 Astadt, Gleis 1") == nil)
+        #expect(parse("RE 1\nAb 10:00 Astadt, Gleis 1") == nil)
         // A time no clock shows.
-        #expect(journey("RE 1\nAb 25:00 Astadt\nAn 26:00 Bstadt") == nil)
+        #expect(parse("RE 1\nAb 25:00 Astadt\nAn 26:00 Bstadt") == nil)
         // Only a bus.
-        #expect(journey("Bus 40\nAb 10:00 Astadt\nAn 10:20 Bstadt") == nil)
-        #expect(journey(String(repeating: "RE 1\nAb 10:00 Astadt\nAn 10:20 Bstadt\n", count: 1000)) == nil)
+        #expect(parse("Bus 40\nAb 10:00 Astadt\nAn 10:20 Bstadt") == nil)
+        #expect(parse(String(repeating: "RE 1\nAb 10:00 Astadt\nAn 10:20 Bstadt\n", count: 1000)) == nil)
     }
 
     @Test func trainsBecomeConnectionsKnownByName() throws {
-        let leg = try #require(journey()?.legs[1])
+        let leg = try #require(parse()?.legs[1])
         let connection = leg.connection
         #expect(connection.name == "RE2 (8901)" && connection.station == "Bstadt" && connection.finalStop == "Cstadt Hbf")
         #expect(connection.scheduledDeparture == local(11, 17) && connection.track == "5")
@@ -151,7 +151,7 @@ struct SharedJourneyTests {
     }
 
     @Test func planForTheTrainTheUserIsOn() throws {
-        let journey = try #require(journey())
+        let journey = try #require(parse())
         let plan = try #require(journey.plan(on: status(), previous: nil, now: local(10, 10)))
         #expect(plan.trainName == "RE1 (4567)")
         #expect(plan.boardingStopID == "a" && plan.destinationStopID == "b")
@@ -186,7 +186,7 @@ struct SharedJourneyTests {
     }
 
     @Test func startsWithTheNextTrainToArrive() throws {
-        let journey = try #require(journey())
+        let journey = try #require(parse())
         let early = try #require(journey.start(at: local(9, 0)))
         #expect(early.train.name == "RE1 (4567)")
         #expect(early.plan.trainName == "RE1 (4567)")
@@ -214,7 +214,7 @@ struct SharedJourneyTests {
                 ? Data(#"[{"id":"de-1","name":"Bstadt Bahnhof","modes":["REGIONAL_RAIL"]}]"#.utf8)
                 : Data(#"{"stopTimes":[]}"#.utf8)
         }
-        let connection = try #require(journey()?.legs[1].connection)
+        let connection = try #require(parse()?.legs[1].connection)
         #expect(try await client.departure(for: connection) == nil)
         // Trains only, from just before it leaves.
         let query = try #require(await asked.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems })
